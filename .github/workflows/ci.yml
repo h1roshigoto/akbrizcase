@@ -1,0 +1,93 @@
+name: Skeleton CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      UV_PYTHON_DOWNLOADS: never
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - name: Install pinned uv
+        run: python -m pip install --disable-pip-version-check uv==0.12.23
+      - name: Verify toolchain
+        run: |
+          python -c 'import platform; assert platform.python_version() == "3.12.14"'
+          test "$(uv --version | cut -d ' ' -f 2)" = '0.12.23'
+      - name: Install locked dependencies
+        run: make backend-sync
+      - name: Pytest
+        run: make backend-test
+      - name: Ruff check and format
+        run: make backend-lint
+      - name: Mypy strict
+        run: make backend-types
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.19.0'
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: npm install --global npm@11.9.0 --strict-ssl=true --no-audit --no-fund
+      - name: Verify toolchain
+        run: |
+          test "$(node --version)" = 'v24.19.0'
+          test "$(npm --version)" = '11.9.0'
+      - name: Install locked dependencies
+        run: make frontend-sync
+      - name: Typecheck
+        run: make frontend-typecheck
+      - name: Build
+        run: make frontend-build
+
+  compose:
+    name: Compose build and smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - name: Prepare disposable synthetic secret
+        run: |
+          cp .env.example .env
+          make init-secrets
+      - name: Validate Compose configuration
+        run: make config
+      - name: Build backend and frontend images
+        run: make build
+      - name: Container smoke
+        run: make smoke
+      - name: Remove temporary secret
+        if: always()
+        run: rm -rf -- .secrets .env
