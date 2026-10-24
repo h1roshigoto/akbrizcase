@@ -1,0 +1,1 @@
+"""akbrizcase backend application."""
