@@ -1,0 +1,448 @@
+{
+  "catalog_item": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "sku": "DEMO-PRODUCT",
+    "kind": "product",
+    "name": "Демо-товар",
+    "unit": "шт.",
+    "price_mode": "fixed",
+    "price": "1200.00",
+    "currency": "RUB",
+    "tax_note": "Демонстрационная налоговая пометка",
+    "requires_shipping": true,
+    "image_url": null,
+    "revision": 3,
+    "applicability": null,
+    "description": "Синтетический товар; не опубликованные данные",
+    "attributes": {
+      "Демо-параметр": "Пример"
+    }
+  },
+  "catalog_page": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "sku": "DEMO-PRODUCT",
+        "kind": "product",
+        "name": "Демо-товар",
+        "unit": "шт.",
+        "price_mode": "fixed",
+        "price": "1200.00",
+        "currency": "RUB",
+        "tax_note": "Демонстрационная налоговая пометка",
+        "requires_shipping": true,
+        "image_url": null,
+        "revision": 3,
+        "applicability": null
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "sku": "DEMO-SERVICE",
+        "kind": "service",
+        "name": "Демо-услуга",
+        "unit": "услуга",
+        "price_mode": "on_request",
+        "price": null,
+        "currency": "RUB",
+        "tax_note": "Демонстрационная налоговая пометка",
+        "requires_shipping": false,
+        "image_url": null,
+        "revision": 1,
+        "applicability": {
+          "model_id": "00000000-0000-4000-8000-000000000003",
+          "status": "unknown",
+          "sources": []
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "sku": "DEMO-CONFIRMED",
+        "kind": "product",
+        "name": "Демо-товар",
+        "unit": "шт.",
+        "price_mode": "fixed",
+        "price": "1200.00",
+        "currency": "RUB",
+        "tax_note": "Демонстрационная налоговая пометка",
+        "requires_shipping": true,
+        "image_url": "/api/v1/catalog/items/00000000-0000-4000-8000-000000000004/image/demo-image.png",
+        "revision": 3,
+        "applicability": {
+          "model_id": "00000000-0000-4000-8000-000000000003",
+          "status": "confirmed",
+          "sources": []
+        }
+      }
+    ],
+    "total": 3,
+    "limit": 20,
+    "offset": 0
+  },
+  "models": {
+    "items": [
+      {
+        "id": "00000000-0000-4000-8000-000000000003",
+        "code": "DEMO-MODEL",
+        "name": "Демо-модель",
+        "description": "Синтетическая модель"
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0
+  },
+  "consent_text": {
+    "version": "DEMO-v1",
+    "purpose": "Демонстрация контракта",
+    "text": "Синтетический текст согласия для контрактных тестов; не юридический документ.",
+    "checksum": "9514eb38f6ba67ae56f8bade7d7e381eb17794de307fa85af701162a0fd24fc3"
+  },
+  "commercial_order": {
+    "kind": "commercial",
+    "items": [
+      {
+        "item_id": "00000000-0000-4000-8000-000000000001",
+        "qty": 2,
+        "expected_revision": 3
+      },
+      {
+        "item_id": "00000000-0000-4000-8000-000000000002",
+        "qty": 1,
+        "expected_revision": 1
+      }
+    ],
+    "contact": {
+      "name": "Демо-покупатель",
+      "email": "buyer@example.org"
+    },
+    "organization_name": "Демо-организация",
+    "city": "Демо-город",
+    "comment": "Нужно коммерческое предложение",
+    "source": "site",
+    "consent": {
+      "version": "DEMO-v1",
+      "accepted": true
+    },
+    "confirmed": true
+  },
+  "support_order": {
+    "kind": "support",
+    "items": [],
+    "contact": {
+      "name": "Демо-покупатель",
+      "email": "buyer@example.org"
+    },
+    "organization_name": null,
+    "city": null,
+    "comment": "Синтетическое описание обращения: требуется консультация",
+    "source": "site",
+    "consent": {
+      "version": "DEMO-v1",
+      "accepted": true
+    },
+    "confirmed": true
+  },
+  "chat_order": {
+    "kind": "support",
+    "items": [],
+    "contact": {
+      "name": "Демо-покупатель",
+      "email": "buyer@example.org"
+    },
+    "organization_name": null,
+    "city": null,
+    "comment": "Синтетическое описание обращения: требуется консультация",
+    "source": "chat",
+    "consent": {
+      "version": "DEMO-v1",
+      "accepted": true
+    },
+    "confirmed": true,
+    "chat_session_id": "00000000-0000-4000-8000-000000000010"
+  },
+  "receipt": {
+    "number": 1,
+    "status": "new",
+    "known_subtotal": "2400.00",
+    "items_total": null,
+    "delivery_status": "pending_quote",
+    "delivery_cost": null,
+    "total_amount": null,
+    "currency": "RUB"
+  },
+  "service_receipt": {
+    "number": 2,
+    "status": "new",
+    "known_subtotal": "100.00",
+    "items_total": "100.00",
+    "delivery_status": "not_required",
+    "delivery_cost": "0.00",
+    "total_amount": "100.00",
+    "currency": "RUB"
+  },
+  "support_receipt": {
+    "number": 3,
+    "status": "new",
+    "known_subtotal": "0.00",
+    "items_total": null,
+    "delivery_status": "not_required",
+    "delivery_cost": "0.00",
+    "total_amount": null,
+    "currency": "RUB"
+  },
+  "errors": [
+    {
+      "error": {
+        "code": "STATE_CONFLICT",
+        "message": "Состояние изменилось",
+        "details": {
+          "current_version": 3
+        }
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    },
+    {
+      "error": {
+        "code": "CATALOG_CHANGED",
+        "message": "Каталог изменился",
+        "details": {}
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    },
+    {
+      "error": {
+        "code": "CONSENT_CHANGED",
+        "message": "Текст согласия изменился",
+        "details": {}
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    },
+    {
+      "error": {
+        "code": "IDEMPOTENCY_CONFLICT",
+        "message": "Тело запроса изменилось",
+        "details": {}
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    },
+    {
+      "error": {
+        "code": "SESSION_EXPIRED",
+        "message": "Собственная сессия истекла",
+        "details": {}
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    },
+    {
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Тело не соответствует контракту",
+        "details": {}
+      },
+      "request_id": "00000000-0000-4000-8000-000000000030"
+    }
+  ],
+  "chat_session_create": {
+    "mode": "commerce"
+  },
+  "chat_messages": [
+    {
+      "session_id": "00000000-0000-4000-8000-000000000010",
+      "request_id": "00000000-0000-4000-8000-000000000040",
+      "expected_version": 0,
+      "input": {
+        "type": "text",
+        "value": "Демонстрационный поиск"
+      }
+    },
+    {
+      "session_id": "00000000-0000-4000-8000-000000000010",
+      "request_id": "00000000-0000-4000-8000-000000000041",
+      "expected_version": 1,
+      "input": {
+        "type": "select_mode",
+        "mode": "knowledge"
+      }
+    },
+    {
+      "session_id": "00000000-0000-4000-8000-000000000010",
+      "request_id": "00000000-0000-4000-8000-000000000042",
+      "expected_version": 2,
+      "input": {
+        "type": "start_diagnosis",
+        "model_id": "00000000-0000-4000-8000-000000000003",
+        "tree_key": "demo-scenario"
+      }
+    },
+    {
+      "session_id": "00000000-0000-4000-8000-000000000010",
+      "request_id": "00000000-0000-4000-8000-000000000043",
+      "expected_version": 3,
+      "input": {
+        "type": "button",
+        "option_id": "demo-option"
+      }
+    },
+    {
+      "session_id": "00000000-0000-4000-8000-000000000010",
+      "request_id": "00000000-0000-4000-8000-000000000044",
+      "expected_version": 4,
+      "input": {
+        "type": "feedback",
+        "useful": false
+      }
+    }
+  ],
+  "chat_result": {
+    "message_id": "00000000-0000-4000-8000-000000000050",
+    "state_version": 1,
+    "reply": {
+      "mode": "commerce",
+      "text": "Синтетический пример контракта. Это не диагноз или инструкция.",
+      "buttons": [
+        {
+          "id": "mode-knowledge",
+          "label": "Поиск документов",
+          "input": {
+            "type": "select_mode",
+            "mode": "knowledge"
+          }
+        },
+        {
+          "id": "scenario",
+          "label": "Демо-сценарий",
+          "input": {
+            "type": "start_diagnosis",
+            "model_id": "00000000-0000-4000-8000-000000000003",
+            "tree_key": "demo-scenario"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "section_id": "00000000-0000-4000-8000-000000000021",
+          "document_id": "00000000-0000-4000-8000-000000000022",
+          "document_version_id": "00000000-0000-4000-8000-000000000023",
+          "title": "Синтетический документ, не инструкция",
+          "section": "Демо-раздел",
+          "page_from": null,
+          "page_to": null,
+          "url": "/api/v1/documents/00000000-0000-4000-8000-000000000022/versions/00000000-0000-4000-8000-000000000023/file"
+        }
+      ],
+      "items": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "sku": "DEMO-PRODUCT",
+          "kind": "product",
+          "name": "Демо-товар",
+          "unit": "шт.",
+          "price_mode": "fixed",
+          "price": "1200.00",
+          "currency": "RUB",
+          "tax_note": "Демонстрационная налоговая пометка",
+          "requires_shipping": true,
+          "image_url": null,
+          "revision": 3,
+          "applicability": null
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "sku": "DEMO-SERVICE",
+          "kind": "service",
+          "name": "Демо-услуга",
+          "unit": "услуга",
+          "price_mode": "on_request",
+          "price": null,
+          "currency": "RUB",
+          "tax_note": "Демонстрационная налоговая пометка",
+          "requires_shipping": false,
+          "image_url": null,
+          "revision": 1,
+          "applicability": {
+            "model_id": "00000000-0000-4000-8000-000000000003",
+            "status": "unknown",
+            "sources": []
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "open_item",
+          "payload": {
+            "item_id": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        {
+          "type": "open_document",
+          "payload": {
+            "section_id": "00000000-0000-4000-8000-000000000021",
+            "document_id": "00000000-0000-4000-8000-000000000022",
+            "document_version_id": "00000000-0000-4000-8000-000000000023",
+            "title": "Синтетический документ, не инструкция",
+            "section": "Демо-раздел",
+            "page_from": null,
+            "page_to": null,
+            "url": "/api/v1/documents/00000000-0000-4000-8000-000000000022/versions/00000000-0000-4000-8000-000000000023/file"
+          }
+        },
+        {
+          "type": "open_request_form",
+          "payload": {
+            "kind": "commercial",
+            "items": [
+              {
+                "item_id": "00000000-0000-4000-8000-000000000001",
+                "qty": 2
+              }
+            ]
+          }
+        },
+        {
+          "type": "open_request_form",
+          "payload": {
+            "kind": "support",
+            "items": [],
+            "comment_draft": "Демо-черновик: отредактируйте описание перед отправкой"
+          }
+        },
+        {
+          "type": "contact_specialist",
+          "payload": {
+            "kind": "support"
+          }
+        }
+      ],
+      "resolution": "results"
+    }
+  },
+  "admin_status_change": {
+    "status": "closed",
+    "expected_version": 2,
+    "reason": "Демонстрационное завершение обработки"
+  },
+  "admin_status_result": {
+    "status": "closed",
+    "version": 3
+  },
+  "knowledge_page": {
+    "items": [
+      {
+        "excerpt": "Синтетическая цитата без технических утверждений.",
+        "source": {
+          "section_id": "00000000-0000-4000-8000-000000000021",
+          "document_id": "00000000-0000-4000-8000-000000000022",
+          "document_version_id": "00000000-0000-4000-8000-000000000023",
+          "title": "Синтетический документ, не инструкция",
+          "section": "Демо-раздел",
+          "page_from": null,
+          "page_to": null,
+          "url": "/api/v1/documents/00000000-0000-4000-8000-000000000022/versions/00000000-0000-4000-8000-000000000023/file"
+        }
+      }
+    ],
+    "total": 1,
+    "limit": 5,
+    "offset": 0
+  }
+}
