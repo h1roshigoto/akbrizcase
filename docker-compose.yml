@@ -1,0 +1,95 @@
+name: akbrizcase
+
+x-backend: &backend
+  image: akbrizcase-backend:mvp-055
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+  volumes:
+    - app_files:/var/lib/akbrizcase/files
+  environment:
+    APP_FILES_DIR: /var/lib/akbrizcase/files
+  stop_grace_period: 10s
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  nginx:
+    image: akbrizcase-frontend:mvp-055
+    build:
+      context: ./frontend
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    networks: [ingress, web]
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=1770
+    healthcheck:
+      test: [CMD, wget, -Y, "off", -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 10s
+
+  api:
+    <<: *backend
+    build:
+      context: ./backend
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
+    networks: [web, data]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  worker:
+    <<: *backend
+    pull_policy: never
+    command: [python, -m, app.worker]
+    networks: [data]
+
+  postgres:
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_DB: akbrizcase
+      POSTGRES_USER: akbrizcase_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [data]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U akbrizcase_owner -d akbrizcase"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 30s
+
+networks:
+  ingress:
+  web:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  app_files:
+  postgres_data:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE to a protected password file (see README.md)}
