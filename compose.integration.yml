@@ -1,0 +1,59 @@
+# Standalone disposable test stack. Does not load demo services or volumes.
+services:
+  postgres-test:
+    labels:
+      com.akbrizcase.db-integration: "true"
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_DB: akbrizcase
+      POSTGRES_USER: akbrizcase_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_password, migrator_password, runtime_password]
+    volumes:
+      - test_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/provision.sh:/docker-entrypoint-initdb.d/010-provision.sh:ro
+    networks: [test]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U akbrizcase_owner -d akbrizcase"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  tests:
+    image: akbrizcase-db-tests:mvp-003
+    build:
+      context: ./backend
+      target: integration
+    environment:
+      DB_INTEGRATION_ISOLATED: '1'
+      DB_HOST: postgres-test
+      DB_PASSWORD_FILE: /run/secrets/runtime_password
+      MIGRATION_DB_PASSWORD_FILE: /run/secrets/migrator_password
+    secrets: [runtime_password, migrator_password]
+    networks: [test]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+
+networks:
+  test:
+    labels:
+      com.akbrizcase.db-integration: "true"
+    internal: true
+volumes:
+  test_data:
+    labels:
+      com.akbrizcase.db-integration: "true"
+secrets:
+  postgres_password:
+    file: ${DB_TEST_SECRETS_DIR:?Only scripts/db_integration.py should start this stack}/postgres_password
+  migrator_password:
+    file: ${DB_TEST_SECRETS_DIR:?Only scripts/db_integration.py should start this stack}/migrator_password
+  runtime_password:
+    file: ${DB_TEST_SECRETS_DIR:?Only scripts/db_integration.py should start this stack}/runtime_password
