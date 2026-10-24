@@ -65,3 +65,18 @@ logs:
 
 smoke: check-secrets
 	python3 scripts/compose_smoke.py
+
+.PHONY: provision-db migrate integration integration-reset
+
+# Explicit operator commands. Ordinary up/restart never run migrations.
+provision-db: check-secrets
+	$(COMPOSE) exec -T postgres sh /docker-entrypoint-initdb.d/010-provision.sh
+
+migrate: check-secrets
+	$(COMPOSE) run --rm migrate
+
+integration:
+	python3 scripts/db_integration.py
+
+integration-reset:
+	python3 scripts/db_integration.py reset

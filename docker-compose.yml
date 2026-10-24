@@ -1,7 +1,7 @@
 name: akbrizcase
 
 x-backend: &backend
-  image: akbrizcase-backend:mvp-055
+  image: akbrizcase-backend:mvp-003
   init: true
   read_only: true
   cap_drop: [ALL]
@@ -12,6 +12,8 @@ x-backend: &backend
     - app_files:/var/lib/akbrizcase/files
   environment:
     APP_FILES_DIR: /var/lib/akbrizcase/files
+    DB_PASSWORD_FILE: /run/secrets/runtime_password
+  secrets: [runtime_password]
   stop_grace_period: 10s
   depends_on:
     postgres:
@@ -25,6 +27,8 @@ services:
     ports:
       - "127.0.0.1:${HTTP_PORT:-8080}:8080"
     networks: [ingress, web]
+    volumes:
+      - ./infrastructure/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       api:
         condition: service_healthy
@@ -58,6 +62,22 @@ services:
     command: [python, -m, app.worker]
     networks: [data]
 
+  migrate:
+    image: akbrizcase-backend:mvp-003
+    profiles: [tools]
+    command: [python, -m, app.core.db_migrate]
+    networks: [data]
+    environment:
+      MIGRATION_DB_PASSWORD_FILE: /run/secrets/migrator_password
+    secrets: [migrator_password]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16.13-bookworm
     environment:
@@ -65,9 +85,10 @@ services:
       POSTGRES_USER: akbrizcase_owner
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    secrets: [postgres_password]
+    secrets: [postgres_password, migrator_password, runtime_password]
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/provision.sh:/docker-entrypoint-initdb.d/010-provision.sh:ro
     networks: [data]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -93,3 +114,7 @@ volumes:
 secrets:
   postgres_password:
     file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE to a protected password file (see README.md)}
+  migrator_password:
+    file: ${MIGRATOR_PASSWORD_FILE:?Set MIGRATOR_PASSWORD_FILE to a protected password file}
+  runtime_password:
+    file: ${RUNTIME_PASSWORD_FILE:?Set RUNTIME_PASSWORD_FILE to a protected password file}

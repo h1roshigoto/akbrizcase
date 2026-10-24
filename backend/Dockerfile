@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
-FROM python:3.12.14-slim-bookworm
+FROM python:3.12.14-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock ./
+COPY --chmod=0444 pyproject.toml uv.lock ./
 # Optional session CA stays in a BuildKit mount, never in an image layer.
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
@@ -20,6 +20,21 @@ RUN groupadd --gid 10001 app \
     && chown app:app /var/lib/akbrizcase/files \
     && chmod 0700 /var/lib/akbrizcase/files
 COPY app ./app
-RUN chmod -R a+rX /app/app
+COPY alembic.ini ./
+COPY migrations ./migrations
+RUN chmod -R a+rX /app/app /app/migrations /app/alembic.ini
 USER 10001:10001
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--no-access-log"]
+
+# Disposable integration runner; the default final image remains runtime-only.
+FROM runtime AS integration
+USER root
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
+    uv sync --locked --no-install-project
+COPY tests ./tests
+RUN chmod -R a+rX /app/tests
+USER 10001:10001
+CMD ["python", "-m", "pytest", "-m", "integration", "-p", "no:cacheprovider", "-v"]
+
+FROM runtime AS final

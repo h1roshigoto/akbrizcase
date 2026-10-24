@@ -15,3 +15,7 @@ lint:
 
 types:
 	uv run --locked mypy
+
+.PHONY: migrate
+migrate:
+	uv run --locked python -m app.core.db_migrate

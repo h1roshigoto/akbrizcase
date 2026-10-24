@@ -77,6 +77,14 @@ def main() -> None:
         compose("config", "--quiet")
         compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
         print("PASS: Compose started", flush=True)
+        # Startup must never silently create or migrate the schema.
+        assert http("/readyz") == (503, '{"status":"unavailable"}')
+        compose("run", "--rm", "migrate")
+        compose("run", "--rm", "migrate")
+        assert http("/readyz") == (200, '{"status":"ok"}')
+        print(
+            "PASS: explicit/repeat migrations and readiness through Nginx", flush=True
+        )
         status, body = http("/healthz")
         assert status == 200 and json.loads(body) == {"status": "ok"}
         status, page = http("/")
@@ -94,6 +102,17 @@ def main() -> None:
             inspect(s) for s in ("api", "worker", "postgres", "nginx")
         )
         assert api["Image"] == worker["Image"]
+        for backend in (api, worker):
+            mounted_secrets = {
+                m["Destination"]
+                for m in backend["Mounts"]
+                if m["Destination"].startswith("/run/secrets/")
+            }
+            assert mounted_secrets == {"/run/secrets/runtime_password"}
+            assert all(
+                "POSTGRES_PASSWORD" not in value for value in backend["Config"]["Env"]
+            )
+        print("PASS: API/worker receive only runtime credentials", flush=True)
         for service in (api, worker, db):
             assert not service["HostConfig"]["PortBindings"]
         bindings = nginx["HostConfig"]["PortBindings"]["8080/tcp"]
@@ -151,6 +170,13 @@ def main() -> None:
             "PASS: internal PostgreSQL 16/authentication; no DB/API/worker published ports",
             flush=True,
         )
+
+        compose("stop", "postgres")
+        assert http("/healthz")[0] == 200
+        assert http("/readyz") == (503, '{"status":"unavailable"}')
+        compose("up", "--no-build", "--detach", "--wait", "postgres")
+        assert http("/readyz")[0] == 200
+        print("PASS: DB outage preserves liveness and fails readiness", flush=True)
 
         marker = uuid.uuid4().hex
         compose(
@@ -217,6 +243,7 @@ def main() -> None:
             == marker
         )
         assert http("/healthz")[0] == 200
+        assert http("/readyz")[0] == 200
         print("PASS: graceful worker/stack stop; DB/files survive down/up", flush=True)
     finally:
         compose("down", "--volumes", "--remove-orphans")

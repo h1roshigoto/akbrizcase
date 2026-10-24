@@ -1,6 +1,7 @@
-# Backend — MVP-001
+# Backend — MVP-001 и MVP-003
 
-Минимальный FastAPI-каркас: только `GET /healthz`, без БД и бизнес-модулей.
+FastAPI-каркас с `GET /healthz`, `GET /readyz`, PostgreSQL 16 и общим UoW,
+без бизнес-модулей.
 
 Требуются Python **3.12.14**, uv **0.12.23** и GNU Make. Версия Python
 задана в `.python-version`, версия uv проверяется в `pyproject.toml`.
@@ -43,8 +44,8 @@ curl --fail-with-body http://127.0.0.1:8000/healthz
 FastAPI также предоставляет стандартные `/docs`, `/redoc`, `/openapi.json`.
 
 Настройки находятся в `app/core/config.py`: название приложения и выключенный
-debug. Переменные окружения, `.env`, пароли и внешние сервисы не требуются;
-конфигурация не загружает секреты. Локальные `.env` и артефакты Python
+debug. Для liveness и unit-тестов переменные окружения, `.env`, пароли
+и внешние сервисы не требуются; DB-конфигурация находится в `app/core/db.py`. Локальные `.env` и артефакты Python
 исключены из git.
 
 `make test` проверяет импорт приложения в отдельном процессе без
@@ -54,6 +55,14 @@ mypy в strict-режиме для приложения и тестов. Пря�
 точными версиями в `pyproject.toml`; их обновление требует обновления
 `uv.lock` и повторного выполнения проверок.
 
-`/healthz` сообщает только о работе API-процесса. Readiness с проверкой БД
-относится к MVP-003. Frontend, Docker/Compose/Nginx, worker, CI, миграции
-и бизнес-логика не входят в этот каркас; готовность production не заявляется.
+`/healthz` сообщает только о работе API-процесса. `/readyz` возвращает 200
+только при доступной PostgreSQL 16 и совместимой схеме; без DB-конфигурации — 503.
+Без конфигурации API по-прежнему импортируется и запускается. Для подключения
+используются DB_HOST/PORT/NAME/USER и DB_PASSWORD_FILE; для миграции — отдельные
+MIGRATION_DB_USER/PASSWORD_FILE. Паролей по умолчанию и автоматических миграций нет.
+
+Полные команды migrate, настройки ролей/секретов, изолированные integration-тесты
+и восстановление тестовой среды: [MVP-003](../docs/MVP-003.md).
+Из корня: `make migrate`, `make integration`, `make integration-reset`.
+Из backend: `make migrate` с MIGRATION_DB_PASSWORD_FILE.
+Production readiness не заявляется.
