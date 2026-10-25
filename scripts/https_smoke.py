@@ -54,7 +54,7 @@ def browser_trust():
             )
 
 
-def main() -> None:
+def main(*, request_form: bool = False) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
     project = "akbrizcase-https-test-" + uuid.uuid4().hex[:10]
@@ -171,14 +171,24 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                browser = subprocess.run(
-                    ["node", "frontend/tests/https-auth.mjs"],
-                    env=browser_environment,
-                    input=json.dumps({"origin": origin, "passwords": passwords}),
-                    text=True,
-                    capture_output=True,
-                    timeout=90,
-                )
+                if request_form:
+                    from request_browser_smoke import run_browser
+
+                    browser = run_browser(
+                        browser_environment,
+                        {"origin": origin, "passwords": passwords},
+                        compose,
+                    )
+                else:
+                    browser = subprocess.run(
+                        ["node", "frontend/tests/https-auth.mjs"],
+                        env=browser_environment,
+                        check=False,
+                        input=json.dumps({"origin": origin, "passwords": passwords}),
+                        text=True,
+                        capture_output=True,
+                        timeout=90,
+                    )
             if browser.returncode:
                 # Assertion output contains no request bodies/cookies; redact
                 # credentials defensively before surfacing tool diagnostics.
@@ -187,6 +197,7 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
+            expected = 1 if request_form else 2
             compose(
                 "exec",
                 "-T",
@@ -194,15 +205,18 @@ d.close()
                 "python",
                 "-c",
                 """
+import sys
 from app.core.db import Database,DatabaseSettings
 from sqlalchemy import text
+expected=int(sys.argv[1])
 d=Database(DatabaseSettings.from_environment())
 with d.unit_of_work() as s:
- for table,count in [('orders',2),('consents',2),('order_items',2),('order_status_history',2),('email_outbox',2)]:
+ for table,count in [('orders',expected),('consents',expected),('order_items',2),('order_status_history',expected),('email_outbox',expected)]:
   assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
- assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status='pending'"))==2
+ assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status='pending'"))==expected
 d.close()
 """,
+                str(expected),
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(

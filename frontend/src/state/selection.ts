@@ -83,6 +83,15 @@ export function useSelection() {
           current.map((row) => (row.item_id === id ? { ...row, qty } : row)),
         )
     },
+    acceptRevision(id: UUID, previous: number, revision: number) {
+      setItems((current) =>
+        current.map((row) =>
+          row.item_id === id && row.revision === previous
+            ? { ...row, revision }
+            : row,
+        ),
+      )
+    },
     remove(id: UUID) {
       setItems((current) => current.filter((row) => row.item_id !== id))
     },

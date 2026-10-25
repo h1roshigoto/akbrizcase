@@ -67,10 +67,12 @@ export function SelectedItems({
   source,
   selection,
   onOpen,
+  onRequest,
 }: {
   source: CatalogSource
   selection: Selection
   onOpen: (id: UUID) => void
+  onRequest?: () => void
 }) {
   const [attempt, setAttempt] = useState(0)
   const idsKey = selection.items.map((row) => row.item_id).join(',')
@@ -236,13 +238,14 @@ export function SelectedItems({
           Достигнут лимит: 100 позиций.
         </p>
       )}
+      {onRequest && (
+        <button className="primary-button request-action" onClick={onRequest}>
+          Оформить заявку
+        </button>
+      )}
       <div className="next-stage">
         <span className="stage-dot" />
-        <p>
-          Список сохраняется в этой вкладке.
-          <br />
-          Отправка заявки появится на следующем этапе.
-        </p>
+        <p>Список сохраняется в этой вкладке.</p>
       </div>
     </aside>
   )

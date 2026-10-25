@@ -109,6 +109,8 @@ jobs:
         run: |
           make local-tls
           make https-smoke
+      - name: Trusted HTTPS live request form, safe retry and manager acceptance
+        run: make request-browser-smoke
       - name: Remove temporary secret
         if: always()
         run: rm -rf -- .secrets .certs .env

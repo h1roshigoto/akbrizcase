@@ -99,3 +99,7 @@ https-smoke:
 .PHONY: catalog-browser-smoke
 catalog-browser-smoke:
 	python3 scripts/catalog_browser_smoke.py
+
+.PHONY: request-browser-smoke
+request-browser-smoke:
+	python3 scripts/request_browser_smoke.py
