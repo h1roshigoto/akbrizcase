@@ -86,6 +86,8 @@ jobs:
           make init-secrets
       - name: Validate Compose configuration
         run: make config
+      - name: Synthetic stack safety guards
+        run: make acceptance-guards
       - name: Build backend and frontend images
         run: make build
       - name: Container smoke
@@ -109,8 +111,8 @@ jobs:
         run: |
           make local-tls
           make https-smoke
-      - name: Trusted HTTPS live request form, safe retry and manager acceptance
-        run: make request-browser-smoke
+      - name: MVP-014 browser E2E, PostgreSQL invariants and Compose persistence
+        run: make vertical-smoke
       - name: Remove temporary secret
         if: always()
         run: rm -rf -- .secrets .certs .env

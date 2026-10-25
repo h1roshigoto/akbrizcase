@@ -103,3 +103,10 @@ catalog-browser-smoke:
 .PHONY: request-browser-smoke
 request-browser-smoke:
 	python3 scripts/request_browser_smoke.py
+
+.PHONY: acceptance-guards vertical-smoke
+acceptance-guards:
+	python3 -m unittest discover -s scripts -p 'test_*.py'
+
+# Extend MVP-013's real browser path, keeping a single source of E2E behavior.
+vertical-smoke: acceptance-guards request-browser-smoke

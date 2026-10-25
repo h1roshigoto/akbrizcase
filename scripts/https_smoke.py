@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
+from synthetic_stack import LABEL, MARKER, SyntheticStack
+
 
 def free_port() -> str:
     with socket.socket() as listener:
@@ -60,6 +62,8 @@ def main(*, request_form: bool = False) -> None:
     project = "akbrizcase-https-test-" + uuid.uuid4().hex[:10]
     with tempfile.TemporaryDirectory(prefix=project) as temporary:
         environment = os.environ.copy()
+        for name in ("COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "COMPOSE_PROFILES"):
+            environment.pop(name, None)
         for name, variable in (
             ("postgres_password", "POSTGRES_PASSWORD_FILE"),
             ("migrator_password", "MIGRATOR_PASSWORD_FILE"),
@@ -75,6 +79,17 @@ def main(*, request_form: bool = False) -> None:
         origin = "https://localhost:" + environment["HTTPS_PORT"]
         environment["STAFF_TRUSTED_ORIGINS"] = origin
         environment["APP_ENV"] = "demo"
+        labels = Path(temporary) / "acceptance.json"
+        labels.write_text(
+            json.dumps(
+                {
+                    "volumes": {
+                        name: {"labels": {LABEL: project}}
+                        for name in ("postgres_data", "app_files")
+                    }
+                }
+            )
+        )
         prefix = [
             "docker",
             "compose",
@@ -84,6 +99,8 @@ def main(*, request_form: bool = False) -> None:
             "docker-compose.yml",
             "-f",
             "compose.https.yml",
+            "-f",
+            str(labels),
             "--project-name",
             project,
         ]
@@ -101,9 +118,22 @@ def main(*, request_form: bool = False) -> None:
             return result.stdout
 
         passwords = {role: secrets.token_urlsafe(32) for role in ("admin", "manager")}
+        stack = SyntheticStack(project, compose, environment)
         try:
+            stack.claim()
             compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
+            stack.verify_volumes()
+            assert (
+                stack.sql(
+                    "SELECT coalesce(shobj_description(oid, 'pg_database'), '') "
+                    "FROM pg_database WHERE datname=current_database()"
+                )
+                == ""
+            ), "Fresh acceptance database already has a marker"
             compose("run", "--rm", "migrate")
+            assert stack.sql("SELECT count(*) FROM app.orders") == "0"
+            stack.sql(f"COMMENT ON DATABASE akbrizcase IS '{MARKER}'")
+            stack.verify_database()
             # Explicit fixture creation in this disposable project only. The
             # application never auto-creates accounts or accepts piped CLI auth.
             setup = """
@@ -126,22 +156,7 @@ db.close()
                 setup,
                 input_text=json.dumps(passwords),
             )
-            # Mark only this newly created disposable project for synthetic
-            # catalog/consent fixtures. Never seed an arbitrary operator DB.
-            compose(
-                "exec",
-                "-T",
-                "postgres",
-                "psql",
-                "-U",
-                "akbrizcase_owner",
-                "-d",
-                "akbrizcase",
-                "-v",
-                "ON_ERROR_STOP=1",
-                "-c",
-                "COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'",
-            )
+            stack.verify_database()
             compose(
                 "exec",
                 "-T",
@@ -178,6 +193,7 @@ d.close()
                         browser_environment,
                         {"origin": origin, "passwords": passwords},
                         compose,
+                        stack,
                     )
                 else:
                     browser = subprocess.run(
@@ -230,11 +246,17 @@ d.close()
             for secret in [*passwords.values(), *proof["secrets"]]:
                 assert secret not in logs + audit, "Authentication material leaked"
             print(proof["result"])
+            if request_form:
+                print(
+                    "PASS: MVP-014 orders=1, order_items=2, consents=1, "
+                    "initial_history=1, pending_outbox=1; "
+                    "fresh labelled volumes and synthetic DB marker verified"
+                )
             print(
                 "PASS: certificate chain/hostname verification, HTTPS frontend/health/readiness, no secrets in application/proxy logs or audit"
             )
         finally:
-            compose("down", "--volumes", "--remove-orphans")
+            stack.cleanup()
 
 
 if __name__ == "__main__":
