@@ -51,7 +51,13 @@ def test_fresh_migration_and_repeat(databases: tuple[Database, Database]) -> Non
             connection.scalars(
                 text("SELECT tablename FROM pg_tables WHERE schemaname = 'app'")
             )
-        ) == {"alembic_version", "integration_probe"}
+        ) == {
+            "alembic_version",
+            "integration_probe",
+            "staff_users",
+            "staff_sessions",
+            "audit_events",
+        }
 
 
 def test_two_operations_commit_together(database: Database) -> None:

@@ -60,3 +60,16 @@ def database(databases: tuple[Database, Database]) -> Iterator[Database]:
     finally:
         with migrator.engine.begin() as connection:
             connection.execute(text("DELETE FROM app.integration_probe"))
+
+
+@pytest.fixture
+def staff_database(databases: tuple[Database, Database]) -> Iterator[Database]:
+    runtime, migrator = databases
+    try:
+        yield runtime
+    finally:
+        # Only the sentinel-guarded disposable DB's migrator can remove audit.
+        with migrator.engine.begin() as connection:
+            connection.execute(text("DELETE FROM app.audit_events"))
+            connection.execute(text("DELETE FROM app.staff_sessions"))
+            connection.execute(text("DELETE FROM app.staff_users"))
