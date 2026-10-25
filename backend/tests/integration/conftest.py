@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -36,8 +37,8 @@ def databases() -> Iterator[tuple[Database, Database]]:
             )
         assert not runtime.ready()
         config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-        command.upgrade(config, "head")
-        command.upgrade(config, "head")
+        command.upgrade(config, "0001_infrastructure")
+        assert not runtime.ready()
         with migrator.engine.begin() as connection:
             connection.execute(
                 text(
@@ -46,6 +47,19 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "occurred_at timestamptz NOT NULL)"
                 )
             )
+            connection.execute(
+                text(
+                    "INSERT INTO app.integration_probe VALUES "
+                    "('00000000-0000-4000-8000-000000000001', 123.45, now())"
+                )
+            )
+        command.upgrade(config, "head")
+        command.upgrade(config, "head")
+        with migrator.engine.begin() as connection:
+            assert connection.scalar(
+                text("SELECT amount FROM app.integration_probe")
+            ) == Decimal("123.45")
+            connection.execute(text("DELETE FROM app.integration_probe"))
         yield runtime, migrator
     finally:
         runtime.close()

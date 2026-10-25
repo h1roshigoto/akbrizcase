@@ -85,6 +85,32 @@ def main() -> None:
         print(
             "PASS: explicit/repeat migrations and readiness through Nginx", flush=True
         )
+        # The ordinary stack has no marker. Even an accidental APP_ENV=demo
+        # cannot seed it. These invocations must fail without writing any rows.
+        for arguments in (
+            ("run", "--rm", "seed", "--mode", "demo"),
+            ("run", "--rm", "-e", "APP_ENV=demo", "seed", "--mode", "demo"),
+        ):
+            try:
+                compose(*arguments)
+            except subprocess.CalledProcessError:
+                pass
+            else:
+                raise AssertionError("Unmarked/production database accepted seed")
+        assert sql("SELECT count(*) FROM app.catalog_items") == "0"
+        # Only this unique, disposable smoke project is labelled by its owner.
+        sql("COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'")
+        for _ in range(2):
+            compose("run", "--rm", "-e", "APP_ENV=demo", "seed", "--mode", "demo")
+        assert sql("SELECT count(*) FROM app.catalog_items") == "4"
+        assert sql("SELECT count(*) FROM app.equipment_models") == "1"
+        try:
+            compose("run", "--rm", "-e", "APP_ENV=production", "seed", "--mode", "demo")
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("Production environment accepted seed")
+        print("PASS: seed guards and idempotent synthetic demo catalog", flush=True)
         status, body = http("/healthz")
         assert status == 200 and json.loads(body) == {"status": "ok"}
         status, page = http("/")

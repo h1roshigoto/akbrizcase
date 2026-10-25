@@ -78,6 +78,23 @@ services:
       postgres:
         condition: service_healthy
 
+  seed:
+    image: akbrizcase-backend:mvp-003
+    profiles: [tools]
+    entrypoint: [python, -m, app.modules.catalog.seed]
+    networks: [data]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DB_PASSWORD_FILE: /run/secrets/runtime_password
+    secrets: [runtime_password]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:16.13-bookworm
     environment:

@@ -51,7 +51,12 @@ def test_fresh_migration_and_repeat(databases: tuple[Database, Database]) -> Non
             connection.scalars(
                 text("SELECT tablename FROM pg_tables WHERE schemaname = 'app'")
             )
-        ) == {"alembic_version", "integration_probe"}
+        ) == {
+            "alembic_version",
+            "integration_probe",
+            "equipment_models",
+            "catalog_items",
+        }
 
 
 def test_two_operations_commit_together(database: Database) -> None:
@@ -149,7 +154,9 @@ def test_unreachable_database(
         assert response.json() == {"status": "unavailable"}
 
 
-@pytest.mark.parametrize("revision", ["unknown_future_schema", None])
+@pytest.mark.parametrize(
+    "revision", ["0001_infrastructure", "unknown_future_schema", None]
+)
 def test_incompatible_or_missing_revision(
     databases: tuple[Database, Database], revision: str | None
 ) -> None:
