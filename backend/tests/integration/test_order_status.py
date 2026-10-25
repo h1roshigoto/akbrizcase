@@ -31,7 +31,7 @@ from app.core.db_types import utc_now
 from app.core.staff import lock_staff
 from app.core.staff_models import StaffSession, StaffUser
 from app.core.staff_sessions import resolve_session
-from app.modules.orders.models import Order
+from app.modules.orders.models import Order, OrderStatusHistory
 from app.modules.orders.service import OrderRejected
 from app.modules.orders.status_service import change_status
 from app.schemas.admin import OrderStatusChange
@@ -573,6 +573,11 @@ def test_replay_after_close_is_original_receipt(
     with staff_database.unit_of_work() as session:
         # Existing AQ-01 erasure contract, in this isolated synthetic DB only.
         session.execute(
+            update(OrderStatusHistory)
+            .where(OrderStatusHistory.order_id == identifier)
+            .values(reason=None)
+        )
+        session.execute(
             update(Order)
             .where(Order.id == identifier)
             .values(
@@ -587,8 +592,10 @@ def test_replay_after_close_is_original_receipt(
                 receipt_token_hash=None,
             )
         )
+    erased_before, erased_audit = business_rows(staff_database), audits(staff_database)
     erased = original_post("/api/v1/orders", **captured)
     assert erased.status_code == 404 and erased.json()["error"]["code"] == "NOT_FOUND"
+    unchanged(staff_database, erased_before, erased_audit)
     assert REASON not in json.dumps(audit)
 
 
