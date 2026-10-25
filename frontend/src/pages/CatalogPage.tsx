@@ -8,8 +8,24 @@ import { SelectedItems } from '../components/SelectedItems'
 import { StatusPanel } from '../components/StatusPanel'
 import { Icon } from '../components/Icon'
 import { ItemDetail } from './ItemDetail'
+import { RequestPage } from './RequestPage'
+import { httpOrders, type OrdersSource } from '../api/httpOrders'
+import { Submission } from '../state/submission'
 
-export function CatalogPage({ source }: { source: CatalogSource }) {
+export function CatalogPage({
+  source,
+  orders = httpOrders,
+}: {
+  source: CatalogSource
+  orders?: OrdersSource
+}) {
+  const [submission] = useState(() => new Submission(orders))
+  const [requestOpen, setRequestOpen] = useState(false)
+  const [requestVisited, setRequestVisited] = useState(false)
+  const openRequest = () => {
+    setRequestVisited(true)
+    setRequestOpen(true)
+  }
   const selection = useSelection()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState<CatalogQuery>({ limit: 20, offset: 0 })
@@ -47,7 +63,11 @@ export function CatalogPage({ source }: { source: CatalogSource }) {
 
   return (
     <>
-      <a className="skip-link" href="#catalog">
+      <a
+        className="skip-link"
+        href="#catalog"
+        onClick={() => setRequestOpen(false)}
+      >
         Перейти к каталогу
       </a>
       <header className="site-header">
@@ -55,7 +75,10 @@ export function CatalogPage({ source }: { source: CatalogSource }) {
           <a
             className="brand"
             href="#catalog"
-            onClick={() => setActiveId(null)}
+            onClick={() => {
+              setActiveId(null)
+              setRequestOpen(false)
+            }}
           >
             <span className="brand-mark">
               <Icon name="box" />
@@ -68,11 +91,14 @@ export function CatalogPage({ source }: { source: CatalogSource }) {
             <a
               className="nav-active"
               href="#catalog"
-              onClick={() => setActiveId(null)}
+              onClick={() => {
+                setActiveId(null)
+                setRequestOpen(false)
+              }}
             >
               Каталог
             </a>
-            <a href="#selection">
+            <a href="#selection" onClick={() => setRequestOpen(false)}>
               Выбранное <span>{selection.items.length}</span>
             </a>
           </nav>
@@ -88,7 +114,7 @@ export function CatalogPage({ source }: { source: CatalogSource }) {
           </p>
         </div>
       )}
-      <main className="page-shell">
+      <main className="page-shell" hidden={requestOpen}>
         <div className="breadcrumb">
           Главная <span>/</span> Каталог
         </div>
@@ -309,15 +335,28 @@ export function CatalogPage({ source }: { source: CatalogSource }) {
             source={source}
             selection={selection}
             onOpen={openItem}
+            onRequest={openRequest}
           />
         </div>
       </main>
+      {requestVisited && (
+        <div hidden={!requestOpen}>
+          <RequestPage
+            source={source}
+            orders={orders}
+            selection={selection}
+            submission={submission}
+            active={requestOpen}
+            onBack={() => setRequestOpen(false)}
+          />
+        </div>
+      )}
       <footer className="site-footer">
         <span>
           B2B-портал <span className="footer-divider">/</span> Оборудование и
           сервис
         </span>
-        <span>Каталог · MVP-012, этап 1</span>
+        <span>Каталог и заявки</span>
       </footer>
     </>
   )
