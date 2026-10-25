@@ -530,6 +530,10 @@ try {
       action: 'done',
       proof: {
         result: `PASS: MVP-013 ${progress.join('; ')}`,
+        receipt: Object.fromEntries([
+          'number', 'status', 'known_subtotal', 'items_total', 'delivery_status',
+          'delivery_cost', 'total_amount', 'currency',
+        ].map((key) => [key, receipt[key]])),
         secrets: [...sensitive, ...synthetic],
       },
     }) + '\n',

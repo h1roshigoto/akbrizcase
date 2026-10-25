@@ -1,7 +1,7 @@
 """Exercise a disposable Compose project using synthetic data only.
 
-The caller builds images first. Only this script's unique project/volumes are
-removed; the regular demo project and its data are never touched.
+The caller builds images first. Volumes are preserved after the unique test
+project stops; the regular demo project and its data are never touched.
 """
 
 import json
@@ -10,21 +10,39 @@ import re
 import secrets
 import socket
 import subprocess
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
+from synthetic_stack import SyntheticStack, isolated_environment, synthetic_secrets
+
 
 def main() -> None:
-    environment = os.environ.copy()
+    with tempfile.TemporaryDirectory(prefix="akbrizcase-smoke-") as temporary:
+        run(temporary)
+
+
+def run(temporary: str) -> None:
+    environment = isolated_environment(os.environ)
+    synthetic_secrets(temporary, environment)
     environment["APP_ENV"] = "demo"  # Only this disposable, owner-marked stack.
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         environment["HTTP_PORT"] = str(listener.getsockname()[1])
     project = "akbrizcase-smoke-" + uuid.uuid4().hex[:10]
-    prefix = ["docker", "compose", "--project-name", project]
+    prefix = [
+        "docker",
+        "compose",
+        "--env-file",
+        "/dev/null",
+        "-f",
+        "docker-compose.yml",
+        "--project-name",
+        project,
+    ]
 
     def compose(*args: str, input_text: str | None = None) -> str:
         result = subprocess.run(
@@ -77,9 +95,13 @@ def main() -> None:
         except HTTPError as response:
             return response.code, response.read().decode()
 
+    stack = SyntheticStack(project, compose, environment)
+    prefix += ["-f", str(stack.write_override(temporary))]
     try:
+        stack.claim()
         compose("config", "--quiet")
         compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
+        stack.verify_volumes()
         print("PASS: Compose started", flush=True)
         # Startup must never silently create or migrate the schema.
         assert http("/readyz") == (503, '{"status":"unavailable"}')
@@ -134,6 +156,7 @@ def main() -> None:
             raise AssertionError("Unmarked database accepted synthetic consent")
         # Only this unique, disposable smoke project is labelled by its owner.
         sql("COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'")
+        stack.verify_database()
         for _ in range(2):
             compose("run", "--rm", "-e", "APP_ENV=demo", "seed", "--mode", "demo")
         assert sql("SELECT count(*) FROM app.catalog_items") == "4"
@@ -388,7 +411,10 @@ def main() -> None:
             assert all(
                 "POSTGRES_PASSWORD" not in value for value in backend["Config"]["Env"]
             )
-        print("PASS: runtime credentials only; CSRF/HMAC keys restricted to API", flush=True)
+        print(
+            "PASS: runtime credentials only; CSRF/HMAC keys restricted to API",
+            flush=True,
+        )
         for service in (api, worker, db):
             assert not service["HostConfig"]["PortBindings"]
         bindings = nginx["HostConfig"]["PortBindings"]["8080/tcp"]
@@ -513,6 +539,7 @@ def main() -> None:
         assert "Application shutdown complete." in compose("logs", "--no-color", "api")
         compose("down")
         compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
+        stack.verify_database()
         assert sql("SELECT marker FROM mvp055_smoke") == marker
         assert (
             compose(
@@ -529,8 +556,7 @@ def main() -> None:
         assert http("/readyz")[0] == 200
         print("PASS: graceful worker/stack stop; DB/files survive down/up", flush=True)
     finally:
-        compose("down", "--volumes", "--remove-orphans")
-        print("Removed disposable smoke project and synthetic volumes", flush=True)
+        stack.cleanup()
 
 
 if __name__ == "__main__":

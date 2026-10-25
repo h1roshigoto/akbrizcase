@@ -247,6 +247,7 @@ d.close()
                 assert secret not in logs + audit, "Authentication material leaked"
             print(proof["result"])
             if request_form:
+                print(json.dumps(proof["acceptance"], sort_keys=True), flush=True)
                 print(
                     "PASS: MVP-014 orders=1, order_items=2, consents=1, "
                     "initial_history=1, pending_outbox=1; "

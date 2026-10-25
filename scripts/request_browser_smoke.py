@@ -7,6 +7,7 @@ No traces, screenshots, request bodies or raw secrets are written to artifacts.
 
 import hashlib
 import json
+import re
 import subprocess
 import threading
 
@@ -107,36 +108,77 @@ def run_browser(environment: dict, config: dict, compose, stack):
             == "1"
         ), "Joined PostgreSQL order invariants failed"
 
+    def counts():
+        result = [
+            int(v)
+            for v in sql("""
+            SELECT (SELECT count(*) FROM app.orders),
+                (SELECT count(*) FROM app.consents),
+                (SELECT count(*) FROM app.order_items),
+                (SELECT count(*) FROM app.order_status_history),
+                (SELECT count(*) FROM app.email_outbox WHERE status='pending')
+        """).split("|")
+        ]
+        assert result == [1, 1, 2, 1, 1], "Unexpected acceptance write set"
+        return dict(
+            zip(
+                (
+                    "orders",
+                    "consents",
+                    "order_items",
+                    "initial_history",
+                    "pending_outbox",
+                ),
+                result,
+                strict=True,
+            )
+        )
+
     try:
         process.stdin.write(json.dumps(config) + "\n")
         process.stdin.flush()
         proof = None
         original_snapshot = None
+        restart_counts = {}
         for line in process.stdout:
             event = json.loads(line)
             action = event.get("action")
             if action == "done":
                 proof = event["proof"]
+                checkout = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                head = environment.get("MVP014_HEAD_SHA", checkout)
+                assert re.fullmatch(r"[0-9a-f]{40}", head)
+                assert set(restart_counts) == {"before", "after"}
+                proof["acceptance"] = {
+                    "head_sha": head,
+                    "checkout_sha": checkout,
+                    "postgresql_version": sql("SHOW server_version"),
+                    "alembic_revision": sql(
+                        "SELECT version_num FROM app.alembic_version"
+                    ),
+                    "receipt": proof["receipt"],
+                    "restart_counts": restart_counts,
+                    "post_restart_replay": 200,
+                    "manager_reload": "passed",
+                    "smtp": "connection_refused",
+                    "business_rows_unchanged": True,
+                }
                 break
             if action == "counts":
                 invariants()
-                result = [
-                    int(v)
-                    for v in sql("""
-                    SELECT (SELECT count(*) FROM app.orders),
-                        (SELECT count(*) FROM app.consents),
-                        (SELECT count(*) FROM app.order_items),
-                        (SELECT count(*) FROM app.order_status_history),
-                        (SELECT count(*) FROM app.email_outbox WHERE status='pending')
-                """).split("|")
-                ]
-                assert result == [1, 1, 2, 1, 1], "Unexpected acceptance write set"
+                result = list(counts().values())
                 current = snapshot()
                 if original_snapshot is None:
                     original_snapshot = current
                 assert current == original_snapshot, "Persisted business rows changed"
             elif action == "restart":
                 invariants()
+                restart_counts["before"] = counts()
                 assert original_snapshot == snapshot(), "Rows changed before stop"
                 compose("stop")
                 states = [
@@ -149,6 +191,7 @@ def run_browser(environment: dict, config: dict, compose, stack):
                     "up", "--no-build", "--detach", "--wait", "--wait-timeout", "120"
                 )
                 invariants()
+                restart_counts["after"] = counts()
                 assert original_snapshot == snapshot(), (
                     "Rows did not survive Compose stop/up"
                 )

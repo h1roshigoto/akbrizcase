@@ -73,6 +73,8 @@ jobs:
     name: Compose build and smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      MVP014_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
