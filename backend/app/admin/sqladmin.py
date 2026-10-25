@@ -121,6 +121,11 @@ def install_sqladmin(app: FastAPI) -> Admin:
         )
 
     admin.templates.env.globals["staff_csrf"] = staff_csrf
+    # Import here because the views inherit the staff boundary defined above.
+    from app.admin.orders import OrderDetailView, OrdersView
+
+    admin.add_view(OrdersView)
+    admin.add_view(OrderDetailView)
     # Templates use relative same-origin URLs. Forwarded headers are never
     # authority for URL generation or CSRF validation.
     return admin

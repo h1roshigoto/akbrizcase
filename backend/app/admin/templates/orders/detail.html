@@ -1,0 +1,65 @@
+{% extends "sqladmin/layout.html" %}
+{% from "orders/_money.html" import money %}
+{% block content %}
+<p><a href="/admin/orders">Back to orders</a></p>
+<h2>Order {{ order.number }}</h2>
+<p>Read-only. Amounts are preliminary, not an offer or invoice.</p>
+<section aria-labelledby="current-order"><h3 id="current-order">Current order</h3>
+<dl>
+  <dt>Kind / source</dt><dd>{{ order.kind }} / {{ order.source }}</dd>
+  <dt>Created (UTC)</dt><dd>{{ order.created_at.isoformat() }}</dd>
+  <dt>Current status / version</dt><dd>{{ order.status }} / {{ order.version }}</dd>
+  <dt>Last updated (UTC)</dt><dd>{{ order.updated_at.isoformat() }}</dd>
+  <dt>Closed (UTC)</dt><dd>{{ order.closed_at.isoformat() if order.closed_at else '—' }}</dd>
+</dl></section>
+<section aria-labelledby="customer"><h3 id="customer">Customer</h3>
+{% if order.pii_erased_at %}<p>Personal data erased. Deleted values are unavailable.</p>{% endif %}
+<dl>
+  {% for label, value in [('Contact', order.contact_name), ('Email', order.email), ('Phone', order.phone), ('Organization', order.organization_name), ('City', order.city)] %}
+  <dt>{{ label }}</dt><dd>{{ value if value is not none else '—' }}</dd>
+  {% endfor %}
+  <dt>Comment / confirmed support description</dt>
+  <dd style="white-space: pre-wrap; overflow-wrap: anywhere">{{ order.comment if order.comment is not none else '—' }}</dd>
+</dl></section>
+<section aria-labelledby="snapshots"><h3 id="snapshots">Original item snapshots</h3>
+<div class="table-responsive"><table class="table table-striped">
+  <caption>Confirmed items at creation time</caption>
+  <thead><tr>{% for label in ['SKU', 'Name', 'Kind', 'Quantity', 'Unit', 'Price mode', 'Unit price', 'Catalog revision', 'Tax note', 'Shipping required'] %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for item in order.items %}<tr>
+    <td>{{ item.sku_snapshot }}</td><td>{{ item.name_snapshot }}</td><td>{{ item.kind_snapshot }}</td>
+    <td>{{ item.qty }}</td><td>{{ item.unit_snapshot }}</td><td>{{ item.price_mode_snapshot }}</td>
+    <td>{{ money(item.unit_price_snapshot, item.currency_snapshot) }}</td>
+    <td>{{ item.catalog_revision_snapshot }}</td><td>{{ item.tax_note_snapshot }}</td>
+    <td>{{ 'Yes' if item.requires_shipping_snapshot else 'No' }}</td>
+  </tr>{% else %}<tr><td colspan="10">No items.</td></tr>{% endfor %}</tbody>
+</table></div></section>
+<section aria-labelledby="financials"><h3 id="financials">Original financial aggregates</h3>
+<dl>
+  <dt>Known subtotal (may be partial)</dt><dd>{{ money(order.known_subtotal, order.currency) }}</dd>
+  <dt>Items total</dt><dd>{% if order.kind == 'support' %}Not applicable{% else %}{{ money(order.items_total, order.currency) }}{% endif %}</dd>
+  <dt>Delivery status</dt><dd>{{ order.delivery_status }}</dd>
+  <dt>Delivery cost</dt><dd>{{ money(order.delivery_cost, order.currency) }}</dd>
+  <dt>Total amount</dt><dd>{% if order.kind == 'support' %}Not applicable{% else %}{{ money(order.total_amount, order.currency) }}{% endif %}</dd>
+</dl></section>
+<section aria-labelledby="consent"><h3 id="consent">Consent evidence</h3>
+<dl>
+  <dt>Associated consent</dt><dd>{{ order.consent.id }}</dd>
+  <dt>Text version</dt><dd>{{ order.consent.text_version }}</dd>
+  <dt>Granted (UTC)</dt><dd>{{ order.consent.granted_at.isoformat() }}</dd>
+  <dt>Channel</dt><dd>{{ order.consent.channel }}</dd>
+  <dt>Purpose</dt><dd>{{ order.consent.purpose }}</dd>
+  <dt>Text checksum</dt><dd>{{ order.consent.checksum }}</dd>
+  <dt>Revoked (UTC)</dt><dd>{{ order.consent.revoked_at.isoformat() if order.consent.revoked_at else '—' }}</dd>
+</dl></section>
+<section aria-labelledby="history"><h3 id="history">Status history</h3>
+<table class="table"><caption>Persisted transitions, oldest first</caption>
+  <thead><tr><th scope="col">At (UTC)</th><th scope="col">From</th><th scope="col">To</th><th scope="col">Actor</th><th scope="col">Reason</th></tr></thead>
+  <tbody>{% for entry in order.history %}<tr>
+    <td>{{ entry.at.isoformat() }}</td><td>{{ entry.from_status or '—' }}</td><td>{{ entry.to_status }}</td>
+    <td>{{ entry.changed_by if entry.changed_by else 'System' }}</td><td style="white-space: pre-wrap; overflow-wrap: anywhere">{{ entry.reason if entry.reason is not none else '—' }}</td>
+  </tr>{% else %}<tr><td colspan="5">No history.</td></tr>{% endfor %}</tbody>
+</table></section>
+<section aria-labelledby="notification"><h3 id="notification">Notification</h3>
+<p>{{ order.notification_status if order.notification_status else 'No retained notification record' }}</p>
+<p>Order viewing is independent of email delivery.</p></section>
+{% endblock %}

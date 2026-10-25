@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.admin.auth import router as auth_router
+from app.admin.orders import router as admin_orders_router
 from app.admin.security import StaffSecurityMiddleware
 from app.admin.sqladmin import install_sqladmin
 from app.core.api_errors import install_api_errors
@@ -19,6 +20,7 @@ install_api_errors(app)
 app.include_router(catalog_router)
 app.include_router(orders_router)
 app.include_router(auth_router)
+app.include_router(admin_orders_router)
 
 
 @app.get("/healthz")
