@@ -11,6 +11,7 @@ import secrets
 import socket
 import subprocess
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
@@ -217,6 +218,48 @@ def main() -> None:
             "AND h.to_status='new' AND h.changed_by IS NULL "
             "AND e.status='pending'"
         ) == "1"
+        # MVP-010 acceptance through Nginx, including real concurrent POSTs.
+        def post_order(payload: dict, headers: dict) -> tuple[int, dict]:
+            request = Request(submit.full_url, data=json.dumps(payload).encode(),
+                              headers=headers, method="POST")
+            try:
+                result = opener.open(request, timeout=15)
+            except HTTPError as error:
+                result = error
+            with result:
+                assert result.headers["Cache-Control"] == "no-store"
+                return result.status, json.load(result)
+
+        # urllib adds Content-Length to the first Request; each new body needs
+        # its own length, including shorter conflict/negative test bodies.
+        original_headers = {name: value for name, value in submit.header_items()
+                            if name.lower() != "content-length"}
+        status, replay = post_order(body, original_headers)
+        assert status == 200 and replay == receipt
+        changed = body | {"comment": "Changed synthetic request"}
+        status, conflict = post_order(changed, original_headers)
+        assert status == 409 and conflict["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+        wrong_headers = original_headers | {"X-request-token": "0" * 64}
+        for payload in (body, changed):
+            status, hidden = post_order(payload, wrong_headers)
+            assert status == 404 and hidden["error"] == {
+                "code": "NOT_FOUND", "message": "Object not found", "details": {},
+            }
+        status, invalid = post_order(body, original_headers | {"X-request-token": "invalid"})
+        assert status == 422 and invalid["error"]["code"] == "VALIDATION_ERROR"
+        concurrent_headers = original_headers | {"Idempotency-key": str(uuid.uuid4())}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            concurrent = list(pool.map(lambda _: post_order(body, concurrent_headers), range(4)))
+        assert sorted(status for status, _ in concurrent) == [200, 200, 200, 201]
+        assert all(value == concurrent[0][1] for _, value in concurrent)
+        concurrent_counts = json.loads(sql(
+            "SELECT json_build_array((SELECT count(*) FROM app.orders), "
+            "(SELECT count(*) FROM app.consents), (SELECT count(*) FROM app.order_items), "
+            "(SELECT count(*) FROM app.order_status_history), (SELECT count(*) FROM app.email_outbox))"
+        ))
+        assert concurrent_counts == [2, 2, 6, 2, 2]
+        print("PASS: HTTP replay=200, conflict=409, hidden=404, transport=422; "
+              "parallel POST=[201,200,200,200], SQL counts=" + json.dumps(concurrent_counts), flush=True)
         logs = compose("logs", "--no-color", "api", "nginx", "postgres")
         audit_and_outbox = sql(
             "SELECT coalesce(json_agg(row_to_json(a))::text,'[]') FROM app.audit_events a"

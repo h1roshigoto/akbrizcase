@@ -1,12 +1,14 @@
-"""Atomic creation using the caller's Session. No commit, replay or delivery."""
+"""Atomic creation and locked receipt replay within the caller's UoW."""
 
 import hashlib
+import hmac
 import os
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.staff_sessions import token_hash
 from app.modules.catalog.models import CatalogItem
@@ -28,12 +30,76 @@ ZERO = Decimal("0.00")
 MAX_AMOUNT = Decimal("9999999999.99")  # Existing numeric(12,2) storage.
 
 
+def within_replay_window(created_at: datetime, now: datetime) -> bool:
+    return now <= created_at + timedelta(hours=24)
+
+
 class OrderRejected(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
         self.status = status
         self.code = code
         self.message = message
         super().__init__(message)
+
+
+def replay_order(
+    session: Session,
+    request: OrderCreate,
+    headers: OrderHeaders,
+    security: OrderSecurity,
+) -> OrderReceipt | None:
+    # UPDATE conflicts with erasure's UPDATE/DELETE. READ COMMITTED refreshes
+    # after waiting; hold the lock until the outer UoW has completed. Never load
+    # contacts, comments, manager status/history or current catalog/outbox here.
+    order = session.scalar(
+        select(Order)
+        .where(Order.idempotency_key == headers.idempotency_key)
+        .options(
+            load_only(
+                Order.number,
+                Order.pii_erased_at,
+                Order.receipt_token_hash,
+                Order.request_hash,
+                Order.created_at,
+                Order.known_subtotal,
+                Order.items_total,
+                Order.delivery_status,
+                Order.delivery_cost,
+                Order.total_amount,
+                raiseload=True,
+            )
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if order is None:
+        return None
+    submitted = token_hash(headers.request_token)
+    # An ephemeral dummy digest gives erased and wrong-token paths the same
+    # token-hash/compare work, without retaining any erased verification data.
+    authenticated = hmac.compare_digest(order.receipt_token_hash or "0" * 64, submitted)
+    if order.pii_erased_at is not None or not authenticated:
+        raise OrderRejected(404, "NOT_FOUND", "Object not found")
+    now = session.scalar(select(func.clock_timestamp()))
+    if now is None or not within_replay_window(order.created_at, now):
+        # Retain uniqueness, without promising replay after the guarantee.
+        raise OrderRejected(404, "NOT_FOUND", "Object not found")
+    if not security.matches_request(request, order.request_hash or ""):
+        raise OrderRejected(409, "IDEMPOTENCY_CONFLICT", "Idempotency conflict")
+    return OrderReceipt(
+        number=order.number,
+        status="new",
+        known_subtotal=order.known_subtotal,
+        items_total=order.items_total,
+        delivery_status=(
+            "not_required"
+            if order.delivery_status == "not_required"
+            else "pending_quote"
+        ),
+        delivery_cost=order.delivery_cost,
+        total_amount=order.total_amount,
+        currency="RUB",
+    )
 
 
 def effective_consent(session: Session, *, lock: bool = False) -> ConsentTextDTO:

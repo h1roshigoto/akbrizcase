@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
@@ -11,7 +11,12 @@ from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.modules.orders.security import OrderSecurity
-from app.modules.orders.service import OrderRejected, create_order, effective_consent
+from app.modules.orders.service import (
+    OrderRejected,
+    create_order,
+    effective_consent,
+    replay_order,
+)
 from app.schemas.common import ErrorEnvelope, OrderHeaders, SecretToken, UUIDValue
 from app.schemas.consent import ConsentText
 from app.schemas.orders import OrderCreate, OrderReceipt
@@ -43,28 +48,41 @@ def consent_text(request: Request) -> ConsentText | JSONResponse:
 
 def persist_order(
     request: Request, body: OrderCreate, headers: OrderHeaders
-) -> OrderReceipt:
+) -> tuple[OrderReceipt, int]:
     security: OrderSecurity | None = request.app.state.order_security
     if security is None:
         raise HTTPException(503)
     try:
         with database_for(request).unit_of_work() as session:
-            receipt = create_order(session, body, headers, security)
-        return receipt  # The outer UoW has committed, including late constraints.
+            receipt = replay_order(session, body, headers, security)
+            status = 200 if receipt is not None else 201
+            if receipt is None:
+                receipt = create_order(session, body, headers, security)
+        return receipt, status  # Outer UoW committed, including late constraints.
     except IntegrityError as error:
-        if getattr(getattr(error.orig, "diag", None), "constraint_name", None) == (
-            "uq_orders_idempotency_key"
+        if (
+            getattr(error.orig, "sqlstate", None) != "23505"
+            or getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            != "uq_orders_idempotency_key"
         ):
-            # Creation-only boundary: no read of the winner or ownership decision.
-            raise OrderRejected(404, "NOT_FOUND", "Object not found") from None
-        raise
+            raise
+    # The failed UoW has fully rolled back and closed before this new Session.
+    with database_for(request).unit_of_work() as session:
+        receipt = replay_order(session, body, headers, security)
+        if receipt is None:  # Winner was deleted; never recreate in this attempt.
+            raise OrderRejected(404, "NOT_FOUND", "Object not found")
+    return receipt, 200
 
 
 @router.post(
     "/orders",
     response_model=OrderReceipt,
     status_code=201,
-    responses={404: {"model": ErrorEnvelope}, 409: {"model": ErrorEnvelope}},
+    responses={
+        200: {"model": OrderReceipt},
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+    },
     openapi_extra={
         "requestBody": {
             "required": True,
@@ -80,11 +98,12 @@ def persist_order(
             },
         }
     },
-    description="Creation only, source=site. Maximum JSON body: 65536 bytes. "
-    "Replay is unavailable pending MVP-010 and AQ-01.",
+    description="Create or replay with source=site. Maximum JSON body: 65536 bytes. "
+    "Authenticated replay is available for 24 hours unless the order is erased.",
 )
 async def orders(
     request: Request,
+    response: Response,
     idempotency_key: Annotated[UUIDValue, Header(alias="Idempotency-Key")],
     request_token: Annotated[SecretToken, Header(alias="X-Request-Token")],
 ) -> OrderReceipt | JSONResponse:
@@ -110,6 +129,9 @@ async def orders(
         {"Idempotency-Key": idempotency_key, "X-Request-Token": request_token}
     )
     try:
-        return await run_in_threadpool(persist_order, request, body, headers)
+        receipt, response.status_code = await run_in_threadpool(
+            persist_order, request, body, headers
+        )
+        return receipt
     except OrderRejected as error:
         return error_response(request, error.status, error.code, error.message)
