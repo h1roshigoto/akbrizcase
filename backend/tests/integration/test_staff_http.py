@@ -18,12 +18,12 @@ from itsdangerous import TimestampSigner
 from sqladmin import expose
 from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import Connection
-from starlette.exceptions import HTTPException
 from starlette.responses import PlainTextResponse
 
 from app.admin.auth import router
 from app.admin.security import StaffSecurityMiddleware, require_role
 from app.admin.sqladmin import StaffBaseView, StaffModelView, install_sqladmin
+from app.core.api_errors import install_api_errors
 from app.core.auth import hash_password
 from app.core.csrf import LOGIN_COOKIE, SESSION_COOKIE, StaffSecurity
 from app.core.db import Database
@@ -31,7 +31,6 @@ from app.core.db_types import utc_now
 from app.core.staff import bootstrap_admin, create_staff, disable_staff, lock_staff
 from app.core.staff_models import AuditEvent, StaffSession, StaffUser
 from app.core.staff_sessions import StaffIdentity, resolve_session, token_hash
-from app.main import http_error
 
 pytestmark = pytest.mark.integration
 ORIGIN = "https://localhost:8443"
@@ -79,8 +78,8 @@ def http_app(staff_database: Database) -> FastAPI:
     app = FastAPI()
     app.state.database = staff_database
     app.state.staff_security = StaffSecurity(frozenset({ORIGIN}), secrets.token_hex(32))
-    app.exception_handler(HTTPException)(http_error)
     app.add_middleware(StaffSecurityMiddleware)
+    install_api_errors(app)
     app.include_router(router)
 
     @app.post("/api/v1/admin/security-probe")
@@ -121,7 +120,8 @@ def assert_error(response: Response, status: int, code: str) -> None:
     body = response.json()
     assert body["error"]["code"] == code
     assert body["error"]["details"] == {}
-    UUID(body["request_id"])
+    assert UUID(body["request_id"]).version == 4
+    assert body["request_id"] == response.headers["x-request-id"]
     assert response.headers["cache-control"] == "no-store"
 
 

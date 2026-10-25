@@ -11,6 +11,7 @@ import socket
 import subprocess
 import uuid
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import ProxyHandler, build_opener
 
 
@@ -82,7 +83,9 @@ def main() -> None:
         compose("run", "--rm", "migrate")
         compose("run", "--rm", "migrate")
         assert http("/readyz") == (200, '{"status":"ok"}')
-        assert sql("SELECT version_num FROM app.alembic_version") == "0002_mvp006_catalog"
+        assert (
+            sql("SELECT version_num FROM app.alembic_version") == "0002_mvp006_catalog"
+        )
         assert sql(
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
             "WHERE schemaname = 'app'"
@@ -119,6 +122,93 @@ def main() -> None:
         else:
             raise AssertionError("Production environment accepted seed")
         print("PASS: seed guards and idempotent synthetic demo catalog", flush=True)
+        # Public API acceptance through the real Nginx -> API -> PostgreSQL path.
+        # All additional rows belong only to this marked disposable smoke DB.
+        sql("""
+            INSERT INTO app.catalog_items
+                (id, sku, kind, name, description, unit, price_mode, price,
+                 tax_note, status, image_key)
+            VALUES
+                ('00000000-0000-4000-8000-000000000007', 'SMOKE-S-007',
+                 'service', 'Синтетическая услуга', 'Только тест', 'услуга',
+                 'on_request', NULL, 'ТЕСТ', 'published', '/private/internal.png'),
+                ('00000000-0000-4000-8000-000000000008', 'SMOKE-DRAFT',
+                 'product', 'Скрытая позиция', 'Только тест', 'шт.',
+                 'on_request', NULL, 'ТЕСТ', 'draft', NULL),
+                ('00000000-0000-4000-8000-000000000009', 'SMOKE-ARCHIVED',
+                 'product', 'Архивная позиция', 'Только тест', 'шт.',
+                 'on_request', NULL, 'ТЕСТ', 'archived', NULL);
+            INSERT INTO app.equipment_models (id, code, name, description, status)
+            VALUES
+                ('00000000-0000-4000-8000-000000000008', 'SMOKE-DRAFT',
+                 'Скрытая модель', 'Только тест', 'draft'),
+                ('00000000-0000-4000-8000-000000000009', 'SMOKE-ARCHIVED',
+                 'Архивная модель', 'Только тест', 'archived');
+        """)
+
+        def api_json(path: str, expected_status: int = 200) -> dict:
+            status, body = http(path)
+            assert status == expected_status, (path, status, body)
+            value = json.loads(body)
+            if expected_status != 200:
+                assert set(value) == {"error", "request_id"}
+                assert str(uuid.UUID(value["request_id"])) == value["request_id"]
+                assert value["error"]["details"] == {}
+            return value
+
+        catalog = api_json("/api/v1/catalog/items")
+        assert (catalog["total"], catalog["limit"], catalog["offset"]) == (5, 20, 0)
+        rows = {row["sku"]: row for row in catalog["items"]}
+        assert rows["DEMO-P-001"]["price"] == "123.45"
+        assert rows["DEMO-P-003"]["price"] == "0.00"
+        assert rows["SMOKE-S-007"]["price"] is None
+        assert rows["SMOKE-S-007"]["price_mode"] == "on_request"
+        models = api_json("/api/v1/equipment-models")
+        assert models["total"] == 1 and len(models["items"]) == 1
+        model_id = models["items"][0]["id"]
+        for row in rows.values():
+            path = f"/api/v1/catalog/items/{row['id']}"
+            detail = api_json(path)
+            assert {key: detail[key] for key in row} == row
+            assert detail["image_url"] is None and detail["applicability"] is None
+            assert "image_key" not in detail and "/private/" not in json.dumps(detail)
+            assert api_json(path + "?model_id=" + model_id)["applicability"] == {
+                "model_id": model_id,
+                "status": "unknown",
+                "sources": [],
+            }
+        for kind, total in (("product", 3), ("service", 2)):
+            result = api_json(f"/api/v1/catalog/items?kind={kind}&limit=1&offset=1")
+            assert result["total"] == total and len(result["items"]) == 1
+            assert result["items"][0]["kind"] == kind
+        for query in ("фильтр", "DEMO-P-001", "P-001"):
+            result = api_json("/api/v1/catalog/items?" + urlencode({"q": query}))
+            assert result["total"] == 1
+            assert result["items"][0]["sku"] == "DEMO-P-001"
+        assert api_json("/api/v1/catalog/items?q=missing")["items"] == []
+        assert api_json("/api/v1/catalog/items?limit=100&offset=10000")["items"] == []
+        for identifier in (
+            "00000000-0000-4000-8000-000000000008",
+            "00000000-0000-4000-8000-000000000009",
+            "00000000-0000-4000-8000-000000000099",
+        ):
+            api_json("/api/v1/catalog/items/" + identifier, 404)
+            api_json(
+                f"/api/v1/catalog/items/{rows['DEMO-P-001']['id']}?model_id={identifier}",
+                404,
+            )
+        for identifier in (model_id, "00000000-0000-4000-8000-000000000008"):
+            result = api_json("/api/v1/catalog/items?model_id=" + identifier)
+            assert result["items"] == [] and result["total"] == 0
+        for query in ("limit=101", "offset=10001", "kind=invalid", "model_id=invalid"):
+            api_json("/api/v1/catalog/items?" + query, 422)
+        api_json("/api/v1/catalog/items?" + urlencode({"q": "я" * 1001}), 422)
+        api_json("/api/v1/catalog/items/invalid", 422)
+        api_json(f"/api/v1/catalog/items/{rows['DEMO-P-001']['id']}/image/key.png", 404)
+        print(
+            "PASS: public catalog/search/DTOs/hidden IDs/applicability through Nginx",
+            flush=True,
+        )
         status, body = http("/healthz")
         assert status == 200 and json.loads(body) == {"status": "ok"}
         status, page = http("/")
@@ -129,7 +219,7 @@ def main() -> None:
         assert all(status == 200 for status, _ in bundles)
         assert any("B2B-портал" in body for _, body in bundles)
         status, body = http("/api/v1/not-implemented")
-        assert status == 404 and json.loads(body) == {"detail": "Not Found"}
+        assert status == 404 and json.loads(body)["error"]["code"] == "NOT_FOUND"
         print("PASS: Nginx health, UI/assets and API proxy", flush=True)
 
         api, worker, db, nginx = (
@@ -211,8 +301,15 @@ def main() -> None:
         compose("stop", "postgres")
         assert http("/healthz")[0] == 200
         assert http("/readyz") == (503, '{"status":"unavailable"}')
+        for path in (
+            "/api/v1/catalog/items",
+            "/api/v1/equipment-models",
+            f"/api/v1/catalog/items/{rows['DEMO-P-001']['id']}",
+        ):
+            assert api_json(path, 503)["error"]["code"] == "SERVICE_UNAVAILABLE"
         compose("up", "--no-build", "--detach", "--wait", "postgres")
         assert http("/readyz")[0] == 200
+        assert api_json("/api/v1/catalog/items")["total"] == 5
         print("PASS: DB outage preserves liveness and fails readiness", flush=True)
 
         marker = uuid.uuid4().hex

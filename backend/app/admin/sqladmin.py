@@ -50,14 +50,16 @@ class StaffAuthentication(AuthenticationBackend):
                 action="staff.access",
                 result="forbidden",
             )
-            return error_response(403, "FORBIDDEN", "Insufficient permissions")
+            return error_response(request, 403, "FORBIDDEN", "Insufficient permissions")
         return True
 
     async def login(self, request: Request) -> bool:
         return False  # The explicit /admin/auth/login endpoint owns issuance.
 
     async def logout(self, request: Request) -> Response | bool:
-        return error_response(405, "METHOD_NOT_ALLOWED", "Use POST /admin/auth/logout")
+        return error_response(
+            request, 405, "METHOD_NOT_ALLOWED", "Use POST /admin/auth/logout"
+        )
 
 
 class StaffModelView(ModelView):

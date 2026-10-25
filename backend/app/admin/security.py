@@ -6,7 +6,6 @@ administrative mutations, including unregistered/direct form URLs, pass CSRF.
 
 from collections.abc import Callable, Iterator
 from typing import Annotated
-from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
+from app.core.api_errors import error_response as api_error_response
 from app.core.audit import StaffResult, record_staff_event
 from app.core.auth import StaffRole, has_role
 from app.core.csrf import LOGIN_COOKIE, LOGIN_SECONDS, SESSION_COOKIE, StaffSecurity
@@ -24,15 +24,12 @@ from app.core.staff import lock_staff
 from app.core.staff_sessions import SESSION_SECONDS, StaffIdentity, resolve_session
 
 
-def error_response(status: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        {
-            "error": {"code": code, "message": message, "details": {}},
-            "request_id": str(uuid4()),
-        },
-        status_code=status,
-        headers={"Cache-Control": "no-store"},
-    )
+def error_response(
+    request: Request, status: int, code: str, message: str
+) -> JSONResponse:
+    response = api_error_response(request, status, code, message)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def security_settings(request: Request) -> StaffSecurity:
@@ -110,7 +107,7 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
         except (SQLAlchemyError, OSError):
             # Never log exception text/SQL/parameters or return a partial login.
             response = error_response(
-                503, "AUTH_UNAVAILABLE", "Authentication unavailable"
+                request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"
             )
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -125,19 +122,22 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
         security: StaffSecurity | None = request.app.state.staff_security
         if security is None:
             return error_response(
-                503, "SECURITY_UNAVAILABLE", "Authentication unavailable"
+                request, 503, "SECURITY_UNAVAILABLE", "Authentication unavailable"
             )
         request.state.staff_security = security
         # Only configured HTTPS authorities may generate admin URLs. This uses
         # the explicit allowlist, never client-controlled forwarding headers.
         if "https://" + request.headers.get("host", "") not in security.trusted_origins:
-            return error_response(403, "ORIGIN_DENIED", "Origin denied")
+            return error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
         request.scope["scheme"] = "https"
         path, method = request.url.path, request.method
         unsafe = method not in ("GET", "HEAD", "OPTIONS")
         if path == "/admin/logout" or (path == "/admin/login" and unsafe):
             return error_response(
-                405, "METHOD_NOT_ALLOWED", "Use the protected authentication endpoints"
+                request,
+                405,
+                "METHOD_NOT_ALLOWED",
+                "Use the protected authentication endpoints",
             )
         preauth = (
             (path == "/admin/login" and method in ("GET", "HEAD"))
@@ -155,15 +155,19 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
                 or origin != "https://" + request.headers.get("host", "")
             ):
                 await self._anonymous_denial(request, "origin_denied")
-                return error_response(403, "ORIGIN_DENIED", "Origin denied")
+                return error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
         if preauth:
             if unsafe and not await self._valid_csrf(request, security, login=True):
                 await self._anonymous_denial(request, "csrf_denied")
-                return error_response(403, "CSRF_DENIED", "CSRF verification failed")
+                return error_response(
+                    request, 403, "CSRF_DENIED", "CSRF verification failed"
+                )
             return await call_next(request)
         database: Database | None = request.app.state.database
         if database is None:
-            return error_response(503, "AUTH_UNAVAILABLE", "Authentication unavailable")
+            return error_response(
+                request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"
+            )
         uow = database.unit_of_work()
         session = await run_in_threadpool(uow.__enter__)
         response: Response
@@ -183,7 +187,7 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
                     result="authentication_denied",
                 )
                 response = error_response(
-                    401, "AUTHENTICATION_REQUIRED", "Authentication required"
+                    request, 401, "AUTHENTICATION_REQUIRED", "Authentication required"
                 )
             elif unsafe and not await self._valid_csrf(request, security, login=False):
                 await run_in_threadpool(
@@ -194,7 +198,7 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
                     result="csrf_denied",
                 )
                 response = error_response(
-                    403, "CSRF_DENIED", "CSRF verification failed"
+                    request, 403, "CSRF_DENIED", "CSRF verification failed"
                 )
             else:
                 response = await call_next(request)

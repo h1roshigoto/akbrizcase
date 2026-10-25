@@ -87,10 +87,14 @@ async def login(request: Request) -> Response:
                 values.pop("csrf_token", None)
                 credentials = LoginRequest.model_validate(values)
     except (ValidationError, ValueError):
-        return error_response(422, "INVALID_REQUEST", "Invalid authentication request")
+        return error_response(
+            request, 422, "INVALID_REQUEST", "Invalid authentication request"
+        )
     database: Database | None = request.app.state.database
     if database is None:
-        return error_response(503, "AUTH_UNAVAILABLE", "Authentication unavailable")
+        return error_response(
+            request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"
+        )
 
     def create() -> IssuedSession | None:
         with database.unit_of_work() as session:
@@ -100,7 +104,9 @@ async def login(request: Request) -> Response:
 
     issued = await run_in_threadpool(create)
     if issued is None:
-        return error_response(401, "AUTHENTICATION_FAILED", "Invalid credentials")
+        return error_response(
+            request, 401, "AUTHENTICATION_FAILED", "Invalid credentials"
+        )
     security = security_settings(request)
     response: Response
     if is_json:

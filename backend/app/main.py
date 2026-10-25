@@ -1,48 +1,22 @@
 """ASGI entrypoint: uvicorn app.main:app."""
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import (
-    http_exception_handler,
-    request_validation_exception_handler,
-)
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
-from starlette.responses import Response
 
 from app.admin.auth import router as auth_router
-from app.admin.security import StaffSecurityMiddleware, error_response
+from app.admin.security import StaffSecurityMiddleware
 from app.admin.sqladmin import install_sqladmin
+from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
+from app.modules.catalog.router import router as catalog_router
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=database_lifespan)
 app.add_middleware(StaffSecurityMiddleware)
+# Install last so request IDs wrap even early staff middleware denials.
+install_api_errors(app)
+app.include_router(catalog_router)
 app.include_router(auth_router)
-
-
-@app.exception_handler(HTTPException)
-async def http_error(request: Request, exc: HTTPException) -> Response:
-    if not request.url.path.startswith(("/admin", "/api/v1/admin")):
-        return await http_exception_handler(request, exc)
-    codes = {
-        401: "AUTHENTICATION_REQUIRED",
-        403: "FORBIDDEN",
-        404: "NOT_FOUND",
-        405: "METHOD_NOT_ALLOWED",
-        503: "AUTH_UNAVAILABLE",
-    }
-    return error_response(
-        exc.status_code, codes.get(exc.status_code, "REQUEST_FAILED"), "Request failed"
-    )
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_error(request: Request, exc: RequestValidationError) -> Response:
-    if not request.url.path.startswith(("/admin", "/api/v1/admin")):
-        return await request_validation_exception_handler(request, exc)
-    # Pydantic error input may contain passwords, cookies or arbitrary bodies.
-    return error_response(422, "INVALID_REQUEST", "Invalid request")
 
 
 @app.get("/healthz")
