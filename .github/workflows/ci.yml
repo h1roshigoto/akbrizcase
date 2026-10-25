@@ -103,6 +103,8 @@ jobs:
       - name: Install Chromium with system dependencies
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+      - name: Live PostgreSQL catalog browser acceptance
+        run: make catalog-browser-smoke
       - name: Trusted HTTPS browser authentication and CSRF
         run: |
           make local-tls
