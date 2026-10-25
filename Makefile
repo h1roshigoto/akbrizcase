@@ -95,3 +95,7 @@ https-up: check-secrets
 
 https-smoke:
 	python3 scripts/https_smoke.py
+
+.PHONY: catalog-browser-smoke
+catalog-browser-smoke:
+	python3 scripts/catalog_browser_smoke.py

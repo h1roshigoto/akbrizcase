@@ -1,9 +1,9 @@
-# Frontend — MVP-012, этап 1 (fixtures)
+# Frontend — MVP-012, live catalog
 
 React + TypeScript + Vite: каталог, подробная карточка и общий список выбранных
-товаров/услуг. **Это UI на синтетических контрактных fixtures из MVP-002,
-не полное завершение MVP-012.** Backend каталога MVP-007 ещё не подключён,
-сохранение в PostgreSQL и отправка заявки не реализованы.
+товаров/услуг. `App` использует `httpCatalog`: реальные same-origin GET через
+Nginx → FastAPI → PostgreSQL. При ошибке API показывается ошибка с повтором;
+подмены fixtures нет. Отправка заявки относится к следующему этапу.
 
 ## Запуск и проверки
 
@@ -19,11 +19,28 @@ npm run preview
 ```
 
 Dev: <http://127.0.0.1:5173>, preview production-сборки:
-<http://127.0.0.1:4173>. Для этого этапа backend и `.env` не нужны.
+<http://127.0.0.1:4173>. Эти standalone-серверы не проксируют API: для
+работающего каталога используйте Compose с backend и миграциями.
 `build` включает typecheck. Vitest + jsdom + Testing Library проверяют UI
 и границы адаптеров; версии закреплены в `package.json` и lockfile.
 GitHub Actions запускает `npm --prefix frontend test` вместе с прежними
 проверками типов, сборки, backend, Compose и PostgreSQL.
+
+Из корня репозитория для сквозной проверки:
+
+```sh
+cp .env.example .env
+make init-secrets config build
+npm --prefix frontend ci
+cd frontend && npx playwright install --with-deps chromium && cd ..
+make catalog-browser-smoke
+```
+
+Runner создаёт уникальный Compose-проект и временные секреты, применяет
+миграции, маркирует только свою новую БД и запускает существующий guarded
+demo seed. Обычный demo volume не используется. После проверки удаляются
+только volumes этого проекта. `CHROMIUM_EXECUTABLE=/usr/bin/chromium`
+позволяет явно использовать установленный системный Chromium.
 
 ## Работа интерфейса
 
@@ -32,14 +49,12 @@ GitHub Actions запускает `npm --prefix frontend test` вместе с �
 - Фильтр модели оставляет только публично подтверждённые позиции. Открытая
   карточка сохраняет контекст модели и показывает `confirmed` или `unknown`;
   unknown не означает несовместимость. Без модели applicability = null.
-- Список использует `CatalogCard`; описание загружается отдельно как
-  `CatalogItem`. Утверждённое описание есть только у `catalog_item`.
-  Для двух остальных примеров адаптер возвращает пустое описание/attributes,
-  а UI явно показывает отсутствие описания в fixture. Новые описания,
-  подтверждения и цены не придуманы.
+- Список использует `CatalogCard`; описание загружается отдельным HTTP
+  запросом как `CatalogItem`. До MVP-024 фильтр модели честно возвращает
+  пустой список: подтверждённых связей в БД ещё нет.
 - Изображение берётся только с разрешённого same-origin пути своей позиции.
-  При null, небезопасном URL или ошибке загрузки — заглушка. Путь изображения
-  DEMO-CONFIRMED из fixture пока не обслуживается: заглушка ожидаема.
+  При null, небезопасном URL или ошибке загрузки — заглушка. До MVP-025
+  backend всегда возвращает image_url=null.
 - Добавление одной позиции повторно отключено. Общий список сохраняется
   при фильтрах и переходе в карточку. Количество — целое 1–999; удаление явно.
   Защитный лимит списка — 100 позиций.
@@ -53,10 +68,10 @@ GitHub Actions запускает `npm --prefix frontend test` вместе с �
 ## Данные и подключение API
 
 `src/api/catalog.ts` задаёт интерфейс источника. В `src/App.tsx` явно выбран
-`fixtureCatalog` — адаптер только каталожных частей утверждённых fixtures.
-Он не перехватывает HTTP и не создаёт fake backend.
+`httpCatalog`. `fixtureCatalog` доступен только изолированным тестам; runtime
+его не импортирует и не переключается на него при сбое.
 
-`httpCatalog` — отдельный, пока не активный клиент same-origin GET:
+`httpCatalog` выполняет same-origin GET:
 
 - `/api/v1/equipment-models?limit=100&offset=…` (все страницы моделей);
 - `/api/v1/catalog/items?q=…&kind=…&model_id=…&limit=…&offset=…`;
@@ -79,7 +94,8 @@ GitHub Actions запускает `npm --prefix frontend test` вместе с �
 React как текст, без raw HTML. Секреты и `.env` не нужны: всё в bundle и
 `VITE_*` публично, чувствительные значения туда помещать нельзя.
 
-## Следующий этап
+## Приёмка
 
-Точный остаток до полного DoD и скриншоты:
+Текущий отчёт и воспроизводимые проверки:
+[docs/MVP-012.md](../docs/MVP-012.md). Исторический первый этап и скриншоты:
 [docs/MVP-012-stage-1.md](../docs/MVP-012-stage-1.md).

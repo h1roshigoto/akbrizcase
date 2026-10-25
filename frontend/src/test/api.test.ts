@@ -5,7 +5,7 @@ import { fixtureCatalog } from '../api/fixtureCatalog'
 
 const signal = () => new AbortController().signal
 
-describe('real API transport (prepared, not enabled in App)', () => {
+describe('real API transport', () => {
   it('only makes same-origin GET calls with encoded filters and model context', async () => {
     const fetcher = vi
       .fn()
