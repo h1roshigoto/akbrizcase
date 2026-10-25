@@ -1,1 +1,1 @@
-"""Catalog persistence; public HTTP API follows in MVP-007."""
+"""PostgreSQL catalog and published-only public read API."""
