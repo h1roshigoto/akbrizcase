@@ -1,12 +1,15 @@
-"""MVP-009 HTTP and locking on PostgreSQL 16. Replay remains MVP-010/AQ-01."""
+"""Order creation, replay and locking on real PostgreSQL 16."""
 
 import hashlib
 import json
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
-from threading import Event
+from pathlib import Path
+from statistics import median
+from threading import Barrier, Event, get_ident
 from time import monotonic
 from uuid import uuid4
 
@@ -16,7 +19,7 @@ from pytest import LogCaptureFixture, MonkeyPatch
 from sqlalchemy import delete, event, func, select, text, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import ORMExecuteState, Session
 
 from app.core.db import Database, DatabaseSettings
 from app.core.db_types import utc_now
@@ -403,7 +406,7 @@ def test_overflow(creation_client: TestClient, creation_db: Database) -> None:
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
-def test_concurrent_requests_and_creation_only_duplicate_limit(
+def test_concurrent_requests_and_canonical_array_order(
     creation_client: TestClient, creation_db: Database, duplicate: bool
 ) -> None:
     body = commercial(creation_db, ("DEMO-P-001", "DEMO-S-001"))
@@ -424,22 +427,28 @@ def test_concurrent_requests_and_creation_only_duplicate_limit(
     with ThreadPoolExecutor(max_workers=4) as pool:
         statuses = list(pool.map(submit, range(4)))
     accepted = 1 if duplicate else 4
-    assert sorted(statuses) == ([201, 404, 404, 404] if duplicate else [201] * 4)
+    assert sorted(statuses) == ([200, 201, 409, 409] if duplicate else [201] * 4)
     assert counts(creation_db) == (accepted, accepted, accepted * 2, accepted, accepted)
     if duplicate:
-        # Deliberately no MVP-010 200 replay, body conflict or owner verification.
+        with creation_db.unit_of_work() as session:
+            saved = session.scalars(select(Order)).one().request_hash
+        winning_body = next(
+            candidate
+            for candidate in (body, reverse)
+            if app.state.order_security.request_hash(
+                OrderCreate.model_validate(candidate)
+            )
+            == saved
+        )
         for token in (headers["X-Request-Token"], "b" * 64):
             response = creation_client.post(
                 "/api/v1/orders",
-                json=body,
+                json=winning_body,
                 headers=headers | {"X-Request-Token": token},
             )
-            assert response.status_code == 404
-            assert response.json()["error"] == {
-                "code": "NOT_FOUND",
-                "message": "Object not found",
-                "details": {},
-            }
+            assert response.status_code == (
+                200 if token == headers["X-Request-Token"] else 404
+            )
 
 
 @pytest.mark.parametrize("writer_first", [False, True])
@@ -600,3 +609,493 @@ def test_service_unknown_without_shipping(
     assert response.json()["items_total"] is None
     assert response.json()["delivery_cost"] == "0.00"
     assert response.json()["total_amount"] is None
+
+
+def erase_fixture(database: Database) -> None:
+    """Synthetic atomic erasure only; the production worker remains MVP-038."""
+    with database.unit_of_work() as session:
+        session.execute(
+            update(Order).values(
+                pii_erased_at=utc_now(),
+                organization_name=None,
+                contact_name=None,
+                email=None,
+                phone=None,
+                city=None,
+                comment=None,
+                request_hash=None,
+                receipt_token_hash=None,
+            )
+        )
+        session.execute(update(OrderStatusHistory).values(reason=None))
+
+
+@pytest.mark.parametrize("skus", [(), ("DEMO-S-001",), ("DEMO-P-001", "DEMO-P-002")])
+def test_replay_original_receipt_after_all_mutable_state_changes(
+    creation_client: TestClient,
+    creation_db: Database,
+    skus: tuple[str, ...],
+    caplog: LogCaptureFixture,
+) -> None:
+    body = commercial(creation_db, skus) if skus else support_body()
+    headers = order_headers()
+    first = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert first.status_code == 201
+    assert counts(creation_db) == (1, 1, len(skus), 1, 1)
+    again = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert again.status_code == 200 and again.json() == first.json()
+    assert counts(creation_db) == (1, 1, len(skus), 1, 1)
+    with creation_db.unit_of_work() as session:
+        session.execute(
+            update(CatalogItem)
+            .where(CatalogItem.price_mode == "fixed")
+            .values(
+                price=Decimal("999.00"),
+                revision=2,
+                status="archived",
+            )
+        )
+        session.execute(update(ConsentText).values(retired_at=utc_now()))
+        content = "Synthetic replacement only"
+        session.add(
+            ConsentText(
+                version="synthetic-replacement-" + uuid4().hex,
+                purpose="SYNTHETIC",
+                text=content,
+                checksum=hashlib.sha256(content.encode()).hexdigest(),
+                active_from=utc_now() - timedelta(seconds=1),
+                retired_at=None,
+            )
+        )
+        session.execute(update(Order).values(status="in_progress", version=2))
+        session.execute(delete(EmailOutbox))
+    again = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert again.status_code == 200 and again.json() == first.json()
+    assert counts(creation_db) == (1, 1, len(skus), 1, 0)
+    for changed in (
+        body | {"city": None},
+        body | {"comment": "Changed synthetic body"},
+        body | {"consent": {"version": "replacement", "accepted": True}},
+    ):
+        conflict = creation_client.post("/api/v1/orders", json=changed, headers=headers)
+        assert conflict.status_code == 409
+        assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    for private in (
+        "Synthetic Contact",
+        "synthetic@example.invalid",
+        headers["X-Request-Token"],
+    ):
+        assert private not in first.text + again.text + caplog.text
+    assert counts(creation_db) == (1, 1, len(skus), 1, 0)
+
+
+@pytest.mark.parametrize("erased", [False, True])
+@pytest.mark.parametrize(
+    "catalog_changed,consent_changed,outbox_deleted",
+    [(a, b, c) for a in (False, True) for b in (False, True) for c in (False, True)],
+)
+def test_hidden_object_matrix(
+    creation_client: TestClient,
+    creation_db: Database,
+    erased: bool,
+    catalog_changed: bool,
+    consent_changed: bool,
+    outbox_deleted: bool,
+) -> None:
+    body = commercial(creation_db, ("DEMO-S-001",))
+    headers = order_headers()
+    assert (
+        creation_client.post("/api/v1/orders", json=body, headers=headers).status_code
+        == 201
+    )
+    if erased:
+        erase_fixture(creation_db)
+    with creation_db.unit_of_work() as session:
+        if catalog_changed:
+            session.execute(
+                update(CatalogItem)
+                .where(CatalogItem.price_mode == "fixed")
+                .values(
+                    price=Decimal("999.99"),
+                    revision=2,
+                    status="archived",
+                )
+            )
+        if consent_changed:
+            session.execute(update(ConsentText).values(retired_at=utc_now()))
+        if outbox_deleted:
+            session.execute(delete(EmailOutbox))
+        order = session.scalars(select(Order)).one()
+        identifier = order.id
+        if erased:
+            assert order.request_hash is order.receipt_token_hash is None
+            assert order.idempotency_key is not None
+    hidden = creation_client.get("/api/v1/orders/" + str(identifier))
+    assert hidden.status_code == 404
+    tokens = ("a" * 64, "b" * 64, "c" * 64) if erased else ("b" * 64, "c" * 64)
+    before = counts(creation_db)
+    for token in tokens:
+        for submitted in (body, body | {"comment": "Changed synthetic body"}):
+            response = creation_client.post(
+                "/api/v1/orders",
+                json=submitted,
+                headers=headers | {"X-Request-Token": token},
+            )
+            assert response.status_code == 404
+            assert (
+                response.json()["error"]
+                == hidden.json()["error"]
+                == {
+                    "code": "NOT_FOUND",
+                    "message": "Object not found",
+                    "details": {},
+                }
+            )
+            assert set(response.json()) == {"error", "request_id"}
+            assert response.headers["cache-control"] == "no-store"
+            assert response.json()["request_id"] == response.headers["x-request-id"]
+            assert response.headers.keys() == hidden.headers.keys()
+    assert counts(creation_db) == before
+
+
+@pytest.mark.parametrize("state", ["unused", "retained", "erased"])
+def test_transport_matrix(
+    creation_client: TestClient, creation_db: Database, state: str
+) -> None:
+    body, headers = support_body(), order_headers()
+    if state != "unused":
+        assert (
+            creation_client.post(
+                "/api/v1/orders", json=body, headers=headers
+            ).status_code
+            == 201
+        )
+    if state == "erased":
+        erase_fixture(creation_db)
+    before = counts(creation_db)
+    for field, value in (
+        ("Idempotency-Key", None),
+        ("Idempotency-Key", "invalid"),
+        ("X-Request-Token", None),
+        ("X-Request-Token", "bad"),
+        ("X-Request-Token", "A" * 64),
+        ("X-Request-Token", "g" * 64),
+    ):
+        changed = headers.copy()
+        if value is None:
+            del changed[field]
+        else:
+            changed[field] = value
+        for submitted in (body, body | {"comment": "Changed synthetic body"}):
+            response = creation_client.post(
+                "/api/v1/orders", json=submitted, headers=changed
+            )
+            assert response.status_code == 422
+            assert response.json()["error"] == {
+                "code": "VALIDATION_ERROR",
+                "message": "Invalid request parameters",
+                "details": {},
+            }
+    assert counts(creation_db) == before
+
+
+@pytest.mark.parametrize("mode", ["identical", "changed", "different_tokens"])
+def test_unique_race_rolls_back_before_new_session_reads_winner(
+    creation_client: TestClient,
+    creation_db: Database,
+    mode: str,
+) -> None:
+    headers, body = order_headers(), commercial(creation_db, ("DEMO-S-001",))
+    barrier = Barrier(4)
+    traces: dict[int, list[tuple[str, int]]] = {}
+
+    def lookup(state: ORMExecuteState) -> None:
+        statement = str(state.statement)
+        if "app.orders" in statement and "FOR UPDATE" in statement:
+            trace = traces.setdefault(get_ident(), [])
+            trace.append(("lookup", id(state.session)))
+
+    def pause(
+        connection: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        many: bool,
+    ) -> None:
+        if "app.orders" in statement and "FOR UPDATE" in statement:
+            if len(traces[get_ident()]) == 1:
+                barrier.wait(10)  # All four SELECTs really saw the unused key.
+
+    def rollback(session: Session) -> None:
+        trace = traces.get(get_ident())
+        if trace is not None:
+            trace.append(("rollback", id(session)))
+
+    event.listen(Session, "do_orm_execute", lookup)
+    event.listen(Session, "after_rollback", rollback)
+    event.listen(creation_db.engine, "after_cursor_execute", pause)
+
+    def submit(index: int) -> tuple[int, dict[str, object], dict[str, str]]:
+        submitted = deepcopy(body)
+        auth = headers.copy()
+        if mode == "changed":
+            submitted["comment"] = f"Synthetic variant {index}"
+        if mode == "different_tokens":
+            auth["X-Request-Token"] = str(index + 1) * 64
+        response = creation_client.post("/api/v1/orders", json=submitted, headers=auth)
+        return response.status_code, submitted, auth
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(submit, range(4)))
+    finally:
+        event.remove(Session, "do_orm_execute", lookup)
+        event.remove(Session, "after_rollback", rollback)
+        event.remove(creation_db.engine, "after_cursor_execute", pause)
+    loser_status = {"identical": 200, "changed": 409, "different_tokens": 404}[mode]
+    assert sorted(row[0] for row in results) == sorted([201, *([loser_status] * 3)])
+    loser_traces = [trace for trace in traces.values() if len(trace) > 1]
+    assert len(loser_traces) == 3
+    for trace in loser_traces:
+        assert [entry[0] for entry in trace[:3]] == ["lookup", "rollback", "lookup"]
+        assert trace[0][1] == trace[1][1] and trace[0][1] != trace[2][1]
+    assert counts(creation_db) == (1, 1, 1, 1, 1)
+    _, winning_body, winning_headers = next(row for row in results if row[0] == 201)
+    assert (
+        creation_client.post(
+            "/api/v1/orders", json=winning_body, headers=winning_headers
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize("eraser_first", [False, True])
+def test_replay_serializes_with_real_erasure(
+    creation_client: TestClient,
+    creation_db: Database,
+    eraser_first: bool,
+) -> None:
+    body, headers = support_body(), order_headers()
+    first = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert first.status_code == 201
+    locked, release = Event(), Event()
+
+    def pause(
+        connection: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        many: bool,
+    ) -> None:
+        if "app.orders" in statement and (
+            (eraser_first and statement.startswith("UPDATE"))
+            or (not eraser_first and "FOR UPDATE" in statement)
+        ):
+            locked.set()
+            assert release.wait(10)
+
+    def replay() -> int:
+        response = creation_client.post("/api/v1/orders", json=body, headers=headers)
+        if response.status_code == 200:
+            assert response.json() == first.json()
+        return response.status_code
+
+    event.listen(creation_db.engine, "after_cursor_execute", pause)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = (
+                pool.submit(erase_fixture, creation_db)
+                if eraser_first
+                else pool.submit(replay)
+            )
+            assert locked.wait(10)
+            b = (
+                pool.submit(replay)
+                if eraser_first
+                else pool.submit(erase_fixture, creation_db)
+            )
+            deadline, waiting = monotonic() + 2, False
+            while monotonic() < deadline:
+                with creation_db.engine.connect() as connection:
+                    waiting = bool(
+                        connection.scalar(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                                "WHERE usename=current_user AND wait_event_type='Lock' "
+                                "AND cardinality(pg_blocking_pids(pid))>0)"
+                            )
+                        )
+                    )
+                if waiting:
+                    break
+                release.wait(0.01)
+            release.set()
+            a_result, b_result = a.result(15), b.result(15)
+            assert waiting
+            assert (b_result if eraser_first else a_result) == (
+                404 if eraser_first else 200
+            )
+    finally:
+        release.set()
+        event.remove(creation_db.engine, "after_cursor_execute", pause)
+    assert replay() == 404
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(lambda _: replay(), range(4))) == [404] * 4
+    assert counts(creation_db) == (1, 1, 0, 1, 1)
+
+
+def test_rotation_and_expiry_on_postgresql(
+    creation_client: TestClient,
+    creation_db: Database,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    path = tmp_path / "hmac-secret"
+    old, active = "synthetic-old-key-" * 3, "synthetic-active-key-" * 3
+    path.write_text(old)
+    monkeypatch.setenv("ORDER_HMAC_SECRET_FILE", str(path))
+    app.state.order_security = OrderSecurity.from_environment()
+    body, headers = support_body(), order_headers()
+    first = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert first.status_code == 201
+    with creation_db.unit_of_work() as session:
+        original_hash = session.scalars(select(Order)).one().request_hash
+    path.write_text(json.dumps({"active": active, "previous": [old]}))
+    app.state.order_security = OrderSecurity.from_environment()
+    assert app.state.order_security is not None
+    replay = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert replay.status_code == 200 and replay.json() == first.json()
+    with creation_db.unit_of_work() as session:
+        assert session.scalars(select(Order)).one().request_hash == original_hash
+        session.execute(
+            update(Order).values(
+                created_at=utc_now() - timedelta(hours=24) + timedelta(seconds=10)
+            )
+        )
+    assert (
+        creation_client.post("/api/v1/orders", json=body, headers=headers).status_code
+        == 200
+    )
+    newer_headers = order_headers()
+    assert (
+        creation_client.post(
+            "/api/v1/orders", json=body, headers=newer_headers
+        ).status_code
+        == 201
+    )
+    with creation_db.unit_of_work() as session:
+        newer = session.scalars(
+            select(Order).where(
+                Order.idempotency_key == newer_headers["Idempotency-Key"]
+            )
+        ).one()
+        assert newer.request_hash == OrderSecurity(active.encode()).request_hash(
+            OrderCreate.model_validate(body)
+        )
+        session.execute(
+            update(Order).values(created_at=utc_now() - timedelta(hours=24, seconds=1))
+        )
+    path.write_text(json.dumps({"active": active, "previous": []}))
+    app.state.order_security = OrderSecurity.from_environment()
+    for submitted in (body, body | {"city": "Synthetic city"}):
+        assert (
+            creation_client.post(
+                "/api/v1/orders", json=submitted, headers=headers
+            ).status_code
+            == 404
+        )
+    assert counts(creation_db) == (2, 2, 0, 2, 2)
+
+
+def test_timing_review_and_no_hmac_for_hidden_paths(
+    creation_client: TestClient,
+    creation_db: Database,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    body, headers = support_body(), order_headers()
+    assert (
+        creation_client.post("/api/v1/orders", json=body, headers=headers).status_code
+        == 201
+    )
+
+    def forbidden(self: OrderSecurity, order: OrderCreate, saved: str) -> bool:
+        raise AssertionError("Hidden paths must never compare canonical personal data")
+
+    monkeypatch.setattr(OrderSecurity, "matches_request", forbidden)
+    samples: list[list[float]] = []
+    queries: list[str] = []
+
+    def collect(
+        connection: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        many: bool,
+    ) -> None:
+        queries.append(statement)
+
+    for erased in (False, True):
+        if erased:
+            erase_fixture(creation_db)
+        times = []
+        event.listen(creation_db.engine, "before_cursor_execute", collect)
+        try:
+            for _ in range(20):
+                start = monotonic()
+                response = creation_client.post(
+                    "/api/v1/orders",
+                    json=body,
+                    headers=headers | {"X-Request-Token": "b" * 64},
+                )
+                times.append((monotonic() - start) * 1000)
+                assert response.status_code == 404
+        finally:
+            event.remove(creation_db.engine, "before_cursor_execute", collect)
+        samples.append(times)
+    assert all(
+        "catalog_items" not in query and "consent_texts" not in query
+        for query in queries
+    )
+    assert len(queries) == 40
+    print(
+        "Synthetic timing review (ms, no constant-time claim): "
+        f"wrong-token={median(samples[0]):.2f}, erased={median(samples[1]):.2f}"
+    )
+
+
+def test_erased_concurrent_matrix_and_deleted_row_boundary(
+    creation_client: TestClient,
+    creation_db: Database,
+) -> None:
+    body, headers = support_body(), order_headers()
+    first = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert first.status_code == 201
+    erase_fixture(creation_db)
+    before = counts(creation_db)
+
+    def retry(index: int) -> int:
+        response = creation_client.post(
+            "/api/v1/orders",
+            json=body if index % 2 else body | {"city": None},
+            headers=headers | {"X-Request-Token": "abc"[index % 3] * 64},
+        )
+        assert response.json()["error"] == {
+            "code": "NOT_FOUND",
+            "message": "Object not found",
+            "details": {},
+        }
+        return response.status_code
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        assert list(pool.map(retry, range(6))) == [404] * 6
+    assert counts(creation_db) == before
+    with creation_db.unit_of_work() as session:
+        # Normal runtime deletion uses existing CASCADEs; no privileged hook.
+        session.execute(delete(Order))
+        session.execute(delete(Consent))
+    after = creation_client.post("/api/v1/orders", json=body, headers=headers)
+    assert after.status_code == 201 and after.json()["number"] != first.json()["number"]
+    assert counts(creation_db) == (1, 1, 0, 1, 1)

@@ -39,7 +39,7 @@ If documentation and implementation conflict, identify the discrepancy rather th
 - Respect publication visibility, consent, data minimization, and personal-data erasure rules.
 - Do not use unsafe shortcuts or silently weaken authentication, authorization, validation, or transaction guarantees.
 - Never seed an unmarked or production database.
-- AQ-01 remains an architectural decision gate for MVP-010 until the repository owner approves through PR review and merges the [AQ-01 decision](docs/decisions/AQ-01.md) and its architecture changes into `main`. Creating the document or PR does not constitute approval. Only after that merge may MVP-010 use the new normative contract; do not resolve it unilaterally or retain token-verification material beyond PII erasure.
+- The owner approved and merged [AQ-01](docs/decisions/AQ-01.md) in PR #21. Its contract is normative for MVP-010; do not alter that decision or retain token-verification material beyond PII erasure.
 
 ## Database and migrations
 
