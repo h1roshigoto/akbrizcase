@@ -64,6 +64,8 @@ jobs:
         run: make frontend-sync
       - name: Typecheck
         run: make frontend-typecheck
+      - name: Frontend UI tests
+        run: npm --prefix frontend test
       - name: Build
         run: make frontend-build
 

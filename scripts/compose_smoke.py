@@ -82,6 +82,14 @@ def main() -> None:
         compose("run", "--rm", "migrate")
         compose("run", "--rm", "migrate")
         assert http("/readyz") == (200, '{"status":"ok"}')
+        assert sql("SELECT version_num FROM app.alembic_version") == "0002_mvp006_catalog"
+        assert sql(
+            "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
+            "WHERE schemaname = 'app'"
+        ) == (
+            "alembic_version,audit_events,catalog_items,equipment_models,"
+            "staff_sessions,staff_users"
+        )
         print(
             "PASS: explicit/repeat migrations and readiness through Nginx", flush=True
         )

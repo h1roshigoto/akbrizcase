@@ -208,19 +208,27 @@ def test_indexes_and_schema_match_models(catalog_database: Database) -> None:
                 )
             )
             assert f"ix_catalog_items_{column}_trgm" in plan
-        context = MigrationContext.configure(
-            connection,
-            opts={
-                "include_schemas": True,
-                "include_object": lambda obj, name, type_, reflected, compare_to: (
-                    not (
-                        type_ == "table"
-                        and name in {"integration_probe", "alembic_version"}
-                    )
-                ),
-            },
-        )
-        assert compare_metadata(context, Base.metadata) == []
+        # Reflect explicit app FKs consistently with MVP-004's metadata check.
+        # With app in search_path PostgreSQL otherwise omits the target schema.
+        connection.execute(text("SET LOCAL search_path TO public"))
+        previous_schema = connection.dialect.default_schema_name
+        connection.dialect.default_schema_name = "public"
+        try:
+            context = MigrationContext.configure(
+                connection,
+                opts={
+                    "include_schemas": True,
+                    "include_object": lambda obj, name, type_, reflected, compare_to: (
+                        not (
+                            type_ == "table"
+                            and name in {"integration_probe", "alembic_version"}
+                        )
+                    ),
+                },
+            )
+            assert compare_metadata(context, Base.metadata) == []
+        finally:
+            connection.dialect.default_schema_name = previous_schema
 
 
 def test_seed_idempotence_and_repeat_migration(catalog_database: Database) -> None:

@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Iterator
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -11,6 +12,9 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from app.core.db import Database, DatabaseSettings
+from app.core.db_types import utc_now
+from app.core.staff import bootstrap_admin, create_staff
+from app.core.staff_models import StaffSession
 
 
 @pytest.fixture(scope="session")
@@ -53,13 +57,70 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "('00000000-0000-4000-8000-000000000001', 123.45, now())"
                 )
             )
+        # Simulate an existing MVP-004 installation, with real Argon2id hashes,
+        # two staff identities, a server session and their append-only audit.
+        command.upgrade(config, "0002_mvp004_staff")
+        assert not runtime.ready()
+        with runtime.unit_of_work() as session:
+            actor = bootstrap_admin(
+                session,
+                login="synthetic-upgrade-admin",
+                password="synthetic-upgrade-admin-password",
+            )
+            assert actor.ok and actor.user_id is not None
+            manager = create_staff(
+                session,
+                admin_login="synthetic-upgrade-admin",
+                admin_password="synthetic-upgrade-admin-password",
+                login="synthetic-upgrade-manager",
+                password="synthetic-upgrade-manager-password",
+                role="manager",
+            )
+            assert manager.ok
+            session.add(
+                StaffSession(
+                    user_id=actor.user_id,
+                    token_hash="a" * 64,
+                    expires_at=utc_now() + timedelta(hours=8),
+                )
+            )
+        with runtime.engine.connect() as connection:
+            assert (
+                connection.scalar(text("SELECT version_num FROM app.alembic_version"))
+                == "0002_mvp004_staff"
+            )
+            assert (
+                connection.scalar(text("SELECT to_regclass('app.catalog_items')"))
+                is None
+            )
+            preserved_staff = {
+                table: connection.execute(
+                    text(f"SELECT * FROM app.{table} ORDER BY id")
+                ).all()
+                for table in ("staff_users", "staff_sessions", "audit_events")
+            }
+            assert len(preserved_staff["staff_users"]) == 2
+            assert len(preserved_staff["staff_sessions"]) == 1
+            assert len(preserved_staff["audit_events"]) == 2
         command.upgrade(config, "head")
         command.upgrade(config, "head")
         with migrator.engine.begin() as connection:
+            for table, rows in preserved_staff.items():
+                assert (
+                    connection.execute(
+                        text(f"SELECT * FROM app.{table} ORDER BY id")
+                    ).all()
+                    == rows
+                )
             assert connection.scalar(
                 text("SELECT amount FROM app.integration_probe")
             ) == Decimal("123.45")
             connection.execute(text("DELETE FROM app.integration_probe"))
+            # Only this sentinel-guarded disposable stack's migrator cleans up
+            # the synthetic setup; production/runtime cannot erase audit/users.
+            connection.execute(text("DELETE FROM app.audit_events"))
+            connection.execute(text("DELETE FROM app.staff_sessions"))
+            connection.execute(text("DELETE FROM app.staff_users"))
         yield runtime, migrator
     finally:
         runtime.close()
@@ -74,3 +135,16 @@ def database(databases: tuple[Database, Database]) -> Iterator[Database]:
     finally:
         with migrator.engine.begin() as connection:
             connection.execute(text("DELETE FROM app.integration_probe"))
+
+
+@pytest.fixture
+def staff_database(databases: tuple[Database, Database]) -> Iterator[Database]:
+    runtime, migrator = databases
+    try:
+        yield runtime
+    finally:
+        # Only the sentinel-guarded disposable DB's migrator can remove audit.
+        with migrator.engine.begin() as connection:
+            connection.execute(text("DELETE FROM app.audit_events"))
+            connection.execute(text("DELETE FROM app.staff_sessions"))
+            connection.execute(text("DELETE FROM app.staff_users"))

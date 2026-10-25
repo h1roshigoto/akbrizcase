@@ -5,7 +5,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0002_mvp006_catalog"
-down_revision = "0001_infrastructure"
+down_revision = "0002_mvp004_staff"
 branch_labels = None
 depends_on = None
 
