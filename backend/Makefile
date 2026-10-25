@@ -19,3 +19,10 @@ types:
 .PHONY: migrate
 migrate:
 	uv run --locked python -m app.core.db_migrate
+
+.PHONY: seed-demo seed-test
+seed-demo:
+	uv run --locked python -m app.modules.catalog.seed --mode demo
+
+seed-test:
+	uv run --locked python -m app.modules.catalog.seed --mode test

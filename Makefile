@@ -80,3 +80,8 @@ integration:
 
 integration-reset:
 	python3 scripts/db_integration.py reset
+
+.PHONY: seed-demo
+# Requires an owner-applied database marker as documented in docs/MVP-006.md.
+seed-demo: check-secrets
+	APP_ENV=demo $(COMPOSE) run --rm seed --mode demo

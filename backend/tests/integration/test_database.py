@@ -2,9 +2,12 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -35,7 +38,7 @@ def count_rows(database: Database) -> int:
         )
 
 
-def test_fresh_migration_and_repeat(databases: tuple[Database, Database]) -> None:
+def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -> None:
     runtime, migrator = databases
     assert runtime.ready()
     assert not migrator.ready()  # Schema-owner credentials are rejected by readiness.
@@ -54,6 +57,8 @@ def test_fresh_migration_and_repeat(databases: tuple[Database, Database]) -> Non
         ) == {
             "alembic_version",
             "integration_probe",
+            "equipment_models",
+            "catalog_items",
             "staff_users",
             "staff_sessions",
             "audit_events",
@@ -155,7 +160,10 @@ def test_unreachable_database(
         assert response.json() == {"status": "unavailable"}
 
 
-@pytest.mark.parametrize("revision", ["unknown_future_schema", None])
+@pytest.mark.parametrize(
+    "revision",
+    ["0001_infrastructure", "0002_mvp004_staff", "unknown_future_schema", None],
+)
 def test_incompatible_or_missing_revision(
     databases: tuple[Database, Database], revision: str | None
 ) -> None:
@@ -182,3 +190,14 @@ def test_incompatible_or_missing_revision(
                 {"version": SCHEMA_REVISION},
             )
     assert runtime.ready()
+
+
+def test_single_linear_migration_history() -> None:
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    scripts = ScriptDirectory.from_config(config)
+    assert scripts.get_heads() == [SCHEMA_REVISION]
+    assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "0002_mvp006_catalog",
+        "0002_mvp004_staff",
+        "0001_infrastructure",
+    ]

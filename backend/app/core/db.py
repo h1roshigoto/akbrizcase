@@ -16,7 +16,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-SCHEMA_REVISION = "0002_mvp004_staff"
+SCHEMA_REVISION = "0002_mvp006_catalog"
 
 
 class DatabaseConfigurationError(ValueError):
