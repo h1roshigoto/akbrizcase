@@ -1,4 +1,4 @@
-"""Fail closed before starting, seeding or deleting an HTTPS acceptance stack."""
+"""Fail closed before starting, seeding or stopping isolated acceptance stacks."""
 
 import json
 import re
