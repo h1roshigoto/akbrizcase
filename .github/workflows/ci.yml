@@ -73,6 +73,8 @@ jobs:
     name: Compose build and smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      MVP014_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -86,6 +88,8 @@ jobs:
           make init-secrets
       - name: Validate Compose configuration
         run: make config
+      - name: Synthetic stack safety guards
+        run: make acceptance-guards
       - name: Build backend and frontend images
         run: make build
       - name: Container smoke
@@ -109,8 +113,8 @@ jobs:
         run: |
           make local-tls
           make https-smoke
-      - name: Trusted HTTPS live request form, safe retry and manager acceptance
-        run: make request-browser-smoke
+      - name: MVP-014 browser E2E, PostgreSQL invariants and Compose persistence
+        run: make vertical-smoke
       - name: Remove temporary secret
         if: always()
         run: rm -rf -- .secrets .certs .env

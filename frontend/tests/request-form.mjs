@@ -235,6 +235,8 @@ try {
     .getByRole('link', { name: String(receipt.number), exact: true })
     .click()
   const detail = await staff.locator('main').innerText()
+  // textContent is independent of stylesheet timing and layout whitespace.
+  const detailSections = await staff.locator('main section').allTextContents()
   for (const text of [
     'DEMO-P-001',
     'DEMO-S-001',
@@ -297,9 +299,43 @@ try {
       orderDetail[key] === receipt[key],
       'Manager persisted amounts equal receipt',
     )
+  step = 'Compose persistence and manager reload'
+  safe(await rpc('restart'), 'Complete Compose stop/up succeeds')
+  // Reuse the original identity after process restart; never generate a new key.
+  const replay = await context.request.post(`${config.origin}/api/v1/orders`, {
+    headers: { ...original.headers, 'Content-Type': 'application/json' },
+    data: original.body,
+  })
+  safe(replay.status() === 200, 'Post-restart replay returns 200')
+  safe(
+    JSON.stringify(await replay.json()) === JSON.stringify(receipt),
+    'Post-restart replay preserves original receipt',
+  )
+  // A real SQLAdmin reload uses the persisted manager session over verified TLS.
+  const reloadResponse = await staff.reload()
+  safe(reloadResponse.status() === 200, 'SQLAdmin survives Compose stop/up')
+  await staff.getByRole('heading', { name: `Order ${receipt.number}`, exact: true }).waitFor()
+  safe(
+    JSON.stringify(await staff.locator('main section').allTextContents()) ===
+      JSON.stringify(detailSections),
+    'Manager sections retain the same snapshots, consent and history',
+  )
+  const persistedResponse = await manager.request.get(
+    `${config.origin}/api/v1/admin/orders/${staffOrders.items[0].id}`,
+  )
+  safe(persistedResponse.status() === 200, 'Protected detail survives restart')
+  // Do not let assertion diagnostics dump the synthetic contacts or hashes.
+  safe(
+    JSON.stringify(await persistedResponse.json()) === JSON.stringify(orderDetail),
+    'Every allowlisted manager field survives restart unchanged',
+  )
+  safe(
+    JSON.stringify(await rpc('counts')) === '[1,1,2,1,1]',
+    'Post-restart replay and manager reads preserve exactly one write set',
+  )
   await manager.close()
   progress.push(
-    'HTTPS SQLAdmin manager sees same number, snapshots, consent/history and persisted amounts with SMTP absent',
+    `MVP-014 synthetic receipt #${receipt.number}; SMTP unavailable; full Compose stop/up; all business rows unchanged; 200 replay; SQLAdmin manager reload with same snapshots/consent/history`,
   )
   // New fresh form, then effective consent and catalog are changed in PostgreSQL.
   step = 'consent and catalog conflicts'
@@ -494,6 +530,10 @@ try {
       action: 'done',
       proof: {
         result: `PASS: MVP-013 ${progress.join('; ')}`,
+        receipt: Object.fromEntries([
+          'number', 'status', 'known_subtotal', 'items_total', 'delivery_status',
+          'delivery_cost', 'total_amount', 'currency',
+        ].map((key) => [key, receipt[key]])),
         secrets: [...sensitive, ...synthetic],
       },
     }) + '\n',
