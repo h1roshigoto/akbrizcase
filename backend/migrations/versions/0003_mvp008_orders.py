@@ -430,6 +430,16 @@ def upgrade() -> None:
         CREATE FUNCTION app.protect_order_item() RETURNS trigger
         LANGUAGE plpgsql SET search_path = pg_catalog AS $$
         BEGIN
+            IF TG_OP = 'DELETE' THEN
+                -- The parent's row is already absent during its FK cascade.
+                -- Test actual parent existence, not trigger nesting depth or a
+                -- caller-controlled session flag that could permit bypasses.
+                IF EXISTS (SELECT 1 FROM app.orders WHERE id = OLD.order_id) THEN
+                    RAISE EXCEPTION 'Order items cannot be deleted independently'
+                        USING ERRCODE = '23514';
+                END IF;
+                RETURN OLD;
+            END IF;
             IF NEW IS DISTINCT FROM OLD THEN
                 RAISE EXCEPTION 'Order item snapshots are immutable'
                     USING ERRCODE = '23514';
@@ -438,8 +448,26 @@ def upgrade() -> None:
         END $$
     """)
     op.execute("""
-        CREATE TRIGGER order_item_immutable BEFORE UPDATE ON app.order_items
+        CREATE TRIGGER order_item_immutable BEFORE UPDATE OR DELETE ON app.order_items
         FOR EACH ROW EXECUTE FUNCTION app.protect_order_item()
+    """)
+    op.execute("""
+        CREATE FUNCTION app.protect_order_identity() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+        BEGIN
+            IF ROW(NEW.id, NEW.number, NEW.idempotency_key, NEW.consent_id)
+                IS DISTINCT FROM
+                ROW(OLD.id, OLD.number, OLD.idempotency_key, OLD.consent_id)
+            THEN
+                RAISE EXCEPTION 'Order identity is immutable'
+                    USING ERRCODE = '23514';
+            END IF;
+            RETURN NEW;
+        END $$
+    """)
+    op.execute("""
+        CREATE TRIGGER order_identity_immutable BEFORE UPDATE ON app.orders
+        FOR EACH ROW EXECUTE FUNCTION app.protect_order_identity()
     """)
     op.execute("""
         CREATE FUNCTION app.protect_consent_evidence() RETURNS trigger
@@ -464,6 +492,7 @@ def upgrade() -> None:
     for name in (
         "protect_consent_text",
         "protect_order_item",
+        "protect_order_identity",
         "protect_consent_evidence",
     ):
         op.execute(f"REVOKE ALL ON FUNCTION app.{name}() FROM PUBLIC")
@@ -483,6 +512,7 @@ def downgrade() -> None:
     for name in (
         "protect_consent_text",
         "protect_order_item",
+        "protect_order_identity",
         "protect_consent_evidence",
     ):
         op.execute(f"DROP FUNCTION app.{name}()")

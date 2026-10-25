@@ -872,3 +872,227 @@ def test_snapshot_requires_existing_catalog_item(orders_database: Database) -> N
             session.execute(
                 insert(OrderItem).values(**item_values(new_order(session).id, uuid4()))
             )
+
+
+def order_bundle(session: Session, *, erased: bool = False) -> tuple[UUID, UUID]:
+    """Persist a complete synthetic graph without a future order service."""
+    row = new_order(session)
+    for _ in range(2):
+        session.execute(
+            insert(OrderItem).values(**item_values(row.id, catalog_item(session)))
+        )
+    session.add(OrderStatusHistory(order_id=row.id, to_status="new"))
+    session.add(EmailOutbox(order_id=row.id))
+    if erased:
+        row.pii_erased_at = utc_now()
+        row.contact_name = row.email = row.request_hash = row.receipt_token_hash = None
+    session.flush()
+    return row.id, row.consent_id
+
+
+@pytest.mark.parametrize("role", [0, 1], ids=["runtime", "migrator"])
+@pytest.mark.parametrize("erased", [False, True], ids=["retained-pii", "erased-pii"])
+@pytest.mark.parametrize("scope", ["id", "order_id"])
+def test_standalone_snapshot_delete_rejected_and_transaction_rolled_back(
+    databases: tuple[Database, Database],
+    orders_database: Database,
+    role: int,
+    erased: bool,
+    scope: str,
+) -> None:
+    with orders_database.unit_of_work() as session:
+        order_id, consent_id = order_bundle(session, erased=erased)
+        before = session.execute(
+            select(OrderItem.__table__)
+            .where(OrderItem.order_id == order_id)
+            .order_by(OrderItem.id)
+        ).all()
+        item_id = before[0].id
+    # Raw SQL bypasses ORM protections. A bulk DELETE is forbidden as well.
+    with pytest.raises(IntegrityError, match="cannot be deleted independently"):
+        with databases[role].unit_of_work() as session:
+            session.execute(
+                update(Order)
+                .where(Order.id == order_id)
+                .values(
+                    status="in_progress",
+                    version=2,
+                )
+            )
+            session.execute(
+                text(f"DELETE FROM app.order_items WHERE {scope} = :id"),
+                {"id": item_id if scope == "id" else order_id},
+            )
+    with orders_database.unit_of_work() as session:
+        assert (
+            session.execute(
+                select(OrderItem.__table__)
+                .where(OrderItem.order_id == order_id)
+                .order_by(OrderItem.id)
+            ).all()
+            == before
+        )
+        order = session.get(Order, order_id)
+        assert order is not None and order.status == "new" and order.version == 1
+        assert order.consent_id == consent_id
+        for model in (OrderStatusHistory, EmailOutbox):
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.order_id == order_id)
+                )
+                == 1
+            )
+
+
+@pytest.mark.parametrize("role", [0, 1], ids=["runtime", "migrator"])
+def test_cascade_deletion_and_late_fk_failure_rollback(
+    databases: tuple[Database, Database],
+    orders_database: Database,
+    role: int,
+) -> None:
+    with orders_database.unit_of_work() as session:
+        order_id, consent_id = order_bundle(session)
+        retained_id, _ = order_bundle(session)
+    database = databases[role]
+    with pytest.raises(IntegrityError, match="fk_orders_consent_id_consents"):
+        with database.unit_of_work() as session:
+            session.execute(delete(Consent).where(Consent.id == consent_id))
+    with pytest.raises(IntegrityError, match="fk_order_status_history_order_id_orders"):
+        with database.unit_of_work() as session:
+            session.execute(delete(Order).where(Order.id == order_id))
+            for model in (OrderItem, OrderStatusHistory, EmailOutbox):
+                assert (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(model)
+                        .where(model.order_id == order_id)
+                    )
+                    == 0
+                )
+            session.execute(delete(Consent).where(Consent.id == consent_id))
+            # A late FK failure restores the parent, all cascaded rows and consent.
+            session.add(OrderStatusHistory(order_id=order_id, to_status="new"))
+    with database.unit_of_work() as session:
+        assert session.get(Order, order_id) is not None
+        assert session.get(Consent, consent_id) is not None
+        for model, count in ((OrderItem, 2), (OrderStatusHistory, 1), (EmailOutbox, 1)):
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.order_id == order_id)
+                )
+                == count
+            )
+        session.execute(delete(Order).where(Order.id == order_id))
+        for model in (OrderItem, OrderStatusHistory, EmailOutbox):
+            assert (
+                session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(model.order_id == order_id)
+                )
+                == 0
+            )
+            remaining = session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.order_id == retained_id)
+            )
+            assert remaining is not None and remaining > 0
+        assert session.get(Consent, consent_id) is not None
+        session.execute(delete(Consent).where(Consent.id == consent_id))
+    with orders_database.unit_of_work() as session:
+        assert session.get(Order, order_id) is None
+        assert session.get(Consent, consent_id) is None
+        assert session.get(Order, retained_id) is not None
+        assert session.scalar(select(func.count()).select_from(CatalogItem)) == 4
+
+
+@pytest.mark.parametrize("role", [0, 1], ids=["runtime", "migrator"])
+@pytest.mark.parametrize("erased", [False, True], ids=["retained-pii", "erased-pii"])
+@pytest.mark.parametrize("column", ["id", "number", "idempotency_key", "consent_id"])
+def test_order_identity_and_consent_cannot_be_replaced(
+    databases: tuple[Database, Database],
+    orders_database: Database,
+    role: int,
+    erased: bool,
+    column: str,
+) -> None:
+    with orders_database.unit_of_work() as session:
+        # No children: changing id would otherwise pass all existing FKs.
+        row = new_order(session)
+        original = (row.id, row.number, row.idempotency_key, row.consent_id)
+        alternate_consent = acceptance(session)
+        if erased:
+            row.pii_erased_at = utc_now()
+            row.contact_name = row.email = row.request_hash = row.receipt_token_hash = (
+                None
+            )
+        replacement = {
+            "id": uuid4(),
+            "number": row.number + 1000000,
+            "idempotency_key": uuid4(),
+            "consent_id": alternate_consent,
+        }[column]
+    # All replacements are otherwise valid and unused: this tests immutability,
+    # not a coincidental UNIQUE/FK violation, including consent after erasure.
+    with pytest.raises(IntegrityError, match="Order identity is immutable"):
+        with databases[role].unit_of_work() as session:
+            session.execute(
+                update(Order)
+                .where(Order.id == original[0])
+                .values(**{column: replacement})
+            )
+    with orders_database.unit_of_work() as session:
+        order = session.get(Order, original[0])
+        assert order is not None
+        assert (
+            order.id,
+            order.number,
+            order.idempotency_key,
+            order.consent_id,
+        ) == original
+        assert session.get(Consent, alternate_consent) is not None
+    with pytest.raises(IntegrityError, match="fk_orders_consent_id_consents"):
+        with orders_database.unit_of_work() as session:
+            session.execute(delete(Consent).where(Consent.id == original[3]))
+
+
+def test_identity_noop_allows_status_updates_and_erasure(
+    orders_database: Database,
+) -> None:
+    with orders_database.unit_of_work() as session:
+        row = new_order(session)
+        identifier = row.id
+        session.execute(
+            update(Order)
+            .where(Order.id == identifier)
+            .values(
+                id=row.id,
+                number=row.number,
+                consent_id=row.consent_id,
+                idempotency_key=row.idempotency_key,
+                status="in_progress",
+                version=2,
+            )
+        )
+        session.execute(
+            update(Order)
+            .where(Order.id == identifier)
+            .values(
+                pii_erased_at=utc_now(),
+                contact_name=None,
+                email=None,
+                request_hash=None,
+                receipt_token_hash=None,
+            )
+        )
+    with orders_database.unit_of_work() as session:
+        order = session.get(Order, identifier)
+        assert (
+            order is not None and order.status == "in_progress" and order.version == 2
+        )
+        assert order.pii_erased_at is not None and order.receipt_token_hash is None
