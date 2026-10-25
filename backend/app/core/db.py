@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.csrf import StaffSecurity
+from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0003_mvp008_orders"
 
@@ -153,6 +154,7 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
         pass
     app.state.database = database
     app.state.staff_security = StaffSecurity.from_environment()
+    app.state.order_security = OrderSecurity.from_environment()
     try:
         yield
     finally:

@@ -65,6 +65,7 @@ def main() -> None:
             ("migrator_password", "MIGRATOR_PASSWORD_FILE"),
             ("runtime_password", "RUNTIME_PASSWORD_FILE"),
             ("staff_csrf_secret", "STAFF_CSRF_SECRET_FILE"),
+            ("order_hmac_secret", "ORDER_HMAC_SECRET_FILE"),
         ):
             path = Path(temporary) / name
             path.write_text(secrets.token_urlsafe(48) + "\n")

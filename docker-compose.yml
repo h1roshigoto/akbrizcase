@@ -48,9 +48,11 @@ services:
     <<: *backend
     environment:
       <<: *backend-environment
+      APP_ENV: ${APP_ENV:-production}
       STAFF_CSRF_SECRET_FILE: /run/secrets/staff_csrf_secret
+      ORDER_HMAC_SECRET_FILE: /run/secrets/order_hmac_secret
       STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:-https://localhost:8443}
-    secrets: [runtime_password, staff_csrf_secret]
+    secrets: [runtime_password, staff_csrf_secret, order_hmac_secret]
     build:
       context: ./backend
     command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
@@ -144,3 +146,5 @@ secrets:
 
   staff_csrf_secret:
     file: ${STAFF_CSRF_SECRET_FILE:-./.secrets/staff_csrf_secret}
+  order_hmac_secret:
+    file: ${ORDER_HMAC_SECRET_FILE:-./.secrets/order_hmac_secret}
