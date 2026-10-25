@@ -84,13 +84,14 @@ def main() -> None:
         compose("run", "--rm", "migrate")
         assert http("/readyz") == (200, '{"status":"ok"}')
         assert (
-            sql("SELECT version_num FROM app.alembic_version") == "0002_mvp006_catalog"
+            sql("SELECT version_num FROM app.alembic_version") == "0003_mvp008_orders"
         )
         assert sql(
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
             "WHERE schemaname = 'app'"
         ) == (
-            "alembic_version,audit_events,catalog_items,equipment_models,"
+            "alembic_version,audit_events,catalog_items,consent_texts,consents,"
+            "email_outbox,equipment_models,order_items,order_status_history,orders,"
             "staff_sessions,staff_users"
         )
         print(
@@ -109,12 +110,53 @@ def main() -> None:
             else:
                 raise AssertionError("Unmarked/production database accepted seed")
         assert sql("SELECT count(*) FROM app.catalog_items") == "0"
+        assert sql("SELECT count(*) FROM app.consent_texts") == "0"
+        try:
+            compose(
+                "run",
+                "--rm",
+                "-e",
+                "APP_ENV=demo",
+                "--entrypoint",
+                "python",
+                "seed",
+                "-m",
+                "app.modules.orders.seed",
+                "--mode",
+                "demo",
+            )
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("Unmarked database accepted synthetic consent")
         # Only this unique, disposable smoke project is labelled by its owner.
         sql("COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'")
         for _ in range(2):
             compose("run", "--rm", "-e", "APP_ENV=demo", "seed", "--mode", "demo")
         assert sql("SELECT count(*) FROM app.catalog_items") == "4"
         assert sql("SELECT count(*) FROM app.equipment_models") == "1"
+        for _ in range(2):
+            compose(
+                "run",
+                "--rm",
+                "-e",
+                "APP_ENV=demo",
+                "--entrypoint",
+                "python",
+                "seed",
+                "-m",
+                "app.modules.orders.seed",
+                "--mode",
+                "demo",
+            )
+        assert sql("SELECT count(*) FROM app.consent_texts") == "1"
+        assert (
+            sql(
+                "SELECT purpose FROM app.consent_texts "
+                "WHERE version = 'SYNTHETIC-DEMO-ONLY-v1'"
+            )
+            == "SYNTHETIC DEMO/TEST ONLY — NOT LEGALLY APPROVED"
+        )
         try:
             compose("run", "--rm", "-e", "APP_ENV=production", "seed", "--mode", "demo")
         except subprocess.CalledProcessError:

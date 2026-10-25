@@ -15,6 +15,7 @@ from app.core.db import Database, DatabaseSettings
 from app.core.db_types import utc_now
 from app.core.staff import bootstrap_admin, create_staff
 from app.core.staff_models import StaffSession
+from app.modules.catalog.seed import seed_catalog
 
 
 @pytest.fixture(scope="session")
@@ -102,10 +103,32 @@ def databases() -> Iterator[tuple[Database, Database]]:
             assert len(preserved_staff["staff_users"]) == 2
             assert len(preserved_staff["staff_sessions"]) == 1
             assert len(preserved_staff["audit_events"]) == 2
+        # Existing MVP-007/MVP-012 data, including archive state and revisions,
+        # must survive the new schema without table recreation or reseeding.
+        command.upgrade(config, "0002_mvp006_catalog")
+        assert not runtime.ready()
+        seed_catalog(runtime, mode="test")
+        with runtime.unit_of_work() as session:
+            session.execute(
+                text(
+                    "UPDATE app.catalog_items SET revision = 7, status = 'archived' "
+                    "WHERE sku = 'DEMO-P-001'"
+                )
+            )
+            session.execute(text("UPDATE app.equipment_models SET status = 'archived'"))
+        with runtime.engine.connect() as connection:
+            preserved_catalog = {
+                table: connection.execute(
+                    text(f"SELECT * FROM app.{table} ORDER BY id")
+                ).all()
+                for table in ("catalog_items", "equipment_models")
+            }
+            assert len(preserved_catalog["catalog_items"]) == 4
+            assert len(preserved_catalog["equipment_models"]) == 1
         command.upgrade(config, "head")
         command.upgrade(config, "head")
         with migrator.engine.begin() as connection:
-            for table, rows in preserved_staff.items():
+            for table, rows in (preserved_staff | preserved_catalog).items():
                 assert (
                     connection.execute(
                         text(f"SELECT * FROM app.{table} ORDER BY id")
@@ -118,6 +141,8 @@ def databases() -> Iterator[tuple[Database, Database]]:
             connection.execute(text("DELETE FROM app.integration_probe"))
             # Only this sentinel-guarded disposable stack's migrator cleans up
             # the synthetic setup; production/runtime cannot erase audit/users.
+            connection.execute(text("DELETE FROM app.catalog_items"))
+            connection.execute(text("DELETE FROM app.equipment_models"))
             connection.execute(text("DELETE FROM app.audit_events"))
             connection.execute(text("DELETE FROM app.staff_sessions"))
             connection.execute(text("DELETE FROM app.staff_users"))

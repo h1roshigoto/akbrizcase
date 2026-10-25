@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.csrf import StaffSecurity
 
-SCHEMA_REVISION = "0002_mvp006_catalog"
+SCHEMA_REVISION = "0003_mvp008_orders"
 
 
 class DatabaseConfigurationError(ValueError):

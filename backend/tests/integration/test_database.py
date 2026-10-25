@@ -60,6 +60,12 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "equipment_models",
             "catalog_items",
             "staff_users",
+            "consent_texts",
+            "consents",
+            "orders",
+            "order_items",
+            "order_status_history",
+            "email_outbox",
             "staff_sessions",
             "audit_events",
         }
@@ -162,7 +168,13 @@ def test_unreachable_database(
 
 @pytest.mark.parametrize(
     "revision",
-    ["0001_infrastructure", "0002_mvp004_staff", "unknown_future_schema", None],
+    [
+        "0001_infrastructure",
+        "0002_mvp004_staff",
+        "0002_mvp006_catalog",
+        "unknown_future_schema",
+        None,
+    ],
 )
 def test_incompatible_or_missing_revision(
     databases: tuple[Database, Database], revision: str | None
@@ -197,6 +209,7 @@ def test_single_linear_migration_history() -> None:
     scripts = ScriptDirectory.from_config(config)
     assert scripts.get_heads() == [SCHEMA_REVISION]
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "0003_mvp008_orders",
         "0002_mvp006_catalog",
         "0002_mvp004_staff",
         "0001_infrastructure",
