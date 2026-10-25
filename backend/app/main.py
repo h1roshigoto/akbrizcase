@@ -3,10 +3,14 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
+from app.modules.catalog.router import router as catalog_router
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=database_lifespan)
+install_api_errors(app)
+app.include_router(catalog_router)
 
 
 @app.get("/healthz")
