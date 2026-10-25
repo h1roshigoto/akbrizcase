@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Staff login</title></head>
+<body><main><h1>Staff login</h1>
+<form method="post" action="/admin/auth/login">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p><label>Login <input name="login" autocomplete="username" required maxlength="64"></label></p>
+  <p><label>Password <input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label></p>
+  <button type="submit">Log in</button>
+</form></main></body></html>

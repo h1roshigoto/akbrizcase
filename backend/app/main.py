@@ -3,14 +3,20 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.admin.auth import router as auth_router
+from app.admin.security import StaffSecurityMiddleware
+from app.admin.sqladmin import install_sqladmin
 from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.modules.catalog.router import router as catalog_router
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=database_lifespan)
+app.add_middleware(StaffSecurityMiddleware)
+# Install last so request IDs wrap even early staff middleware denials.
 install_api_errors(app)
 app.include_router(catalog_router)
+app.include_router(auth_router)
 
 
 @app.get("/healthz")
@@ -29,3 +35,6 @@ def readyz(request: Request) -> JSONResponse:
         status_code=200 if ready else 503,
         headers={"Cache-Control": "no-store"},
     )
+
+
+admin = install_sqladmin(app)

@@ -16,6 +16,8 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.csrf import StaffSecurity
+
 SCHEMA_REVISION = "0002_mvp006_catalog"
 
 
@@ -150,6 +152,7 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
     except DatabaseConfigurationError:
         pass
     app.state.database = database
+    app.state.staff_security = StaffSecurity.from_environment()
     try:
         yield
     finally:

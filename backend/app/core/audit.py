@@ -8,7 +8,15 @@ from sqlalchemy.orm import Session
 from app.core.auth import StaffRole
 from app.core.staff_models import AuditEvent
 
-StaffAction = Literal["staff.bootstrap", "staff.create", "staff.disable"]
+StaffAction = Literal[
+    "staff.bootstrap",
+    "staff.create",
+    "staff.disable",
+    "staff.login",
+    "staff.logout",
+    "staff.access",
+    "staff.csrf",
+]
 StaffResult = Literal[
     "success",
     "authentication_denied",
@@ -17,6 +25,8 @@ StaffResult = Literal[
     "invalid_input",
     "login_exists",
     "not_found",
+    "csrf_denied",
+    "origin_denied",
 ]
 
 

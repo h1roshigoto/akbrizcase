@@ -33,7 +33,7 @@ class StaffOutcome:
         return self.result == "success"
 
 
-def _lock(session: Session) -> None:
+def lock_staff(session: Session) -> None:
     session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _STAFF_LOCK})
 
 
@@ -64,7 +64,7 @@ def bootstrap_admin(session: Session, *, login: str, password: str) -> StaffOutc
     The advisory lock and immutable unique success audit marker live in the same
     PostgreSQL transaction as the user. Inactive admins also close bootstrap.
     """
-    _lock(session)
+    lock_staff(session)
     if session.scalar(
         select(exists().where(StaffUser.role == "admin"))
     ) or session.scalar(
@@ -94,7 +94,7 @@ def create_staff(
     password: str,
     role: StaffRole,
 ) -> StaffOutcome:
-    _lock(session)
+    lock_staff(session)
     actor = authenticate(session, admin_login, admin_password)
     if actor is None:
         return _finish(session, "staff.create", "authentication_denied")
@@ -121,7 +121,7 @@ def disable_staff(
     admin_password: str,
     user_id: UUID,
 ) -> StaffOutcome:
-    _lock(session)
+    lock_staff(session)
     actor = authenticate(session, admin_login, admin_password)
     if actor is None:
         return _finish(session, "staff.disable", "authentication_denied")

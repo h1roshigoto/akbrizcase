@@ -7,8 +7,10 @@ dependencies = [
     "alembic==1.18.4",
     "argon2-cffi==25.1.0",
     "fastapi==0.162.0",
+    "itsdangerous==2.2.0",
     "psycopg[binary]==3.3.3",
     "pydantic==2.14.1",
+    "sqladmin==0.21.0",
     "sqlalchemy==2.0.46",
     "uvicorn==0.54.0",
 ]

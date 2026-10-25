@@ -1,0 +1,9 @@
+# Development TLS only; certificates are created explicitly, never in images.
+services:
+  nginx:
+    ports:
+      - "127.0.0.1:${HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./infrastructure/nginx.https.conf:/etc/nginx/nginx.conf:ro
+      - ./.certs/localhost.crt:/etc/nginx/tls/localhost.crt:ro
+      - ./.certs/localhost.key:/etc/nginx/tls/localhost.key:ro

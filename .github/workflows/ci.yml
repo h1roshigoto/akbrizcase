@@ -72,7 +72,7 @@ jobs:
   compose:
     name: Compose build and smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -90,9 +90,26 @@ jobs:
         run: make build
       - name: Container smoke
         run: make smoke
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.19.0'
+          package-manager-cache: false
+      - name: Install browser tooling
+        run: |
+          npm install --global npm@11.9.0 --strict-ssl=true --no-audit --no-fund
+          make frontend-sync
+          sudo apt-get update
+          sudo apt-get install -y libnss3-tools
+      - name: Install Chromium with system dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Trusted HTTPS browser authentication and CSRF
+        run: |
+          make local-tls
+          make https-smoke
       - name: Remove temporary secret
         if: always()
-        run: rm -rf -- .secrets .env
+        run: rm -rf -- .secrets .certs .env
 
   database:
     name: PostgreSQL 16 integration

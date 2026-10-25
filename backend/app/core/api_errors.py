@@ -13,6 +13,13 @@ from starlette.responses import Response
 from app.schemas.common import ErrorDetail, ErrorEnvelope
 
 
+def administrative_request(request: Request) -> bool:
+    return any(
+        request.url.path == root or request.url.path.startswith(root + "/")
+        for root in ("/admin", "/api/v1/admin")
+    )
+
+
 def error_response(
     request: Request, status: int, code: str, message: str
 ) -> JSONResponse:
@@ -32,12 +39,21 @@ def install_api_errors(app: FastAPI) -> None:
         request.state.request_id = uuid4()
         response = await call_next(request)
         response.headers["X-Request-ID"] = str(request.state.request_id)
-        if request.url.path.startswith("/api/v1/"):
+        if request.url.path.startswith("/api/v1/") or administrative_request(request):
             response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, error: HTTPException) -> JSONResponse:
+        if administrative_request(request):
+            code = {
+                401: "AUTHENTICATION_REQUIRED",
+                403: "FORBIDDEN",
+                404: "NOT_FOUND",
+                405: "METHOD_NOT_ALLOWED",
+                503: "AUTH_UNAVAILABLE",
+            }.get(error.status_code, "REQUEST_FAILED")
+            return error_response(request, error.status_code, code, "Request failed")
         code, message = {
             404: ("NOT_FOUND", "Object not found"),
             503: ("SERVICE_UNAVAILABLE", "Service temporarily unavailable"),
@@ -49,12 +65,18 @@ def install_api_errors(app: FastAPI) -> None:
         request: Request, error: RequestValidationError
     ) -> JSONResponse:
         # Do not echo arbitrary input, exception context or object identifiers.
+        if administrative_request(request):
+            return error_response(request, 422, "INVALID_REQUEST", "Invalid request")
         return error_response(
             request, 422, "VALIDATION_ERROR", "Invalid request parameters"
         )
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request: Request, error: SQLAlchemyError) -> JSONResponse:
+        if administrative_request(request):
+            return error_response(
+                request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"
+            )
         return error_response(
             request, 503, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
         )

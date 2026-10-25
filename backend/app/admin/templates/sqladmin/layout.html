@@ -1,0 +1,36 @@
+{% extends "sqladmin/base.html" %}
+{% from 'sqladmin/_macros.html' import display_menu %}
+{% block body %}
+<main class="container-fluid">
+  <h1>Staff administration</h1>
+  <nav>{{ display_menu(admin._menu, request) }}</nav>
+  <form action="/admin/auth/logout" method="post">
+    <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+    <button type="submit" class="btn btn-secondary">Log out</button>
+  </form>
+  {% block content_header %}{% endblock %}
+  {% block content %}{% endblock %}
+</main>
+{% endblock %}
+{% block tail %}
+<script>
+// Apply to existing and later SQLAdmin forms, including multipart uploads.
+const staffCsrf = {{ staff_csrf(request)|tojson }};
+document.addEventListener('submit', function (event) {
+  const form = event.target;
+  if (form.method.toLowerCase() !== 'get' && new URL(form.action).origin === location.origin) {
+    let field = form.querySelector('input[name="csrf_token"]');
+    if (!field) { field = document.createElement('input'); field.type = 'hidden'; field.name = 'csrf_token'; form.appendChild(field); }
+    field.value = staffCsrf;
+  }
+}, true);
+// SQLAdmin's built-in delete/bulk-delete requests use jQuery.
+if (window.jQuery) {
+  jQuery.ajaxPrefilter(function (options, original, xhr) {
+    if (new URL(options.url, location.href).origin === location.origin && !/^(GET|HEAD|OPTIONS)$/i.test(options.type)) {
+      xhr.setRequestHeader('X-CSRF-Token', staffCsrf);
+    }
+  });
+}
+</script>
+{% endblock %}

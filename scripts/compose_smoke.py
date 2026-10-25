@@ -232,11 +232,14 @@ def main() -> None:
                 for m in backend["Mounts"]
                 if m["Destination"].startswith("/run/secrets/")
             }
-            assert mounted_secrets == {"/run/secrets/runtime_password"}
+            expected = {"/run/secrets/runtime_password"}
+            if backend is api:
+                expected.add("/run/secrets/staff_csrf_secret")
+            assert mounted_secrets == expected
             assert all(
                 "POSTGRES_PASSWORD" not in value for value in backend["Config"]["Env"]
             )
-        print("PASS: API/worker receive only runtime credentials", flush=True)
+        print("PASS: runtime credentials only; CSRF key restricted to API", flush=True)
         for service in (api, worker, db):
             assert not service["HostConfig"]["PortBindings"]
         bindings = nginx["HostConfig"]["PortBindings"]["8080/tcp"]
