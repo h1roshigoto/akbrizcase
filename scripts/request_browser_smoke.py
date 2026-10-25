@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import threading
 
 from https_smoke import main
@@ -52,6 +53,38 @@ def run_browser(environment: dict, config: dict, compose, stack):
     assert process.stdin and process.stdout and process.stderr
 
     sql = stack.sql
+
+    def status_snapshot():
+        # Compare every immutable field, including verification material, privately.
+        return sql("""
+          SELECT jsonb_build_array(
+            (SELECT jsonb_agg(to_jsonb(o) - ARRAY['status','version','updated_at','closed_at'] ORDER BY id) FROM app.orders o),
+            (SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM app.consents c),
+            (SELECT jsonb_agg(to_jsonb(i) ORDER BY id) FROM app.order_items i),
+            (SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM app.order_status_history h WHERE from_status IS NULL),
+            (SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM app.email_outbox e))
+        """)
+
+    def status_invariants(version):
+        stack.verify_database()
+        target = {2: "in_progress", 3: "closed"}[version]
+        assert (
+            sql(f"""
+          SELECT count(*) FROM app.orders o WHERE o.status='{target}' AND o.version={version}
+            AND (SELECT count(*) FROM app.order_status_history)={version}
+            AND (SELECT count(*) FROM app.audit_events WHERE action='order.status.change')={version - 1}
+            AND (o.closed_at IS NOT NULL)={"true" if version == 3 else "false"}
+            AND EXISTS (SELECT FROM app.order_status_history h
+              JOIN app.staff_users u ON u.id=h.changed_by
+              JOIN app.audit_events a ON a.entity_id=o.id AND a.actor_id=u.id
+              WHERE h.order_id=o.id AND u.login='browser-manager'
+                AND h.to_status='{target}' AND h.at=o.updated_at AND a.at=h.at
+                AND a.action='order.status.change' AND a.entity_type='order' AND a.result='success'
+                AND a.metadata=jsonb_build_object('from_status',h.from_status,'to_status',h.to_status,
+                  'from_version',{version - 1},'to_version',{version}))
+        """)
+            == "1"
+        ), "PostgreSQL status/history/audit invariants failed"
 
     def snapshot():
         # Full rows, including IDs, timestamps, snapshots and verification hashes,
@@ -140,6 +173,8 @@ def run_browser(environment: dict, config: dict, compose, stack):
         proof = None
         original_snapshot = None
         restart_counts = {}
+        status_baseline = None
+        status_proof = None
         for line in process.stdout:
             event = json.loads(line)
             action = event.get("action")
@@ -168,6 +203,9 @@ def run_browser(environment: dict, config: dict, compose, stack):
                     "smtp": "connection_refused",
                     "business_rows_unchanged": True,
                 }
+                if config.get("status_changes"):
+                    assert status_proof is not None
+                    proof["status_acceptance"] = status_proof
                 break
             if action == "counts":
                 invariants()
@@ -222,6 +260,54 @@ def run_browser(environment: dict, config: dict, compose, stack):
                     "UPDATE app.catalog_items SET status='archived', revision=revision+1 WHERE sku='DEMO-S-001'"
                 )
                 result = True
+            elif action == "status_baseline":
+                invariants()
+                counts()
+                status_baseline = status_snapshot()
+                assert (
+                    sql(
+                        "SELECT count(*) FROM app.audit_events WHERE action='order.status.change'"
+                    )
+                    == "0"
+                )
+                result = True
+            elif action in ("status_progress", "status_complete", "status_replayed"):
+                assert config.get("status_changes") and status_baseline is not None
+                version = 2 if action == "status_progress" else 3
+                status_invariants(version)
+                assert status_baseline == status_snapshot(), (
+                    "Immutable business rows changed"
+                )
+                if action == "status_complete":
+                    completed_snapshot = snapshot()
+                    completed_audit = sql(
+                        "SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM app.audit_events a WHERE action='order.status.change'"
+                    )
+                if action == "status_replayed":
+                    assert completed_snapshot == snapshot(), (
+                        "Replay changed business state"
+                    )
+                    assert completed_audit == sql(
+                        "SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM app.audit_events a WHERE action='order.status.change'"
+                    )
+                    status_proof = {
+                        "head_sha": environment.get(
+                            "MVP015_HEAD_SHA",
+                            subprocess.check_output(
+                                ["git", "rev-parse", "HEAD"], text=True
+                            ).strip(),
+                        ),
+                        "transitions": ["new -> in_progress", "in_progress -> closed"],
+                        "versions": [1, 2, 3],
+                        "history": 3,
+                        "order_audit": 2,
+                        "actor": "browser-manager",
+                        "stale_form": 409,
+                        "immutable_rows_unchanged": True,
+                        "original_receipt_replay": 200,
+                        "trusted_https": True,
+                    }
+                result = True
             else:
                 raise RuntimeError("Unexpected browser protocol action")
             process.stdin.write(json.dumps(result) + "\n")
@@ -240,4 +326,6 @@ def run_browser(environment: dict, config: dict, compose, stack):
 
 
 if __name__ == "__main__":
-    main(request_form=True)
+    if sys.argv[1:] not in ([], ["--status"]):
+        raise SystemExit("Usage: request_browser_smoke.py [--status]")
+    main(request_form=True, status_changes=sys.argv[1:] == ["--status"])

@@ -64,6 +64,6 @@ class AuditEvent(Base):
     at: Mapped[datetime] = mapped_column(default=utc_now, index=True)
     result: Mapped[str] = mapped_column(String(32))
     # SQLAlchemy reserves the Python attribute name 'metadata'.
-    details: Mapped[dict[str, str | bool]] = mapped_column(
+    details: Mapped[dict[str, str | bool | int]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")
     )

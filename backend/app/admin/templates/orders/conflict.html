@@ -1,0 +1,6 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Status change conflict</h2>
+<p role="alert">The order changed or this transition is no longer allowed. Reload its current state before submitting again.</p>
+<p><a href="/admin/orders/{{ order_id }}">Reload current order</a></p>
+{% endblock %}

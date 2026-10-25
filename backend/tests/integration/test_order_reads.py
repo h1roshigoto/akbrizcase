@@ -453,7 +453,7 @@ def test_no_generic_crud_export_or_order_mutation(
             "action/bulk-delete",
         ):
             path = f"/admin/{model}/{action}"
-            for method in ("GET", "POST", "DELETE"):
+            for method in ("GET", "POST", "PATCH", "DELETE"):
                 response = read_client.request(
                     method, path, headers=headers, follow_redirects=True
                 )
@@ -467,10 +467,23 @@ def test_no_generic_crud_export_or_order_mutation(
             assert response.status_code == 405, (method, path, response.text)
             assert response.headers["cache-control"] == "no-store"
     for prefix in ("/admin/orders", "/api/v1/admin/orders"):
-        for action in ("status", "retry-notification"):
+        for action in ("retry-notification",):
             assert read_client.post(
                 f"{prefix}/{identifier}/{action}", headers=headers
             ).status_code in (404, 405)
+    # Only the narrow SQLAdmin POST is now allowed, and still needs valid input.
+    assert (
+        read_client.post(
+            f"/admin/orders/{identifier}/status", headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        read_client.post(
+            f"/api/v1/admin/orders/{identifier}/status", headers=headers
+        ).status_code
+        == 405
+    )
     assert read_client.get(f"/api/v1/orders/{identifier}").status_code == 404
     assert business_rows(staff_database) == before
 

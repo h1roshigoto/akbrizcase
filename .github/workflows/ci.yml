@@ -75,6 +75,7 @@ jobs:
     timeout-minutes: 25
     env:
       MVP014_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      MVP015_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -115,6 +116,8 @@ jobs:
           make https-smoke
       - name: MVP-014 browser E2E, PostgreSQL invariants and Compose persistence
         run: make vertical-smoke
+      - name: MVP-015 manager status, conflict, immutable snapshots and original replay
+        run: make status-browser-smoke
       - name: Remove temporary secret
         if: always()
         run: rm -rf -- .secrets .certs .env

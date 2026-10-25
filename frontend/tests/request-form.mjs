@@ -333,7 +333,6 @@ try {
     JSON.stringify(await rpc('counts')) === '[1,1,2,1,1]',
     'Post-restart replay and manager reads preserve exactly one write set',
   )
-  await manager.close()
   progress.push(
     `MVP-014 synthetic receipt #${receipt.number}; SMTP unavailable; full Compose stop/up; all business rows unchanged; 200 replay; SQLAdmin manager reload with same snapshots/consent/history`,
   )
@@ -519,6 +518,56 @@ try {
   progress.push(
     'Real backend 409/404/422 UI handling; unresolved reload blocked; no extra writes',
   )
+  if (config.status_changes) {
+    step = 'MVP-015 status changes'
+    safe(await rpc('status_baseline'), 'MVP-014 invariants complete before status changes')
+    const id = staffOrders.items[0].id
+    const stale = await manager.newPage()
+    step = 'MVP-015 stale form'
+    await stale.goto(`${config.origin}/admin/orders/${id}`)
+    safe(await stale.locator('input[name="expected_version"]').inputValue() === '1', 'Stale form holds version 1')
+    step = 'MVP-015 start processing'
+    await staff.getByLabel('Next status', { exact: true }).selectOption('in_progress')
+    await staff.getByRole('button', { name: 'Change status', exact: true }).click()
+    await staff.waitForURL(`${config.origin}/admin/orders/${id}`)
+    await staff.locator('input[name="expected_version"][value="2"]').waitFor({ state: 'attached' })
+    let current = await (await manager.request.get(`${config.origin}/api/v1/admin/orders/${id}`)).json()
+    safe(current.status === 'in_progress' && current.version === 2 && current.history.length === 2, 'Version 2 and transition history')
+    safe(await rpc('status_progress'), 'PostgreSQL progress and actor audit')
+    step = 'MVP-015 reject stale form'
+    const conflict = stale.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/status'))
+    await stale.getByRole('button', { name: 'Change status', exact: true }).click()
+    safe((await conflict).status() === 409, 'Old real browser form receives 409')
+    await stale.getByRole('link', { name: 'Reload current order', exact: true }).waitFor()
+    safe(await rpc('status_progress'), 'Conflict produces no history or successful audit')
+    await stale.close()
+    const reason = 'Synthetic closure "quoted" <script>window.statusInjected=true</script>\nProcessing complete'
+    sensitive.push(reason)
+    step = 'MVP-015 close processing'
+    await staff.getByLabel('Next status', { exact: true }).selectOption('closed')
+    await staff.getByLabel('Reason (required', { exact: false }).fill(reason)
+    const closed = staff.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/status'))
+    await staff.getByRole('button', { name: 'Change status', exact: true }).click()
+    safe((await closed).status() === 303, 'Status uses Post/Redirect/Get')
+    await staff.getByText('This is a terminal status.', { exact: false }).waitFor()
+    current = await (await manager.request.get(`${config.origin}/api/v1/admin/orders/${id}`)).json()
+    safe(current.id === id && current.status === 'closed' && current.version === 3 && current.closed_at !== null && current.history.length === 3, 'Same order closed with version 3 and full history')
+    safe(current.history[2].reason === reason && current.history[2].changed_by === current.history[1].changed_by, 'Reason and authenticated actor persisted')
+    safe((await staff.locator('main').textContent()).includes(reason), 'Literal multiline reason displayed')
+    safe(await staff.evaluate(() => window.statusInjected === undefined), 'Reason is escaped')
+    safe(await staff.locator('input[name="expected_version"]').count() === 0, 'Terminal form absent')
+    for (const key of ['items', 'consent', 'contact_name', 'email', 'comment', 'known_subtotal', 'items_total', 'delivery_status', 'delivery_cost', 'total_amount', 'currency'])
+      safe(JSON.stringify(current[key]) === JSON.stringify(orderDetail[key]), 'Original manager snapshots and request data unchanged')
+    step = 'MVP-015 database closure and replay'
+    safe(await rpc('status_complete'), 'PostgreSQL closure and immutable full rows')
+    const originalReplay = await context.request.post(`${config.origin}/api/v1/orders`, {
+      headers: { ...original.headers, 'Content-Type': 'application/json' }, data: original.body,
+    })
+    safe(originalReplay.status() === 200 && JSON.stringify(await originalReplay.json()) === JSON.stringify(receipt), 'Replay after closure returns original new receipt')
+    safe(await rpc('status_replayed'), 'Replay preserves status, history, audit and outbox')
+    progress.push('MVP-015 manager new → in_progress → closed; stale form 409; versions 2/3; original snapshots and receipt; atomic PostgreSQL history/audit')
+  }
+  await manager.close()
   for (const value of [...sensitive, ...synthetic])
     safe(
       !browserMessages.join(' ').includes(value),
