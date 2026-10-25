@@ -85,3 +85,13 @@ integration-reset:
 # Requires an owner-applied database marker as documented in docs/MVP-006.md.
 seed-demo: check-secrets
 	APP_ENV=demo $(COMPOSE) run --rm seed --mode demo
+
+.PHONY: local-tls https-up https-smoke
+local-tls:
+	python3 scripts/local_tls.py
+
+https-up: check-secrets
+	$(COMPOSE) -f docker-compose.yml -f compose.https.yml up --build --detach --wait --wait-timeout 120
+
+https-smoke:
+	python3 scripts/https_smoke.py

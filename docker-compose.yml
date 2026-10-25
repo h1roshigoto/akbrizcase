@@ -10,7 +10,7 @@ x-backend: &backend
     - /tmp:rw,noexec,nosuid,size=16m,mode=1777
   volumes:
     - app_files:/var/lib/akbrizcase/files
-  environment:
+  environment: &backend-environment
     APP_FILES_DIR: /var/lib/akbrizcase/files
     DB_PASSWORD_FILE: /run/secrets/runtime_password
   secrets: [runtime_password]
@@ -46,6 +46,11 @@ services:
 
   api:
     <<: *backend
+    environment:
+      <<: *backend-environment
+      STAFF_CSRF_SECRET_FILE: /run/secrets/staff_csrf_secret
+      STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:-https://localhost:8443}
+    secrets: [runtime_password, staff_csrf_secret]
     build:
       context: ./backend
     command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
@@ -97,6 +102,7 @@ services:
 
   postgres:
     image: postgres:16.13-bookworm
+    command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic]
     environment:
       POSTGRES_DB: akbrizcase
       POSTGRES_USER: akbrizcase_owner
@@ -135,3 +141,6 @@ secrets:
     file: ${MIGRATOR_PASSWORD_FILE:?Set MIGRATOR_PASSWORD_FILE to a protected password file}
   runtime_password:
     file: ${RUNTIME_PASSWORD_FILE:?Set RUNTIME_PASSWORD_FILE to a protected password file}
+
+  staff_csrf_secret:
+    file: ${STAFF_CSRF_SECRET_FILE:-./.secrets/staff_csrf_secret}
