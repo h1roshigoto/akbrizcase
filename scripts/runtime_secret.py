@@ -8,7 +8,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-NAMES = ("postgres_password", "migrator_password", "runtime_password", "staff_csrf_secret")
+NAMES = (
+    "postgres_password",
+    "migrator_password",
+    "runtime_password",
+    "staff_csrf_secret",
+    "order_hmac_secret",
+)
 
 
 def main() -> None:

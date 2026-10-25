@@ -7,16 +7,18 @@ removed; the regular demo project and its data are never touched.
 import json
 import os
 import re
+import secrets
 import socket
 import subprocess
 import uuid
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import ProxyHandler, build_opener
+from urllib.request import ProxyHandler, Request, build_opener
 
 
 def main() -> None:
     environment = os.environ.copy()
+    environment["APP_ENV"] = "demo"  # Only this disposable, owner-marked stack.
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         environment["HTTP_PORT"] = str(listener.getsockname()[1])
@@ -164,6 +166,67 @@ def main() -> None:
         else:
             raise AssertionError("Production environment accepted seed")
         print("PASS: seed guards and idempotent synthetic demo catalog", flush=True)
+        # Actual HTTP submission and committed SQL evidence in this isolated DB.
+        assert http("/api/v1/consent-text")[0] == 200
+        selections = json.loads(sql(
+            "SELECT json_agg(json_build_object('item_id', id, 'qty', 2, "
+            "'expected_revision', revision) ORDER BY id) FROM app.catalog_items "
+            "WHERE sku IN ('DEMO-P-001', 'DEMO-P-002', 'DEMO-S-001')"
+        ))
+        body = {
+            "kind": "commercial", "items": selections,
+            "contact": {"name": "Synthetic Smoke", "email": "smoke@example.invalid"},
+            "comment": "Synthetic request for isolated acceptance only",
+            "source": "site",
+            "consent": {"version": "SYNTHETIC-DEMO-ONLY-v1", "accepted": True},
+            "confirmed": True,
+        }
+        submission_token = secrets.token_hex(32)
+        submit = Request(
+            f"http://127.0.0.1:{environment['HTTP_PORT']}/api/v1/orders",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "Idempotency-Key": str(uuid.uuid4()),
+                     "X-Request-Token": submission_token},
+            method="POST",
+        )
+        with opener.open(submit, timeout=10) as response:
+            assert response.status == 201
+            assert response.headers["Cache-Control"] == "no-store"
+            receipt = json.load(response)
+        assert receipt == {
+            "number": receipt["number"], "status": "new", "known_subtotal": "382.68",
+            "items_total": None, "delivery_status": "pending_quote",
+            "delivery_cost": None, "total_amount": None, "currency": "RUB",
+        }
+        assert isinstance(receipt["number"], int) and receipt["number"] > 0
+        evidence = json.loads(sql(
+            "SELECT json_build_object('orders', (SELECT count(*) FROM app.orders), "
+            "'consents', (SELECT count(*) FROM app.consents), "
+            "'items', (SELECT count(*) FROM app.order_items), "
+            "'history', (SELECT count(*) FROM app.order_status_history), "
+            "'pending_outbox', (SELECT count(*) FROM app.email_outbox WHERE "
+            "status='pending' AND event_kind='manager_notification'))"
+        ))
+        assert evidence == {"orders": 1, "consents": 1, "items": 3, "history": 1, "pending_outbox": 1}
+        assert sql(
+            "SELECT count(*) FROM app.orders o JOIN app.consents c ON c.id=o.consent_id "
+            "JOIN app.order_status_history h ON h.order_id=o.id "
+            "JOIN app.email_outbox e ON e.order_id=o.id "
+            "WHERE o.status='new' AND o.version=1 AND c.text_version="
+            "'SYNTHETIC-DEMO-ONLY-v1' AND h.from_status IS NULL "
+            "AND h.to_status='new' AND h.changed_by IS NULL "
+            "AND e.status='pending'"
+        ) == "1"
+        logs = compose("logs", "--no-color", "api", "nginx", "postgres")
+        audit_and_outbox = sql(
+            "SELECT coalesce(json_agg(row_to_json(a))::text,'[]') FROM app.audit_events a"
+        ) + sql(
+            "SELECT coalesce(json_agg(row_to_json(e))::text,'[]') FROM app.email_outbox e"
+        )
+        for private in ("Synthetic Smoke", "smoke@example.invalid", body["comment"], submission_token):
+            assert private not in logs + audit_and_outbox + json.dumps(receipt)
+        print("PASS: HTTP POST 201 sanitized receipt " + json.dumps(receipt), flush=True)
+        print("PASS: committed SQL write set " + json.dumps(evidence), flush=True)
         # Public API acceptance through the real Nginx -> API -> PostgreSQL path.
         # All additional rows belong only to this marked disposable smoke DB.
         sql("""
@@ -277,11 +340,12 @@ def main() -> None:
             expected = {"/run/secrets/runtime_password"}
             if backend is api:
                 expected.add("/run/secrets/staff_csrf_secret")
+                expected.add("/run/secrets/order_hmac_secret")
             assert mounted_secrets == expected
             assert all(
                 "POSTGRES_PASSWORD" not in value for value in backend["Config"]["Env"]
             )
-        print("PASS: runtime credentials only; CSRF key restricted to API", flush=True)
+        print("PASS: runtime credentials only; CSRF/HMAC keys restricted to API", flush=True)
         for service in (api, worker, db):
             assert not service["HostConfig"]["PortBindings"]
         bindings = nginx["HostConfig"]["PortBindings"]["8080/tcp"]
