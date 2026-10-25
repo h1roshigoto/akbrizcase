@@ -74,6 +74,7 @@ def main() -> None:
         environment["HTTP_PORT"], environment["HTTPS_PORT"] = free_port(), free_port()
         origin = "https://localhost:" + environment["HTTPS_PORT"]
         environment["STAFF_TRUSTED_ORIGINS"] = origin
+        environment["APP_ENV"] = "demo"
         prefix = [
             "docker",
             "compose",
@@ -125,6 +126,41 @@ db.close()
                 setup,
                 input_text=json.dumps(passwords),
             )
+            # Mark only this newly created disposable project for synthetic
+            # catalog/consent fixtures. Never seed an arbitrary operator DB.
+            compose(
+                "exec",
+                "-T",
+                "postgres",
+                "psql",
+                "-U",
+                "akbrizcase_owner",
+                "-d",
+                "akbrizcase",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-c",
+                "COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'",
+            )
+            compose(
+                "exec",
+                "-T",
+                "api",
+                "python",
+                "-c",
+                """
+from app.core.db import Database,DatabaseSettings
+from app.modules.catalog.seed import seed_catalog
+from app.modules.orders.seed import seed_consent
+from sqlalchemy import text
+d=Database(DatabaseSettings.from_environment())
+seed_catalog(d,mode='demo')
+seed_consent(d,mode='demo')
+with d.unit_of_work() as s:
+ s.execute(text("UPDATE app.catalog_items SET price_mode='on_request', price=NULL WHERE sku='DEMO-S-001'"))
+d.close()
+""",
+            )
             tls = ssl.create_default_context(cafile=".certs/ca.crt")
             opener = build_opener(ProxyHandler({}), HTTPSHandler(context=tls))
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
@@ -151,6 +187,23 @@ db.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
+            compose(
+                "exec",
+                "-T",
+                "api",
+                "python",
+                "-c",
+                """
+from app.core.db import Database,DatabaseSettings
+from sqlalchemy import text
+d=Database(DatabaseSettings.from_environment())
+with d.unit_of_work() as s:
+ for table,count in [('orders',2),('consents',2),('order_items',2),('order_status_history',2),('email_outbox',2)]:
+  assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
+ assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status='pending'"))==2
+d.close()
+""",
+            )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(
                 "exec",

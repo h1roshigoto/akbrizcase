@@ -86,7 +86,9 @@ def test_catalog_and_staff_in_production_app(
                     secrets.token_hex(32),
                 ),
             )
-            assert not admin.views  # No generic CRUD placeholders in production.
+            # Only the two service-backed order pages; no generic CRUD views.
+            assert {view.identity for view in admin.views} == {"orders", "order-detail"}
+            assert all(not view.is_model for view in admin.views)
             schema = browser.get("/openapi.json").json()["paths"]
             assert "post" in schema["/admin/auth/login"]
             assert "post" in schema["/admin/auth/logout"]

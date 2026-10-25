@@ -1,0 +1,42 @@
+{% extends "sqladmin/layout.html" %}
+{% from "orders/_money.html" import money %}
+{% block content %}
+<h2>Orders</h2>
+<form action="/admin/orders" method="get" class="mb-3">
+  <label for="status">Status</label>
+  <select id="status" name="status">
+    <option value="" disabled{% if status is none %} selected{% endif %}>All statuses (select to filter)</option>
+    {% for value in ['new', 'in_progress', 'closed', 'cancelled'] %}
+    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value }}</option>
+    {% endfor %}
+  </select>
+  <label for="limit">Orders per page (1–100)</label>
+  <input id="limit" name="limit" type="number" min="1" max="100" value="{{ page.limit }}">
+  <button type="submit" class="btn btn-primary">Filter</button>
+  <a href="/admin/orders">All statuses</a>
+</form>
+<p>{{ page.total }} orders. Newest first. Read-only; amounts are preliminary.</p>
+<div class="table-responsive">
+<table class="table table-striped">
+  <caption>Persisted order summaries</caption>
+  <thead><tr><th scope="col">Number</th><th scope="col">Created (UTC)</th><th scope="col">Kind</th><th scope="col">Current status</th><th scope="col">Known subtotal</th><th scope="col">Items total</th><th scope="col">Delivery</th><th scope="col">Total</th></tr></thead>
+  <tbody>
+  {% for order in page.items %}
+  <tr>
+    <td><a href="/admin/orders/{{ order.id }}">{{ order.number }}</a></td>
+    <td>{{ order.created_at.isoformat() }}</td><td>{{ order.kind }}</td><td>{{ order.status }}</td>
+    <td>{{ money(order.known_subtotal, order.currency) }}</td>
+    <td>{% if order.kind == 'support' %}Not applicable{% else %}{{ money(order.items_total, order.currency) }}{% endif %}</td>
+    <td>{{ order.delivery_status }}</td>
+    <td>{% if order.kind == 'support' %}Not applicable{% else %}{{ money(order.total_amount, order.currency) }}{% endif %}</td>
+  </tr>
+  {% else %}<tr><td colspan="8">No orders found.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+<nav aria-label="Order pagination">
+  {% if page.offset > 0 %}<a href="/admin/orders?limit={{ page.limit }}&amp;offset={{ [0, page.offset - page.limit]|max }}{% if status %}&amp;status={{ status }}{% endif %}">Previous</a>{% endif %}
+  <span>Offset {{ page.offset }}</span>
+  {% if page.offset + page.limit < page.total and page.offset + page.limit <= 10000 %}<a href="/admin/orders?limit={{ page.limit }}&amp;offset={{ page.offset + page.limit }}{% if status %}&amp;status={{ status }}{% endif %}">Next</a>{% endif %}
+</nav>
+{% endblock %}
