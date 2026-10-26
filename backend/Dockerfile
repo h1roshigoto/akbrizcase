@@ -7,6 +7,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     UV_NO_CACHE=1 \
     PATH="/app/.venv/bin:$PATH"
+# Debian security versions pinned; no daemon, freshclam, or bundled signatures.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       clamav=1.4.6+dfsg-0+deb12u1 clamav-base=1.4.6+dfsg-0+deb12u1 \
+       libclamav12=1.4.6+dfsg-0+deb12u1 libseccomp2=2.5.4-1+deb12u1 \
+    && rm -rf /var/lib/apt/lists/* /var/lib/clamav/*
 WORKDIR /app
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --chmod=0444 pyproject.toml uv.lock ./

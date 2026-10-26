@@ -127,3 +127,7 @@ worker-smoke: acceptance-guards
 .PHONY: notification-retry-browser-smoke
 notification-retry-browser-smoke: acceptance-guards
 	python3 scripts/notification_retry_browser_smoke.py
+
+.PHONY: files-smoke
+files-smoke: acceptance-guards
+	python3 scripts/files_smoke.py

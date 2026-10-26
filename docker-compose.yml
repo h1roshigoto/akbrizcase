@@ -119,7 +119,7 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U akbrizcase_owner -d akbrizcase"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U akbrizcase_owner -d akbrizcase"]
       interval: 5s
       timeout: 3s
       retries: 12

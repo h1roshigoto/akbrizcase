@@ -10,6 +10,7 @@ dependencies = [
     "itsdangerous==2.2.0",
     "psycopg[binary]==3.3.3",
     "pydantic==2.14.1",
+    "pypdf==6.12.0",
     "sqladmin==0.21.0",
     "sqlalchemy==2.0.46",
     "uvicorn==0.54.0",
@@ -26,8 +27,8 @@ default = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "--strict-config --strict-markers -m 'not integration'"
-markers = ["integration: isolated PostgreSQL 16 integration checks"]
+addopts = "--strict-config --strict-markers -m 'not integration and not file_acceptance'"
+markers = ["integration: isolated PostgreSQL 16 integration checks", "file_acceptance: real ClamAV and process sandbox checks"]
 
 [tool.ruff]
 target-version = "py312"
