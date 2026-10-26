@@ -174,9 +174,10 @@ def send_notification(settings: SMTPSettings, claim: Claim) -> None:
 
         def abort() -> None:
             expired.set()
-            if client.sock is not None:
+            connection = client.sock
+            if connection is not None:
                 try:
-                    client.sock.shutdown(socket.SHUT_RDWR)
+                    connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
 
