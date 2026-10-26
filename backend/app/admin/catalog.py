@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import RedirectResponse, Response
 
 from app.admin.security import error_response, request_identity
@@ -41,10 +42,13 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 async def form_values(request: Request) -> dict[str, object]:
-    async with request.form(max_fields=30, max_files=0) as form:
-        if any(len(form.getlist(key)) != 1 for key in form):
-            raise ValueError("Duplicate field")
-        values: dict[str, object] = dict(form)
+    try:
+        async with request.form(max_fields=30, max_files=0) as form:
+            if any(len(form.getlist(key)) != 1 for key in form):
+                raise ValueError("Duplicate field")
+            values: dict[str, object] = dict(form)
+    except StarletteHTTPException:
+        raise ValueError("Invalid form") from None
     values.pop("csrf_token", None)  # The shared middleware checked it already.
     if "expected_revision" in values:
         revision = values["expected_revision"]
@@ -248,7 +252,7 @@ class CatalogEditorView(StaffBaseView):
                     ModelState.model_validate(values),
                     action,
                 )
-        except (ValidationError, ValueError):
+        except (ValidationError, ValueError, RecursionError):
             return error_response(
                 request, 422, "INVALID_REQUEST", "Invalid catalog state"
             )

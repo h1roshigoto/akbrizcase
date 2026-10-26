@@ -395,6 +395,26 @@ def test_csrf_origin_and_pollution(
         == 422
     )
     assert read_client.get("/admin/catalog-items?limit=1&limit=2").status_code == 422
+    upload = read_client.post(
+        "/admin/catalog/items/new",
+        files={"image": ("synthetic.txt", b"synthetic")},
+        headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
+    )
+    assert (
+        upload.status_code == 422
+        and upload.json()["error"]["code"] == "INVALID_REQUEST"
+    )
+    deep = '{"nested":' * 1100 + "{}" + "}" * 1100
+    assert (
+        post(
+            read_client,
+            f"/admin/catalog/items/{uuid4()}/publish",
+            csrf,
+            expected_revision="1",
+            attributes=deep,
+        ).status_code
+        == 422
+    )
     for changes in (
         {"image_key": "bad"},
         {"id": str(uuid4())},
@@ -685,6 +705,10 @@ def test_json_boolean_number_change_and_key_order_noop(
     assert any(
         row["metadata"].get("revision") == 2 for row in catalog_audit(staff_database)
     )
+    stored = next(
+        row for row in before["catalog_items"] if row["sku"] == "SYNTHETIC-016"
+    )
+    assert type(stored["attributes"]["first"]) is int
     assert (
         post(
             read_client,

@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.auth import has_role
 from app.core.staff_models import AuditEvent
@@ -160,6 +161,9 @@ class CatalogWriteService:
             ):
                 for key, value in fields.items():
                     setattr(row, key, value)
+                if attributes_changed:
+                    # ORM history also uses Python equality (True == 1).
+                    flag_modified(row, "attributes")
                 self._changed(row, "edit")
             return row
 
