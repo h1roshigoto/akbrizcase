@@ -7,10 +7,19 @@ from pydantic import ConfigDict, ValidationError
 from sqladmin import expose
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import RedirectResponse, Response
 
-from app.admin.security import error_response, request_identity, require_role
+from app.admin.security import (
+    error_response,
+    request_identity,
+    require_role,
+    security_settings,
+)
 from app.admin.sqladmin import StaffBaseView
+from app.core.csrf import SESSION_COOKIE
+from app.core.staff_sessions import SESSION_SECONDS
+from app.modules.notify.retry_service import retry_failed_notification
 from app.modules.orders.read_service import OrderNotFound, OrderReadService
 from app.modules.orders.service import OrderRejected
 from app.modules.orders.status_service import TRANSITIONS, change_status
@@ -161,5 +170,49 @@ class OrderDetailView(StaffBaseView):
             # The shared service's savepoint has already rolled back all writes.
             return error_response(
                 request, 503, "SERVICE_UNAVAILABLE", "Status change unavailable"
+            )
+        return RedirectResponse(f"/admin/orders/{identifier}", status_code=303)
+
+    @expose(
+        "/orders/{id}/retry-notification",
+        methods=["POST"],
+        identity="order-notification-retry",
+    )
+    async def retry_notification_page(self, request: Request) -> Response:
+        try:
+            identifier = parse_uuid(request.path_params["id"])
+            if request.query_params:
+                raise ValueError
+            if request.headers.get("content-type", "").split(";")[0] not in (
+                "application/x-www-form-urlencoded",
+                "multipart/form-data",
+            ):
+                raise ValueError
+            async with request.form() as form:
+                if (
+                    set(form) != {"csrf_token"}
+                    or len(form.getlist("csrf_token")) != 1
+                    or not isinstance(form["csrf_token"], str)
+                    or not security_settings(request).verify(
+                        form["csrf_token"],
+                        request.cookies.get(SESSION_COOKIE, ""),
+                        "session",
+                        SESSION_SECONDS,
+                    )
+                ):
+                    raise ValueError
+        except (ValueError, StarletteHTTPException):
+            return error_response(request, 422, "INVALID_REQUEST", "Invalid request")
+        actor = request_identity(request)
+        assert actor is not None
+        try:
+            await run_in_threadpool(
+                retry_failed_notification, request.state.staff_db, identifier, actor
+            )
+        except OrderRejected as error:
+            return error_response(request, error.status, error.code, error.message)
+        except SQLAlchemyError:
+            return error_response(
+                request, 503, "SERVICE_UNAVAILABLE", "Notification retry unavailable"
             )
         return RedirectResponse(f"/admin/orders/{identifier}", status_code=303)

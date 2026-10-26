@@ -76,5 +76,12 @@
 </table></section>
 <section aria-labelledby="notification"><h3 id="notification">Notification</h3>
 <p>{{ order.notification_status if order.notification_status else 'No retained notification record' }}</p>
+<p>{{ {'pending': 'Ожидает отправки', 'sending': 'Worker обрабатывает', 'sent': 'SMTP подтвердил приём', 'failed': 'Автоматические попытки закончились'}.get(order.notification_status, 'Запись отсутствует') }}</p>
+{% if order.notification_status == 'failed' %}
+<form action="/admin/orders/{{ order.id }}/retry-notification" method="post">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <button type="submit" class="btn btn-primary">Повторить уведомление</button>
+</form>
+{% endif %}
 <p>Order viewing is independent of email delivery.</p></section>
 {% endblock %}

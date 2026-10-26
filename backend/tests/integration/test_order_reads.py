@@ -466,11 +466,25 @@ def test_no_generic_crud_export_or_order_mutation(
             )
             assert response.status_code == 405, (method, path, response.text)
             assert response.headers["cache-control"] == "no-store"
-    for prefix in ("/admin/orders", "/api/v1/admin/orders"):
-        for action in ("retry-notification",):
-            assert read_client.post(
-                f"{prefix}/{identifier}/{action}", headers=headers
-            ).status_code in (404, 405)
+    assert read_client.post(
+        f"/api/v1/admin/orders/{identifier}/retry-notification", headers=headers
+    ).status_code in (404, 405)
+    # MVP-018 registers only the strict HTML POST. Empty input is invalid and
+    # even a valid form cannot retry this pending notification.
+    assert (
+        read_client.post(
+            f"/admin/orders/{identifier}/retry-notification", headers=headers
+        ).status_code
+        == 422
+    )
+    assert (
+        read_client.post(
+            f"/admin/orders/{identifier}/retry-notification",
+            data={"csrf_token": csrf},
+            headers=headers,
+        ).status_code
+        == 409
+    )
     # Only the narrow SQLAdmin POST is now allowed, and still needs valid input.
     assert (
         read_client.post(

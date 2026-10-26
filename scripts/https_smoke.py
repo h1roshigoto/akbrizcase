@@ -61,6 +61,7 @@ def main(
     request_form: bool = False,
     status_changes: bool = False,
     catalog_admin: bool = False,
+    notification_retry: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -191,7 +192,20 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if catalog_admin:
+                if notification_retry:
+                    from notification_retry_browser_smoke import (
+                        run_browser as run_retry,
+                    )
+
+                    browser = run_retry(
+                        browser_environment,
+                        {"origin": origin, "passwords": passwords},
+                        compose,
+                        stack,
+                        prefix,
+                        temporary,
+                    )
+                elif catalog_admin:
                     from catalog_admin_browser_smoke import run_browser as run_catalog
 
                     browser = run_catalog(
@@ -231,7 +245,7 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
-            expected = 1 if request_form or catalog_admin else 2
+            expected = 1 if request_form or catalog_admin or notification_retry else 2
             compose(
                 "exec",
                 "-T",
@@ -244,15 +258,17 @@ from app.core.db import Database,DatabaseSettings
 from sqlalchemy import text
 expected=int(sys.argv[1])
 history=int(sys.argv[2])
+notification_status=sys.argv[3]
 d=Database(DatabaseSettings.from_environment())
 with d.unit_of_work() as s:
  for table,count in [('orders',expected),('consents',expected),('order_items',2),('order_status_history',history),('email_outbox',expected)]:
   assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
- assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status='pending'"))==expected
+ assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status=:status"), {'status':notification_status})==expected
 d.close()
 """,
                 str(expected),
                 str(3 if status_changes else expected),
+                "sent" if notification_retry else "pending",
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(

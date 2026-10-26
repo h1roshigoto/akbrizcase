@@ -123,3 +123,7 @@ catalog-admin-browser-smoke: acceptance-guards
 .PHONY: worker-smoke
 worker-smoke: acceptance-guards
 	python3 scripts/worker_smoke.py
+
+.PHONY: notification-retry-browser-smoke
+notification-retry-browser-smoke: acceptance-guards
+	python3 scripts/notification_retry_browser_smoke.py

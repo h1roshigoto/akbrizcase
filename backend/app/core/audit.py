@@ -88,3 +88,20 @@ def record_order_status_event(
         )
     )
     session.flush()
+
+
+def record_notification_retry_event(
+    session: Session, *, actor_id: UUID, outbox_id: UUID
+) -> None:
+    """Fixed operation metadata; accepts no request content or SMTP diagnostics."""
+    session.add(
+        AuditEvent(
+            actor_id=actor_id,
+            action="notification.retry",
+            entity_type="email_outbox",
+            entity_id=outbox_id,
+            result="success",
+            details={"from_status": "failed", "to_status": "pending"},
+        )
+    )
+    session.flush()
