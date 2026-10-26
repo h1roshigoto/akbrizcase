@@ -1,5 +1,6 @@
 """Staff audit allowlist: never accept arbitrary payloads, logins or secrets."""
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -53,6 +54,37 @@ def record_staff_event(
             entity_id=entity_id,
             result=result,
             details=details,
+        )
+    )
+    session.flush()
+
+
+def record_order_status_event(
+    session: Session,
+    *,
+    actor_id: UUID,
+    order_id: UUID,
+    from_status: str,
+    to_status: str,
+    from_version: int,
+    to_version: int,
+    at: datetime,
+) -> None:
+    """Fixed technical metadata only; free-text reasons never enter the audit."""
+    session.add(
+        AuditEvent(
+            actor_id=actor_id,
+            action="order.status.change",
+            entity_type="order",
+            entity_id=order_id,
+            result="success",
+            at=at,
+            details={
+                "from_status": from_status,
+                "to_status": to_status,
+                "from_version": from_version,
+                "to_version": to_version,
+            },
         )
     )
     session.flush()

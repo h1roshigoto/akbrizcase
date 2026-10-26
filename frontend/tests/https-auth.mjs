@@ -110,8 +110,9 @@ try {
       assert(orderText.includes(item.sku) && orderText.includes(item.name));
     }
     assert.equal(await page.locator('table').first().locator('tbody tr').count(), 2);
-    assert.equal(await page.locator('form').count(), 1); // Logout only.
-    assert.equal(await page.getByRole('button', { name: /edit|delete|retry|change status/i }).count(), 0);
+    assert.equal(await page.locator('form').count(), 2); // Logout and narrow status action.
+    assert.equal(await page.getByRole('button', { name: 'Change status', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /edit|delete|retry/i }).count(), 0);
     const jsonResponse = await context.request.get(`${config.origin}/api/v1/admin/orders`);
     assert.equal(jsonResponse.status(), 200);
     assert.equal(jsonResponse.headers()['cache-control'], 'no-store');

@@ -56,7 +56,7 @@ def browser_trust():
             )
 
 
-def main(*, request_form: bool = False) -> None:
+def main(*, request_form: bool = False, status_changes: bool = False) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
     project = "akbrizcase-https-test-" + uuid.uuid4().hex[:10]
@@ -191,7 +191,11 @@ d.close()
 
                     browser = run_browser(
                         browser_environment,
-                        {"origin": origin, "passwords": passwords},
+                        {
+                            "origin": origin,
+                            "passwords": passwords,
+                            "status_changes": status_changes,
+                        },
                         compose,
                         stack,
                     )
@@ -225,14 +229,16 @@ import sys
 from app.core.db import Database,DatabaseSettings
 from sqlalchemy import text
 expected=int(sys.argv[1])
+history=int(sys.argv[2])
 d=Database(DatabaseSettings.from_environment())
 with d.unit_of_work() as s:
- for table,count in [('orders',expected),('consents',expected),('order_items',2),('order_status_history',expected),('email_outbox',expected)]:
+ for table,count in [('orders',expected),('consents',expected),('order_items',2),('order_status_history',history),('email_outbox',expected)]:
   assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
  assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status='pending'"))==expected
 d.close()
 """,
                 str(expected),
+                str(3 if status_changes else expected),
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(
@@ -253,6 +259,11 @@ d.close()
                     "initial_history=1, pending_outbox=1; "
                     "fresh labelled volumes and synthetic DB marker verified"
                 )
+                if status_changes:
+                    print(
+                        json.dumps(proof["status_acceptance"], sort_keys=True),
+                        flush=True,
+                    )
             print(
                 "PASS: certificate chain/hostname verification, HTTPS frontend/health/readiness, no secrets in application/proxy logs or audit"
             )

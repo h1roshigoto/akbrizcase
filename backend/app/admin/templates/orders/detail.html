@@ -3,7 +3,7 @@
 {% block content %}
 <p><a href="/admin/orders">Back to orders</a></p>
 <h2>Order {{ order.number }}</h2>
-<p>Read-only. Amounts are preliminary, not an offer or invoice.</p>
+<p>Original request data and snapshots are immutable. Amounts are preliminary, not an offer or invoice.</p>
 <section aria-labelledby="current-order"><h3 id="current-order">Current order</h3>
 <dl>
   <dt>Kind / source</dt><dd>{{ order.kind }} / {{ order.source }}</dd>
@@ -12,6 +12,21 @@
   <dt>Last updated (UTC)</dt><dd>{{ order.updated_at.isoformat() }}</dd>
   <dt>Closed (UTC)</dt><dd>{{ order.closed_at.isoformat() if order.closed_at else '—' }}</dd>
 </dl></section>
+<section aria-labelledby="status-action"><h3 id="status-action">Change processing status</h3>
+<p>Closed means processing of the request is complete; it does not confirm payment, shipment or performance of work.</p>
+{% if next_statuses %}
+<form action="/admin/orders/{{ order.id }}/status" method="post">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <input type="hidden" name="expected_version" value="{{ order.version }}">
+  <label for="next-status">Next status</label>
+  <select id="next-status" name="status">{% for status in next_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select>
+  <label for="status-reason">Reason (required for closed or cancelled, up to 2000 characters)</label>
+  <textarea id="status-reason" name="reason" maxlength="2000"></textarea>
+  <p>Use only the information needed to explain processing. Do not copy contact details or secrets.</p>
+  <button type="submit" class="btn btn-primary">Change status</button>
+</form>
+{% else %}<p>This is a terminal status. No further transitions are allowed.</p>{% endif %}
+</section>
 <section aria-labelledby="customer"><h3 id="customer">Customer</h3>
 {% if order.pii_erased_at %}<p>Personal data erased. Deleted values are unavailable.</p>{% endif %}
 <dl>
