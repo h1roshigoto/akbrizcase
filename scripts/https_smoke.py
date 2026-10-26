@@ -14,6 +14,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
 from synthetic_stack import LABEL, MARKER, SyntheticStack
@@ -187,6 +188,17 @@ d.close()
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
                 with opener.open(origin + path, timeout=5) as response:
                     assert response.status == 200
+            for private_path in (
+                "/files/blocked",
+                "/documents",
+                "/documents/quarantine/blocked",
+            ):
+                try:
+                    opener.open(origin + private_path, timeout=5)
+                except HTTPError as error:
+                    assert error.code == 404
+                else:
+                    raise AssertionError("Private storage URL must return 404")
             with browser_trust():
                 browser_environment = environment.copy()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(

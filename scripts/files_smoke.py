@@ -126,7 +126,10 @@ def main():
             for path in (
                 "/files/" + key,
                 "/api/v1/documents/" + key + "/file",
+                "/documents",
                 "/documents/quarantine/" + key,
+                "/documents/verified/" + key,
+                "/documents/receipts/" + key,
             ):
                 try:
                     opener.open(
