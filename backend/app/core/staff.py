@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import StaffAction, StaffResult, record_staff_event
 from app.core.auth import (
+    AuthenticatedStaff,
     StaffRole,
     authenticate,
     has_role,
@@ -35,6 +36,15 @@ class StaffOutcome:
 
 def lock_staff(session: Session) -> None:
     session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _STAFF_LOCK})
+
+
+def authenticate_operator(
+    session: Session, login: str, password: str
+) -> AuthenticatedStaff | None:
+    """Verify Argon2id under the same commit-scoped lock as staff-disable."""
+    lock_staff(session)
+    user = authenticate(session, login, password)
+    return AuthenticatedStaff(user) if user is not None else None
 
 
 def _finish(

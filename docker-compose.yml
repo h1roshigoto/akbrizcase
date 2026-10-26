@@ -102,6 +102,14 @@ services:
       postgres:
         condition: service_healthy
 
+  kb:
+    <<: *backend
+    profiles: [tools]
+    entrypoint: [python, -m, app.modules.kb.cli]
+    networks: [data]
+    stdin_open: true
+    tty: true
+
   postgres:
     image: postgres:16.13-bookworm
     command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic]

@@ -33,6 +33,9 @@ services:
       DB_HOST: postgres-test
       DB_PASSWORD_FILE: /run/secrets/runtime_password
       MIGRATION_DB_PASSWORD_FILE: /run/secrets/migrator_password
+      APP_FILES_DIR: /var/lib/akbrizcase/files
+    volumes:
+      - test_files:/var/lib/akbrizcase/files
     secrets: [runtime_password, migrator_password]
     networks: [test]
     tmpfs:
@@ -50,6 +53,9 @@ networks:
       com.akbrizcase.db-integration: "true"
     internal: true
 volumes:
+  test_files:
+    labels:
+      com.akbrizcase.db-integration: "true"
   test_data:
     labels:
       com.akbrizcase.db-integration: "true"

@@ -44,7 +44,7 @@ class SyntheticStack:
         self.environment = environment
         integration = project.startswith("akbrizcase-dbtest-")
         self.volume_keys = (
-            {"test_data"} if integration else {"postgres_data", "app_files"}
+            {"test_data", "test_files"} if integration else {"postgres_data", "app_files"}
         )
         self.db_volume = "test_data" if integration else "postgres_data"
         self.db_service = "postgres-test" if integration else "postgres"

@@ -213,7 +213,7 @@ class StackSafetyTests(unittest.TestCase):
                 "postgres",
                 {"postgres_data", "app_files"},
             ),
-            ("akbrizcase-dbtest-0123456789ab", "postgres-test", {"test_data"}),
+            ("akbrizcase-dbtest-0123456789ab", "postgres-test", {"test_data", "test_files"}),
         ):
             with self.subTest(project=project):
                 stack = SyntheticStack(project, Mock(), {})

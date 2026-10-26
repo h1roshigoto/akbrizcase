@@ -36,6 +36,8 @@ def run_parser(
     if task not in {
         "probe",
         "pdf",
+        "pdf-info",
+        "pdf-text",
         "inspect",
         "network",
         "filesystem",

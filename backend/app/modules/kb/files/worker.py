@@ -4,6 +4,7 @@ No document-supplied code, commands, paths or environment. Linux x86_64/aarch64,
 libseccomp is required; unsupported hosts fail closed.
 """
 
+import codecs
 import ctypes
 import errno
 import hashlib
@@ -18,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pypdf
+from pypdf import _cmap, _text_extraction  # noqa: F401  (preload before seccomp)
 
 
 def restrictions(cpu: int, memory: int, *, tool: bool = False) -> None:
@@ -145,9 +147,13 @@ def main() -> None:
         "memory": resource.getrlimit(resource.RLIMIT_AS)[0],
         "environment": sorted(os.environ),
     }
+    # Codec modules are trusted code and must be loaded before pathname opens
+    # become forbidden. Unsupported PDF encodings still fail closed.
+    for encoding in ("charmap", "utf-16-be", "utf-16-le", "latin-1", "cp1252"):
+        codecs.lookup(encoding)
     network_filter(parser=True)
     source = int(descriptor)
-    if task == "pdf":
+    if task in {"pdf", "pdf-info", "pdf-text"}:
         with os.fdopen(os.dup(source), "rb") as file:
             reader = pypdf.PdfReader(file, strict=True)
             if reader.is_encrypted or len(reader.pages) < 1:
@@ -156,6 +162,21 @@ def main() -> None:
             for page in reader.pages:
                 if page.get("/Type") != "/Page" or "/MediaBox" not in page:
                     raise ValueError("pdf")
+            if task != "pdf":
+                if len(reader.pages) > 100:
+                    raise ValueError("pdf page limit")
+                result: dict[str, object] = {"page_count": len(reader.pages)}
+                if task == "pdf-text":
+                    pages = []
+                    total = 0
+                    for page in reader.pages:
+                        value = page.extract_text() or ""
+                        total += len(value.encode("utf-8"))
+                        if total > 12000:
+                            raise ValueError("pdf text limit")
+                        pages.append(value)
+                    result["pages"] = pages
+                print(json.dumps(result, ensure_ascii=True))
     elif task == "inspect":
         data = os.read(source, 26214401)
         print(

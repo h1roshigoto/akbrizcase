@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.audit import record_staff_event
-from app.core.auth import authenticate
+from app.core.auth import AuthenticatedStaff, authenticate
 from app.core.db_types import utc_now
 from app.core.staff import lock_staff
 from app.core.staff_models import StaffSession, StaffUser
@@ -27,8 +27,7 @@ def valid_token(token: str) -> bool:
 
 
 @dataclass(frozen=True)
-class StaffIdentity:
-    user: StaffUser
+class StaffIdentity(AuthenticatedStaff):
     session: StaffSession
 
 

@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.core.auth import has_role
+from app.core.auth import AuthenticatedStaff, has_role
 from app.core.staff_models import AuditEvent
-from app.core.staff_sessions import StaffIdentity
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 
 
@@ -37,8 +37,22 @@ class SectionContent:
     assistant_allowed: bool
 
 
+@dataclass(frozen=True)
+class DraftDocument:
+    code: str
+    title: str
+    kind: str
+    visibility: str
+
+
+@dataclass(frozen=True)
+class KeyedSection:
+    section_key: str
+    content: SectionContent
+
+
 class DraftEditService:
-    def __init__(self, session: Session, actor: StaffIdentity) -> None:
+    def __init__(self, session: Session, actor: AuthenticatedStaff) -> None:
         if not has_role(actor.user, "admin"):
             raise DraftEditRejected("Active admin required")
         self.session = session
@@ -68,18 +82,147 @@ class DraftEditService:
             raise DraftEditRejected("Only active document drafts can be edited")
         return version
 
-    def _audit(self, identifier: UUID, entity: str, action: str) -> None:
+    def _audit(
+        self, identifier: UUID, entity: str, action: str, result: str = "success"
+    ) -> None:
         self.session.add(
             AuditEvent(
                 actor_id=self.actor_id,
                 entity_type=entity,
                 entity_id=identifier,
                 action=action,
-                result="success",
+                result=result,
                 details={},
             )
         )
         self.session.flush()
+
+    def find_import(
+        self, document: DraftDocument, number: int
+    ) -> DocumentVersion | None:
+        parent = self.session.scalar(
+            select(Document)
+            .where(Document.code == document.code)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if parent is None:
+            return None
+        if parent.status != "active" or (
+            parent.title,
+            parent.kind,
+            parent.visibility,
+        ) != (document.title, document.kind, document.visibility):
+            raise DraftEditRejected("DOCUMENT_CONFLICT")
+        version = self.session.scalar(
+            select(DocumentVersion)
+            .where(
+                DocumentVersion.document_id == parent.id,
+                DocumentVersion.version == number,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if version is not None:
+            self._draft(version.id)
+            if any(
+                value is not None
+                for value in (
+                    version.reviewed_by,
+                    version.approved_at,
+                    version.published_at,
+                )
+            ):
+                raise DraftEditRejected("DRAFT_REVIEW_CONFLICT")
+        return version
+
+    def import_draft(
+        self, document: DraftDocument, number: int, content: DraftFile
+    ) -> DocumentVersion:
+        # UNIQUE + conflict-safe insert serializes even a not-yet-existing code.
+        # All lifecycle writers retain the document → version → section order.
+        self.session.execute(
+            insert(Document)
+            .values(
+                code=document.code,
+                title=document.title,
+                kind=document.kind,
+                visibility=document.visibility,
+                status="active",
+            )
+            .on_conflict_do_nothing(index_elements=[Document.code])
+        )
+        version = self.find_import(document, number)
+        if version is not None:
+            if version.checksum_sha256 != content.checksum_sha256:
+                raise DraftEditRejected("CHECKSUM_CONFLICT")
+            if (version.mime, version.size_bytes) != (content.mime, content.size_bytes):
+                raise DraftEditRejected("FILE_METADATA_CONFLICT")
+            return version
+        parent_id = self.session.scalar(
+            select(Document.id).where(Document.code == document.code)
+        )
+        assert parent_id is not None
+        version = DocumentVersion(
+            document_id=parent_id,
+            version=number,
+            file_key=content.file_key,
+            mime=content.mime,
+            size_bytes=content.size_bytes,
+            checksum_sha256=content.checksum_sha256,
+            status="draft",
+        )
+        self.session.add(version)
+        self.session.flush()
+        return version
+
+    def reconcile_sections(
+        self, version_id: UUID, expected: list[KeyedSection], *, check: bool = False
+    ) -> bool:
+        self._draft(version_id)
+        stored = self.session.scalars(
+            select(DocumentSection)
+            .where(DocumentSection.document_version_id == version_id)
+            .order_by(DocumentSection.section_key)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+        actual = [
+            KeyedSection(
+                s.section_key,
+                SectionContent(
+                    s.title, s.text, s.page_from, s.page_to, s.assistant_allowed
+                ),
+            )
+            for s in stored
+        ]
+        wanted = sorted(expected, key=lambda s: s.section_key)
+        if len({s.section_key for s in wanted}) != len(wanted):
+            raise DraftEditRejected("SECTION_DUPLICATE")
+        if actual == wanted:
+            return False
+        if stored or check:
+            raise DraftEditRejected("SECTIONS_CONFLICT")
+        # Only the precisely defined empty draft recovery is permitted. Existing
+        # sections are never silently overwritten or partially replaced.
+        for section in wanted:
+            c = section.content
+            self.session.add(
+                DocumentSection(
+                    document_version_id=version_id,
+                    section_key=section.section_key,
+                    title=c.title,
+                    text=c.text,
+                    page_from=c.page_from,
+                    page_to=c.page_to,
+                    assistant_allowed=c.assistant_allowed,
+                )
+            )
+        self.session.flush()
+        return True
+
+    def record_import(self, version_id: UUID, action: str, result: str) -> None:
+        self._audit(version_id, "document_version", action, result)
 
     def replace_file(self, version_id: UUID, content: DraftFile) -> None:
         with self.session.no_autoflush:
