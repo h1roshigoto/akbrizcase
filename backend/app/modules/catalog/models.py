@@ -5,11 +5,21 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from pydantic import JsonValue
-from sqlalchemy import Boolean, CheckConstraint, Index, String, Text, func, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db_types import Base, utc_now
+from app.modules.kb import models as kb_models  # noqa: F401 -- register manual FK target
 
 
 class EquipmentModel(Base):
@@ -27,7 +37,9 @@ class EquipmentModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=utc_now
     )
-    # manual_document_id is added with the real documents table in MVP-019.
+    manual_document_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("app.documents.id", ondelete="RESTRICT")
+    )
 
 
 class CatalogItem(Base):

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.csrf import StaffSecurity
 from app.modules.orders.security import OrderSecurity
 
-SCHEMA_REVISION = "0003_mvp008_orders"
+SCHEMA_REVISION = "0004_mvp019_documents"
 
 
 class DatabaseConfigurationError(ValueError):
