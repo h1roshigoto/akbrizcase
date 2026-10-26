@@ -56,7 +56,12 @@ def browser_trust():
             )
 
 
-def main(*, request_form: bool = False, status_changes: bool = False) -> None:
+def main(
+    *,
+    request_form: bool = False,
+    status_changes: bool = False,
+    catalog_admin: bool = False,
+) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
     project = "akbrizcase-https-test-" + uuid.uuid4().hex[:10]
@@ -186,7 +191,16 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if request_form:
+                if catalog_admin:
+                    from catalog_admin_browser_smoke import run_browser as run_catalog
+
+                    browser = run_catalog(
+                        browser_environment,
+                        {"origin": origin, "passwords": passwords},
+                        compose,
+                        stack,
+                    )
+                elif request_form:
                     from request_browser_smoke import run_browser
 
                     browser = run_browser(
@@ -217,7 +231,7 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
-            expected = 1 if request_form else 2
+            expected = 1 if request_form or catalog_admin else 2
             compose(
                 "exec",
                 "-T",
@@ -252,6 +266,10 @@ d.close()
             for secret in [*passwords.values(), *proof["secrets"]]:
                 assert secret not in logs + audit, "Authentication material leaked"
             print(proof["result"])
+            if catalog_admin:
+                print(
+                    json.dumps(proof["catalog_acceptance"], sort_keys=True), flush=True
+                )
             if request_form:
                 print(json.dumps(proof["acceptance"], sort_keys=True), flush=True)
                 print(

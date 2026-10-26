@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
 import { randomBytes } from 'node:crypto'
 import { chromium } from '@playwright/test'
+import { staffLogin } from './staff-login.mjs'
 const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]()
 const read = async () => JSON.parse((await lines.next()).value)
 const config = await read()
@@ -222,13 +223,7 @@ try {
   step = 'manager verification'
   const manager = await browser.newContext({ ignoreHTTPSErrors: false })
   const staff = await manager.newPage()
-  await staff.goto(`${config.origin}/admin/login`)
-  await staff.getByLabel('Login', { exact: true }).fill('browser-manager')
-  await staff
-    .getByLabel('Password', { exact: true })
-    .fill(config.passwords.manager)
-  await staff.getByRole('button', { name: 'Log in', exact: true }).click()
-  await staff.waitForURL(`${config.origin}/admin/`)
+  await staffLogin(staff, config, 'manager')
   for (const cookie of await manager.cookies()) sensitive.push(cookie.value)
   await staff.getByRole('link', { name: 'Orders', exact: true }).click()
   await staff

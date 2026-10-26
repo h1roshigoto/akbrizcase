@@ -19,6 +19,7 @@ class AcceptanceLifecycleTests(unittest.TestCase):
             "db_integration",
             "https_smoke",
             "request_browser_smoke",
+            "catalog_admin_browser_smoke",
         ):
             tree = ast.parse(Path(__file__).with_name(name + ".py").read_text())
             for call in ast.walk(tree):

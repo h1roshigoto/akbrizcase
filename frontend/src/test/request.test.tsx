@@ -236,13 +236,29 @@ it.each(['catalog_changed', 'consent_changed', 'validation'] as const)(
     await approve()
     await screen.findByRole('button', { name: 'Пересмотреть заявку' })
     expect((send() as HTMLButtonElement).disabled).toBe(true)
-    if (reason === 'consent_changed')
-      vi.mocked(api.getConsent).mockResolvedValue({
-        ...consent,
-        version: 'effective-v2',
-        text: 'Changed plain text <script>literal</script>',
-      })
+    // Hold this review's reload until its loading state is observable. The old
+    // successful resource can briefly remain rendered before useResource's
+    // effect starts; approving that stale render races consent invalidation.
+    const reviewedConsent =
+      reason === 'consent_changed'
+        ? {
+            ...consent,
+            version: 'effective-v2',
+            text: 'Changed plain text <script>literal</script>',
+          }
+        : consent
+    let resolveConsent!: (value: typeof consent) => void
+    const reload = new Promise<typeof consent>((resolve) => {
+      resolveConsent = resolve
+    })
+    vi.mocked(api.getConsent).mockReturnValue(reload)
     fireEvent.click(screen.getByRole('button', { name: 'Пересмотреть заявку' }))
+    await waitFor(() =>
+      expect((accept() as HTMLInputElement).disabled).toBe(true),
+    )
+    await act(async () => {
+      resolveConsent(reviewedConsent)
+    })
     await waitFor(() =>
       expect((send() as HTMLButtonElement).disabled).toBe(false),
     )
