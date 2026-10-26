@@ -86,8 +86,14 @@ def test_catalog_and_staff_in_production_app(
                     secrets.token_hex(32),
                 ),
             )
-            # Only the two service-backed order pages; no generic CRUD views.
-            assert {view.identity for view in admin.views} == {"orders", "order-detail"}
+            # Service-backed order and admin-only catalog pages; no ORM CRUD.
+            assert {view.identity for view in admin.views} == {
+                "orders",
+                "order-detail",
+                "catalog-items",
+                "equipment-models",
+                "catalog-editor",
+            }
             assert all(not view.is_model for view in admin.views)
             schema = browser.get("/openapi.json").json()["paths"]
             assert "post" in schema["/admin/auth/login"]

@@ -1,0 +1,6 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Catalog change conflict</h2>
+<p role="alert">The record changed, its code already exists, or this action is no longer allowed. Reload current data before submitting again.</p>
+<p><a href="/admin/catalog-items">Reload catalog items</a> · <a href="/admin/equipment-models">Reload equipment models</a></p>
+{% endblock %}

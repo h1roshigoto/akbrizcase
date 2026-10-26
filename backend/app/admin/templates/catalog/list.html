@@ -1,0 +1,17 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>{% if entity == 'items' %}Catalog items{% else %}Equipment models{% endif %}</h2>
+<p><a href="/admin/catalog/{{ entity }}/new">Create draft</a></p>
+<p>{{ total }} records, including private drafts and archives.</p>
+<table class="table">
+  <thead><tr><th>Code / SKU</th><th>Name</th><th>Status</th><th>Revision / updated (UTC)</th></tr></thead>
+  <tbody>{% for row in rows %}
+    <tr><td><a href="/admin/catalog/{{ entity }}/{{ row.id }}">{% if entity == 'items' %}{{ row.sku }}{% else %}{{ row.code }}{% endif %}</a></td><td>{{ row.name }}</td><td>{{ row.status }}</td><td>{% if entity == 'items' %}{{ row.revision }}{% else %}{{ row.updated_at.isoformat() }}{% endif %}</td></tr>
+  {% else %}<tr><td colspan="4">No records.</td></tr>{% endfor %}</tbody>
+</table>
+{% set list_path = 'catalog-items' if entity == 'items' else 'equipment-models' %}
+<nav aria-label="Catalog pagination">
+{% if page.offset > 0 %}<a href="/admin/{{ list_path }}?limit={{ page.limit }}&amp;offset={{ [0, page.offset - page.limit]|max }}">Previous</a>{% endif %}
+{% if page.offset + page.limit < total and page.offset + page.limit <= 10000 %}<a href="/admin/{{ list_path }}?limit={{ page.limit }}&amp;offset={{ page.offset + page.limit }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

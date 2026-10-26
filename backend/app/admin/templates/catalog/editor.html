@@ -1,0 +1,49 @@
+{% extends "sqladmin/layout.html" %}
+{% macro version(row, entity) %}
+{% if row %}
+{% if entity == 'items' %}<input type="hidden" name="expected_revision" value="{{ row.revision }}">
+{% else %}<input type="hidden" name="expected_updated_at" value="{{ row.updated_at.isoformat() }}">{% endif %}
+{% endif %}
+{% endmacro %}
+{% block content %}
+<h2>{% if row %}Edit{% else %}Create draft{% endif %} {% if entity == 'items' %}catalog item{% else %}equipment model{% endif %}</h2>
+<p><a href="/admin/{% if entity == 'items' %}catalog-items{% else %}equipment-models{% endif %}">Back to list</a></p>
+<p>Display data does not confirm equipment compatibility. Publication is a separate action.</p>
+{% if row %}<p>Status: <span id="catalog-status">{{ row.status }}</span>. {% if entity == 'items' %}Revision: <span id="catalog-revision">{{ row.revision }}</span>. SKU and kind cannot be changed.{% endif %}</p>{% endif %}
+<form method="post" action="/admin/catalog/{{ entity }}/{% if row %}{{ row.id }}{% else %}new{% endif %}" id="catalog-form">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  {{ version(row, entity) }}
+  <fieldset{% if row and row.status == 'archived' %} disabled{% endif %}>
+  {% if entity == 'items' %}
+    {% if row %}<p>SKU: {{ row.sku }}; kind: {{ row.kind }}</p>
+    {% else %}
+    <p><label for="sku">SKU</label><input id="sku" name="sku" required maxlength="200" pattern="[A-Za-z0-9_.-]+"></p>
+    <p><label for="kind">Kind</label><select id="kind" name="kind"><option value="product">product</option><option value="service">service</option></select></p>
+    {% endif %}
+  {% else %}
+    <p><label for="code">Code</label><input id="code" name="code" value="{{ row.code if row else '' }}" required maxlength="100" pattern="[A-Za-z0-9_.-]+"></p>
+  {% endif %}
+  <p><label for="name">Name</label><input id="name" name="name" value="{{ row.name if row else '' }}" required maxlength="200"></p>
+  <p><label for="description">Description</label><textarea id="description" name="description" maxlength="10000">{{ row.description if row else '' }}</textarea></p>
+  {% if entity == 'items' %}
+    <p><label for="attributes">Attributes (JSON object, ≤32 KiB, depth ≤8)</label><textarea id="attributes" name="attributes" rows="8">{{ attributes }}</textarea></p>
+    <p><label for="unit">Unit</label><input id="unit" name="unit" value="{{ row.unit if row else '' }}" required maxlength="200"></p>
+    <p><label for="price_mode">Price mode</label><select id="price_mode" name="price_mode">{% for mode in ['fixed','on_request'] %}<option value="{{ mode }}"{% if row and row.price_mode == mode %} selected{% endif %}>{{ mode }}</option>{% endfor %}</select></p>
+    <p><label for="price">Price (decimal RUB; leave empty for on_request)</label><input id="price" name="price" inputmode="decimal" value="{{ row.price if row and row.price is not none else '' }}"></p>
+    <input type="hidden" name="currency" value="RUB">
+    <p><label for="tax_note">Tax note (explicit text; no automatic tax calculation)</label><input id="tax_note" name="tax_note" value="{{ row.tax_note if row else '' }}" required maxlength="200"></p>
+    <p><label for="requires_shipping">Requires shipping (services must use false)</label><select id="requires_shipping" name="requires_shipping"><option value="false">false</option><option value="true"{% if row and row.requires_shipping %} selected{% endif %}>true</option></select></p>
+  {% endif %}
+  <button class="btn btn-primary" type="submit">{% if row %}Save changes{% else %}Create draft{% endif %}</button>
+  </fieldset>
+</form>
+{% if row and row.status in ['draft','published'] %}
+{% set action = 'publish' if row.status == 'draft' else 'archive' %}
+<form method="post" action="/admin/catalog/{{ entity }}/{{ row.id }}/{{ action }}">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  {{ version(row, entity) }}
+  <button class="btn btn-secondary" type="submit">{{ action|capitalize }}</button>
+</form>
+{% endif %}
+{% if row and row.status == 'published' and entity == 'items' %}<p><a href="/api/v1/catalog/items/{{ row.id }}">Public catalog record</a></p>{% endif %}
+{% endblock %}

@@ -115,3 +115,7 @@ vertical-smoke: acceptance-guards request-browser-smoke
 # Run every MVP-014 assertion first, then process that same synthetic order.
 status-browser-smoke: acceptance-guards
 	python3 scripts/request_browser_smoke.py --status
+
+.PHONY: catalog-admin-browser-smoke
+catalog-admin-browser-smoke: acceptance-guards
+	python3 scripts/catalog_admin_browser_smoke.py
