@@ -1,0 +1,23 @@
+# Only scripts/files_smoke.py starts this one-shot synthetic acceptance runner.
+services:
+  files-tests:
+    image: akbrizcase-files-tests:mvp-020
+    build:
+      context: ./backend
+      target: integration
+    profiles: [tools]
+    init: true
+    user: "10001:10001"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    pids_limit: 32
+    environment:
+      MVP020_ACCEPTANCE_FILES: /var/lib/akbrizcase/files
+    volumes:
+      - app_files:/var/lib/akbrizcase/files
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=96m,mode=1777
+    command: [python, -m, pytest, -m, "not integration", -p, "no:cacheprovider", --tb=short, -q, tests/test_files.py, tests/test_files_acceptance.py]
