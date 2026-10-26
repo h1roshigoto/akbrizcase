@@ -484,6 +484,9 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
             f"/api/v1/catalog/items/{rows['DEMO-P-001']['id']}",
         ):
             assert api_json(path, 503)["error"]["code"] == "SERVICE_UNAVAILABLE"
+        # Complete the start transition before Compose's health waiter observes
+        # the container; some versions otherwise reuse the stopped exited(0).
+        compose("start", "postgres")
         compose("up", "--no-build", "--detach", "--wait", "postgres")
         assert http("/readyz")[0] == 200
         assert api_json("/api/v1/catalog/items")["total"] == 5

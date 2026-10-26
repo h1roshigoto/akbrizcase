@@ -2,6 +2,7 @@
 
 import re
 import secrets
+from dataclasses import dataclass
 from typing import Literal
 
 from argon2 import PasswordHasher, Type
@@ -12,6 +13,15 @@ from sqlalchemy.orm import Session
 from app.core.staff_models import StaffUser
 
 StaffRole = Literal["manager", "admin"]
+
+
+@dataclass(frozen=True)
+class AuthenticatedStaff:
+    """A verified database identity; password CLI does not invent a web session."""
+
+    user: StaffUser
+
+
 # Argon2id RFC 9106 low-memory profile, with independent random salts.
 _hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4, type=Type.ID)
 _dummy_hash = _hasher.hash(secrets.token_urlsafe(32))

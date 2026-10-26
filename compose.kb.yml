@@ -1,0 +1,8 @@
+# Operator inputs are outside Git, owner UID 10001, manifest mode 0600.
+services:
+  kb:
+    volumes:
+      - type: bind
+        source: ${KB_OPERATOR_INPUT_DIR:?Select a protected operator directory outside Git}
+        target: /operator
+        read_only: true

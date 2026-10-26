@@ -1,5 +1,11 @@
 # Explicit operator-selected, immutable, authenticated CVD release (not Git).
 services:
+  kb:
+    volumes:
+      - type: bind
+        source: ${CLAMAV_RELEASE_DIR:?Select an operator-verified immutable CVD release}
+        target: /var/lib/akbrizcase/clamav
+        read_only: true
   api:
     volumes:
       - type: bind

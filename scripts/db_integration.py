@@ -102,6 +102,9 @@ def run(
                 stack.claim()
                 compose("build", "tests")
                 compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres-test")
+                # Materialize the isolated file volume before the ownership
+                # guard verifies both persistent test volumes. No test runs yet.
+                compose("create", "tests")
                 stack.verify_database()
                 if clean_upgrade_only:
                     compose(
