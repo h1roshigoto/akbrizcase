@@ -1,0 +1,19 @@
+# Opt-in transport settings only. Production egress requires an owner decision.
+# This file grants no new networks, host ports or access to other services.
+services:
+  worker:
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:?Set SMTP_PORT}
+      SMTP_MODE: ${SMTP_MODE:?Use tls or starttls}
+      SMTP_FROM: ${SMTP_FROM:?Set SMTP_FROM}
+      SMTP_TO: ${SMTP_TO:?Set manager SMTP_TO}
+      SMTP_ADMIN_ORIGIN: ${SMTP_ADMIN_ORIGIN:?Set trusted HTTPS origin}
+      STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:?Set trusted HTTPS origins}
+      SMTP_USERNAME: ${SMTP_USERNAME:?Set SMTP_USERNAME}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+    secrets: [runtime_password, smtp_password]
+    stop_grace_period: 30s
+secrets:
+  smtp_password:
+    file: ${SMTP_PASSWORD_FILE:?Set protected runtime SMTP_PASSWORD_FILE}
