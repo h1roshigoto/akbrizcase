@@ -243,6 +243,7 @@ def test_real_import_check_noop(
         ("admin", True, "wrong", False, "AUTHENTICATION_DENIED"),
         ("admin", True, PASSWORD, True, "AUTHENTICATION_DENIED"),
     ],
+    ids=["manager", "disabled", "wrong-password", "unknown-login"],
 )
 def test_auth_before_file_access(
     session: Session,
