@@ -59,6 +59,9 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "integration_probe",
             "equipment_models",
             "catalog_items",
+            "documents",
+            "document_versions",
+            "document_sections",
             "staff_users",
             "consent_texts",
             "consents",
@@ -209,6 +212,7 @@ def test_single_linear_migration_history() -> None:
     scripts = ScriptDirectory.from_config(config)
     assert scripts.get_heads() == [SCHEMA_REVISION]
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "0004_mvp019_documents",
         "0003_mvp008_orders",
         "0002_mvp006_catalog",
         "0002_mvp004_staff",

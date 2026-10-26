@@ -59,7 +59,9 @@ def reset() -> None:
     print("Stopped labelled integration projects; all test volumes preserved")
 
 
-def run(project: str, *, cleanup_only: bool = False) -> None:
+def run(
+    project: str, *, cleanup_only: bool = False, clean_upgrade_only: bool = False
+) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
         for name in ("postgres_password", "migrator_password", "runtime_password"):
@@ -101,7 +103,25 @@ def run(project: str, *, cleanup_only: bool = False) -> None:
                 compose("build", "tests")
                 compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres-test")
                 stack.verify_database()
-                compose("run", "--rm", "tests")
+                if clean_upgrade_only:
+                    compose(
+                        "run",
+                        "--rm",
+                        "-e",
+                        "DB_CLEAN_UPGRADE_ONLY=1",
+                        "tests",
+                        "python",
+                        "-m",
+                        "pytest",
+                        "-m",
+                        "integration",
+                        "-p",
+                        "no:cacheprovider",
+                        "-v",
+                        "tests/integration/test_kb_clean_upgrade.py",
+                    )
+                else:
+                    compose("run", "--rm", "tests")
             else:
                 stack.recover_for_stop()
         except subprocess.CalledProcessError:
@@ -115,6 +135,7 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["reset"]:
         reset()
     elif not sys.argv[1:]:
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12])
     else:
         sys.exit("Usage: db_integration.py [reset]")
