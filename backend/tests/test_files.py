@@ -138,19 +138,24 @@ def test_stale_signatures() -> None:
             ClamAV.require_fresh(epoch)
 
 
-def test_no_public_document_route(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_private_storage_and_unavailable_documents(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("APP_FILES_DIR", str(tmp_path))
     marker = "synthetic-private-marker"
     (tmp_path / "quarantine.txt").write_text(marker)
     with TestClient(app) as client:
         for path in (
             "/files/quarantine.txt",
-            "/api/v1/documents",
             "/api/v1/documents/a/file",
             "/documents/quarantine/a",
         ):
             response = client.get(path)
             assert response.status_code == 404 and marker not in response.text
+        # MVP-022 registers this API, but an unavailable DB still fails closed.
+        app.state.database = None
+        response = client.get("/api/v1/documents")
+        assert response.status_code == 503 and marker not in response.text
 
 
 def test_key_validation_open_race(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
