@@ -109,9 +109,9 @@ jobs:
           make frontend-sync
           sudo apt-get update
           sudo apt-get install -y libnss3-tools
-      - name: Install Chromium with system dependencies
+      - name: Install pinned Chromium headless shell and system dependencies
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps --only-shell chromium
       - name: Live PostgreSQL catalog browser acceptance
         run: make catalog-browser-smoke
       - name: Trusted HTTPS browser authentication and CSRF
