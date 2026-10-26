@@ -16,6 +16,7 @@ from threading import Event
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from sqlalchemy import event, func, select, text, update
@@ -26,6 +27,7 @@ from app.core.auth import hash_password
 from app.core.db import Database
 from app.core.staff import disable_staff, lock_staff
 from app.core.staff_models import AuditEvent, StaffUser
+from app.main import app
 from app.modules.kb.draft_service import DraftEditService
 from app.modules.kb.files import FilePipeline
 from app.modules.kb.files.scanner import ClamAV
@@ -210,6 +212,15 @@ def test_real_import_check_noop(
     key, part_id = version.file_key, parts[0].id
     assert run(session, user, paths, pipeline).code == "NO_OP"
     assert version.file_key == key and parts[0].id == part_id
+    with TestClient(app) as browser:
+        for path in (
+            f"/api/v1/documents/{version.id}/file",
+            "/api/v1/documents/search?q=Synthetic",
+            f"/documents/verified/{key}",
+        ):
+            response = browser.get(path)
+            assert response.status_code == 404
+            assert "Synthetic text" not in response.text
     events = session.scalars(
         select(AuditEvent).where(AuditEvent.action.like("kb.%"))
     ).all()
@@ -324,6 +335,7 @@ def test_existing_conflicts_and_new_version(
     paths[1].write_text(json.dumps(value))
     assert run(session, user, paths, pipeline).code == "CHECKSUM_CONFLICT"
     value["version"] = 2
+    value["sections"][0]["assistant_allowed"] = True
     paths[1].write_text(json.dumps(value))
     assert run(session, user, paths, pipeline).code == "IMPORTED_DRAFT"
     versions = session.scalars(
@@ -336,6 +348,17 @@ def test_existing_conflicts_and_new_version(
         )
     ).all()
     assert len(set(ids)) == 2
+    assert (
+        session.scalar(
+            select(DocumentSection.assistant_allowed)
+            .join(DocumentVersion)
+            .where(
+                DocumentVersion.document_id == first.document_id,
+                DocumentVersion.version == 2,
+            )
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize("large", [False, True])
@@ -489,9 +512,9 @@ def test_check_rejects_saved_contradictions(
 
 
 def test_extraction_retention_uses_new_transaction(
-    databases: tuple[Database, Database], pipeline: FilePipeline, tmp_path: Path
+    staff_database: Database, pipeline: FilePipeline, tmp_path: Path
 ) -> None:
-    runtime = databases[0]
+    runtime = staff_database
     with runtime.unit_of_work() as setup:
         user = admin(setup)
         login = user.login
@@ -525,9 +548,9 @@ def test_extraction_retention_uses_new_transaction(
 
 
 def test_concurrent_import_and_disable(
-    databases: tuple[Database, Database], pipeline: FilePipeline, tmp_path: Path
+    staff_database: Database, pipeline: FilePipeline, tmp_path: Path
 ) -> None:
-    runtime = databases[0]
+    runtime = staff_database
     with runtime.unit_of_work() as setup:
         user = admin(setup)
         login = user.login
@@ -600,29 +623,36 @@ def test_concurrent_import_and_disable(
 
 
 def test_container_cli_hidden_credentials(
-    databases: tuple[Database, Database], pipeline: FilePipeline, tmp_path: Path
+    staff_database: Database, pipeline: FilePipeline, tmp_path: Path
 ) -> None:
-    runtime = databases[0]
+    runtime = staff_database
     with runtime.unit_of_work() as setup:
         user = admin(setup)
         login = user.login
+        manager_login = admin(setup, role="manager").login
     paths = inputs(tmp_path)
     # Test-only composition substitutes signature evidence, never the clamscan
     # executable, auth, CLI, parser, storage, or database. Production has no flag.
     script = (
-        "import sys;sys.path.insert(0,'/app/tests/integration');"
+        "import sys,runpy;sys.path.insert(0,'/app/tests/integration');"
         "from test_kb_import import SyntheticClamAV;"
-        "from pathlib import Path;from app.modules.kb import cli;"
+        "from pathlib import Path;"
         "from app.modules.kb.files import FilePipeline;"
-        f"cli.FilePipeline.from_environment=lambda:FilePipeline(Path({str(pipeline.root)!r}),_scanner=SyntheticClamAV(Path({str(pipeline.scanner.database)!r})));"
-        "sys.exit(cli.main())"
+        f"FilePipeline.from_environment=lambda:FilePipeline(Path({str(pipeline.root)!r}),_scanner=SyntheticClamAV(Path({str(pipeline.scanner.database)!r})));"
+        "runpy.run_module('app.modules.kb.cli',run_name='__main__')"
     )
-    for command, expected in (
-        ("kb-import", "IMPORTED_DRAFT"),
-        ("kb-check", "READY_FOR_MANUAL_REVIEW"),
+    for command, expected, acting_login in (
+        ("kb-import", "IMPORTED_DRAFT", login),
+        ("kb-check", "READY_FOR_MANUAL_REVIEW", login),
+        ("kb-import", "FORBIDDEN", manager_login),
     ):
         master, slave = pty.openpty()
-        args = [sys.executable, "-c", script, command, "--manifest", str(paths[1])]
+        entry = (
+            [sys.executable, "-m", "app.modules.kb.cli"]
+            if expected == "FORBIDDEN"
+            else [sys.executable, "-c", script]
+        )
+        args = [*entry, command, "--manifest", str(paths[1])]
         if command == "kb-import":
             args += ["--file", str(paths[0])]
         child = subprocess.Popen(
@@ -641,14 +671,14 @@ def test_container_cli_hidden_credentials(
                         break
                     output += chunk
                     if b"Acting admin login:" in output and not sent_login:
-                        os.write(master, (login + "\n").encode())
+                        os.write(master, (acting_login + "\n").encode())
                         sent_login = True
                     if b"Acting admin password:" in output and not sent_password:
                         os.write(master, (PASSWORD + "\n").encode())
                         sent_password = True
                 if child.poll() is not None:
                     break
-            assert child.wait(timeout=2) == 0, output.decode(errors="replace")
+            assert child.wait(timeout=2) == (1 if expected == "FORBIDDEN" else 0)
             assert expected.encode() in output
             assert PASSWORD.encode() not in output and b"Synthetic text" not in output
         finally:
