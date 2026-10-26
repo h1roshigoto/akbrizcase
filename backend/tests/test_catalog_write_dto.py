@@ -80,7 +80,7 @@ def test_unknown_price_remains_null(kind: str) -> None:
         {"kind": "service", "requires_shipping": True},
         {"currency": "USD"},
         {"requires_shipping": "false"},
-        {"sku": "invalid SKU"},
+        {"sku": "x" * 201},
         {"sku": ""},
         {"kind": "unknown"},
         {"name": " "},
@@ -111,6 +111,10 @@ def test_invalid_commands(changes: dict[str, Any]) -> None:
 
 
 def test_nested_json_limits_and_literal_html() -> None:
+    assert (
+        ItemCreate.model_validate(fields(sku="ТЕСТ артикул/01")).sku
+        == "ТЕСТ артикул/01"
+    )
     attack = '<img src=x onerror="window.catalogInjected=true"> & "'
     attrs: dict[str, Any] = {"data": [attack, {"nested": True}, None]}
     assert ItemCreate.model_validate(fields(attributes=attrs)).attributes == attrs

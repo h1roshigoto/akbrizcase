@@ -169,7 +169,7 @@ def test_item_model_lifecycle_and_public_search(
 
     for kind in ("product", "service"):
         values = item_form(
-            sku=f"MVP016-{kind}",
+            sku=f"MVP016-{kind} № 1",
             kind=kind,
             name=ATTACK,
             description=ATTACK,

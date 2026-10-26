@@ -17,7 +17,7 @@
   {% if entity == 'items' %}
     {% if row %}<p>SKU: {{ row.sku }}; kind: {{ row.kind }}</p>
     {% else %}
-    <p><label for="sku">SKU</label><input id="sku" name="sku" required maxlength="200" pattern="[A-Za-z0-9_.-]+"></p>
+    <p><label for="sku">SKU</label><input id="sku" name="sku" required maxlength="200"></p>
     <p><label for="kind">Kind</label><select id="kind" name="kind"><option value="product">product</option><option value="service">service</option></select></p>
     {% endif %}
   {% else %}

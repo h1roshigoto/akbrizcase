@@ -8,7 +8,6 @@ from typing import Annotated, Literal
 from pydantic import (
     Field,
     JsonValue,
-    StringConstraints,
     field_validator,
     model_validator,
 )
@@ -105,10 +104,7 @@ class ItemFields(TextCommand):
 
 
 class ItemCreate(ItemFields):
-    sku: Annotated[
-        str,
-        StringConstraints(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.-]+$"),
-    ]
+    sku: Text200
     kind: CatalogKind
 
     @model_validator(mode="after")
