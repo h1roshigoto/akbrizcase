@@ -119,3 +119,7 @@ status-browser-smoke: acceptance-guards
 .PHONY: catalog-admin-browser-smoke
 catalog-admin-browser-smoke: acceptance-guards
 	python3 scripts/catalog_admin_browser_smoke.py
+
+.PHONY: worker-smoke
+worker-smoke: acceptance-guards
+	python3 scripts/worker_smoke.py

@@ -25,7 +25,7 @@ def main() -> None:
         run(temporary)
 
 
-def run(temporary: str) -> None:
+def run(temporary: str, *, worker_acceptance: bool = False) -> None:
     environment = isolated_environment(os.environ)
     synthetic_secrets(temporary, environment)
     environment["APP_ENV"] = "demo"  # Only this disposable, owner-marked stack.
@@ -206,6 +206,7 @@ def run(temporary: str) -> None:
             "confirmed": True,
         }
         submission_token = secrets.token_hex(32)
+        original_order_body = body
         submit = Request(
             f"http://127.0.0.1:{environment['HTTP_PORT']}/api/v1/orders",
             data=json.dumps(body).encode(),
@@ -555,6 +556,15 @@ def run(temporary: str) -> None:
         assert http("/healthz")[0] == 200
         assert http("/readyz")[0] == 200
         print("PASS: graceful worker/stack stop; DB/files survive down/up", flush=True)
+        if worker_acceptance:
+            from worker_smoke import exercise_worker
+
+            exercise_worker(
+                temporary, prefix, compose, sql, inspect, stack,
+                lambda: post_order(original_order_body, original_headers), receipt,
+                ("Synthetic Smoke", "smoke@example.invalid",
+                 "Synthetic request for isolated acceptance only", submission_token),
+            )
     finally:
         stack.cleanup()
 
