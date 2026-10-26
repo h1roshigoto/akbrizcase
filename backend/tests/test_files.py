@@ -28,6 +28,8 @@ from app.modules.kb.files.storage import MAX_BYTES, create, open_root, read, val
         (b"\0binary", "a.txt", "text/plain"),
         (b"<!DOCTYPE html><html>private</html>", "a.txt", "text/plain"),
         (b"# Title\n<script>alert(1)</script>", "a.md", "text/markdown"),
+        (b"# Title\n<img/src=x onerror=alert(1)>", "a.md", "text/markdown"),
+        (b"<script/src=blocked>", "a.txt", "text/plain"),
         (b"[link](javascript:alert(1))", "a.md", "text/markdown"),
         (b"#!/bin/sh\necho private", "a.txt", "text/plain"),
         (b"import os\nos.system('private')", "a.txt", "text/plain"),

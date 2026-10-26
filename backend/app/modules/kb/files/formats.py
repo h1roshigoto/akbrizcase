@@ -9,7 +9,7 @@ from app.modules.kb.files.sandbox import run_parser, sealed_snapshot
 MIMES = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown"}
 # Reject raw HTML entirely in text/Markdown. Rendering in MVP-021+ must also
 # disable raw HTML and unsafe URL schemes; this check is not a rendering engine.
-HTML = re.compile(r"<\s*(?:!doctype|!--|/?[a-z][a-z0-9]*(?:\s|/?>))", re.I)
+HTML = re.compile(r"<\s*(?:!doctype|!--|/?[a-z][a-z0-9]*(?=[\s/>]))", re.I)
 EXECUTABLE = re.compile(
     r"\A\s*(?:#!|<\?php|@echo\s+off|(?:import|from)\s+\w+|"
     r"(?:powershell|cmd\.exe|bash|sh)\s|(?:function|def)\s+\w+\s*\(|"
