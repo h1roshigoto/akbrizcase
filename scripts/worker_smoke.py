@@ -106,6 +106,8 @@ def exercise_worker(
     compose("start", "worker")
     compose("stop", "postgres")
     wait_for(lambda: "WORKER_TICK_FAILED" in compose("logs", "--no-color", "worker"))
+    # Separate starting a stopped container from waiting for fresh health state.
+    compose("start", "postgres")
     compose("up", "--no-build", "--detach", "--wait", "postgres")
     stack.verify_database()
     sql(

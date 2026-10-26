@@ -1,4 +1,4 @@
-"""Internal admin draft edits only. Import, publication and ACL arrive later.
+"""Internal admin draft preparation and edits. Publication and ACL arrive later.
 
 The caller supplies an authenticated identity and owns the UoW. No generic field
 mapping, lifecycle changes, commits, file reads or content-bearing audit entries.

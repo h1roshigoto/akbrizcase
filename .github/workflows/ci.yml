@@ -110,6 +110,18 @@ jobs:
         run: |
           npm install --global npm@11.9.0 --strict-ssl=true --no-audit --no-fund
           make frontend-sync
+          # Avoid long Azure mirror stalls consuming the browser test budget.
+          # Preserve signed Ubuntu packages and TLS verification.
+          for apt_source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+            if [ -f "$apt_source_file" ]; then
+              sudo sed -i \
+                -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+                -e 's|https://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+                "$apt_source_file"
+            fi
+          done
+          printf '%s\n' 'Acquire::Retries "2";' 'Acquire::http::Timeout "20";' 'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/80-akbrizcase-network >/dev/null
           sudo apt-get update
           sudo apt-get install -y libnss3-tools
       - name: Install pinned Chromium headless shell and system dependencies
