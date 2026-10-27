@@ -60,7 +60,11 @@ commit `45cba9c43ed26ef95678d8cb263d0ce81f88c93b` меняет только от
 - `CI_SUITE_START/END` и GitHub Step Summary показывают длительность и результат
   каждого integration/smoke suite, включая ошибки. Ошибка любого suite делает
   job неуспешным; остальные уже выбранные независимые suites также выполняются.
-- Полные pytest/Vitest IDs в журналах. `scripts/compare_ci_tests.py` сравнивает
+- Полные pytest/Vitest IDs в журналах. Backend выполняет исходную команду без
+  новых pytest options; после её успеха отдельная collection записывает IDs.
+  Сравнение требует совпадения количества всех passed с полным inventory и
+  отсутствия skipped/failed, иначе отказывается приписывать результат IDs.
+  `scripts/compare_ci_tests.py` сравнивает
   мультимножества `(node ID, outcome)`, включая параметры, дубли и existing skip,
   и статические PASS checkpoints smoke. HEAD в checkpoint нормализуется.
   Только у трёх известных backend-параметров со случайным UUIDv4 нормализуется
@@ -83,7 +87,7 @@ lifecycle 43, applicability 75, trees 73. Окончательное доказ�
 исполнения — сравнение результатов GitHub CI, а не collection сама по себе.
 
 Локально: 622 backend unit/contract tests, backend Ruff check/format,
-strict Mypy (138 файлов), 27 script tests. Новые scripts также проверены Ruff.
+strict Mypy (138 файлов), 28 script tests. Новые scripts также проверены Ruff.
 Реальные PostgreSQL/ClamAV/Chromium проверки подтверждаются GitHub CI.
 
 Для рабочего цикла достаточно проверок затронутого набора, например:
@@ -94,7 +98,7 @@ make integration INTEGRATION_ARGS='--suite lifecycle'
 make integration INTEGRATION_ARGS='--suite applicability'
 make integration INTEGRATION_ARGS='--suite trees'
 make integration INTEGRATION_ARGS='--suite clean-upgrade'
-make backend-test PYTEST_ARGS='tests/test_diagnostic_yaml.py -v'
+uv --directory backend run --locked pytest tests/test_diagnostic_yaml.py
 ```
 
 `--images` и `--trees` остаются совместимыми aliases. Обычный `make integration`

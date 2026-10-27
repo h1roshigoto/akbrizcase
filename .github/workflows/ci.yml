@@ -42,7 +42,10 @@ jobs:
       - name: Install locked dependencies
         run: make backend-sync
       - name: Pytest
-        run: make backend-test PYTEST_ARGS=-rA
+        run: make backend-test
+      - name: Record backend test identities after successful execution
+        working-directory: backend
+        run: uv run --locked pytest --collect-only -q
       - name: Ruff check and format
         run: make backend-lint
       - name: Mypy strict

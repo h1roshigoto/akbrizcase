@@ -35,7 +35,9 @@ def inventory(directory):
     result = {}
     for job in ("backend", "frontend", "database", "compose"):
         entries = []
-        for line in (directory / (job + ".log")).read_text().splitlines():
+        collected = []
+        log = (directory / (job + ".log")).read_text()
+        for line in log.splitlines():
             line = TIMESTAMP.sub("", ANSI.sub("", line)).strip()
             if match := re.fullmatch(
                 r"(tests/.+?::.+?)\s+(PASSED|SKIPPED|FAILED|ERROR)(?:\s+\[.*\])?", line
@@ -51,6 +53,20 @@ def inventory(directory):
                 entries.append(
                     (re.sub(r"HEAD=[0-9a-f]{40}", "HEAD=<sha>", line), "PASSED")
                 )
+            elif line.startswith("tests/") and "::" in line:
+                collected.append(normalize_id(line))
+        if job == "backend" and not entries and collected:
+            # The original command stays unchanged. Its all-passed summary,
+            # followed by collection in the same checkout, proves execution of
+            # the complete ID set. Refuse missing results or any skip/failure.
+            counts = [int(n) for n in re.findall(r"\b(\d+) passed(?:,| in)", log)]
+            if counts != [len(collected)] or re.search(
+                r"\b\d+ (?:skipped|failed|error)", log
+            ):
+                raise ValueError(
+                    "Backend execution does not match its collected inventory"
+                )
+            entries = [(identifier, "PASSED") for identifier in collected]
         if not entries:
             raise ValueError("No executed identities found for " + job)
         result[job] = Counter(entries)

@@ -1,5 +1,4 @@
 .PHONY: sync run test lint types
-PYTEST_ARGS ?=
 
 sync:
 	uv sync --locked
@@ -8,7 +7,7 @@ run:
 	uv run --locked uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 
 test:
-	uv run --locked pytest $(PYTEST_ARGS)
+	uv run --locked pytest
 
 lint:
 	uv run --locked ruff check .

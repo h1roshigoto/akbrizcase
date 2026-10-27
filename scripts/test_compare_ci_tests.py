@@ -9,6 +9,24 @@ from compare_ci_tests import RANDOM_UUID_CASES, compare, inventory, normalize_id
 
 
 class InventoryTests(unittest.TestCase):
+    def test_collection_is_evidence_only_when_the_full_execution_passed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for job in ("frontend", "database", "compose"):
+                (root / (job + ".log")).write_text("tests/a.py::one PASSED [100%]\n")
+            backend = root / "backend.log"
+            ids = "tests/a.py::one\ntests/a.py::two\n"
+            backend.write_text("=== 2 passed in 1.0s ===\n" + ids)
+            self.assertEqual(inventory(root)["backend"].total(), 2)
+            for summary in (
+                "=== 1 passed in 1.0s ===\n",
+                "=== 1 passed, 1 skipped in 1.0s ===\n",
+                "=== 2 passed, 1 skipped in 1.0s ===\n",
+            ):
+                backend.write_text(summary + ids)
+                with self.assertRaisesRegex(ValueError, "Backend execution"):
+                    inventory(root)
+
     def test_only_known_collection_time_uuid4_parameters_are_normalized(self):
         value = "12345678-1234-4123-8123-123456789abc"
         for prefix in RANDOM_UUID_CASES:
