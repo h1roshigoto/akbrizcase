@@ -36,7 +36,9 @@ def image_task(source: int, *, check: bool) -> None:
     with Image.open(io.BytesIO(data), formats=("JPEG", "PNG")) as image:
         fmt = image.format
         if (
-            image.width > 4096
+            fmt not in {"JPEG", "PNG"}
+            or getattr(image, "custom_mimetype", None) == "image/apng"
+            or image.width > 4096
             or image.height > 4096
             or image.width * image.height > 16_000_000
             or getattr(image, "n_frames", 1) != 1

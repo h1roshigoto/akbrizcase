@@ -30,7 +30,14 @@ def picture(fmt: str = "PNG", *, color: str = "red", metadata: bool = False) -> 
         exif[274] = 6
         exif[34853] = {1: "N", 2: (1, 2, 3)}
         exif[270] = "SYNTHETIC SECRET EXIF"
-        image.save(buffer, format=fmt, exif=exif, comment=b"SYNTHETIC COMMENT")
+        image.save(
+            buffer,
+            format=fmt,
+            exif=exif,
+            comment=b"SYNTHETIC COMMENT",
+            icc_profile=b"SYNTHETIC ICC",
+            xmp=b"SYNTHETIC XMP",
+        )
     elif metadata:
         info = PngImagePlugin.PngInfo()
         info.add_text("secret", "SYNTHETIC SECRET PNG")
@@ -180,16 +187,38 @@ def test_dimensions_bomb_before_allocation(
         )
 
 
-def test_animated_png(images: ImagePipeline) -> None:
+@pytest.mark.parametrize("frames", [1, 2])
+def test_animated_png(images: ImagePipeline, frames: int) -> None:
     buffer = io.BytesIO()
     Image.new("RGB", (10, 10), "red").save(
         buffer,
         format="PNG",
         save_all=True,
-        append_images=[Image.new("RGB", (10, 10), "blue")],
+        append_images=[Image.new("RGB", (10, 10), "blue")] if frames == 2 else [],
     )
+    data = buffer.getvalue()
+    if frames == 1:
+        # Pillow optimizes save_all with one frame to ordinary PNG. Construct a
+        # valid one-frame APNG: it still has an animation container, even though
+        # Pillow reports is_animated=False and n_frames=1.
+        def chunk(name: bytes, payload: bytes) -> bytes:
+            return (
+                struct.pack(">I", len(payload))
+                + name
+                + payload
+                + struct.pack(">I", zlib.crc32(name + payload))
+            )
+
+        control = chunk(b"acTL", struct.pack(">II", 1, 0))
+        frame = chunk(b"fcTL", struct.pack(">IIIIIHHBB", 0, 10, 10, 0, 0, 1, 10, 0, 0))
+        data = data[:33] + control + frame + data[33:]
+    with Image.open(io.BytesIO(data)) as source:
+        assert (
+            getattr(source, "n_frames", 1) == frames
+            and source.custom_mimetype == "image/apng"
+        )
     with pytest.raises(FileRejected):
-        images.accept(io.BytesIO(buffer.getvalue()), filename="a.png", mime="image/png")
+        images.accept(io.BytesIO(data), filename="a.png", mime="image/png")
 
 
 def test_infected_original_and_unsigned_stale_missing(images: ImagePipeline) -> None:
