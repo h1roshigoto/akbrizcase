@@ -100,8 +100,11 @@ def run(
                 env=environment,
                 check=True,
                 text=True,
-                capture_output=args[0] in ("config", "ps", "exec"),
+                capture_output=args[0] in ("config", "ps", "exec", "run"),
             )
+            # Keep verbose node IDs intact when independent suites overlap.
+            if args[0] == "run":
+                print(result.stdout, flush=True)
             return result.stdout or ""
 
         stack = SyntheticStack(project, compose, environment)
@@ -169,7 +172,9 @@ def run(
                     )
             else:
                 stack.recover_for_stop()
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as error:
+            print(error.stdout or "", flush=True)
+            print(error.stderr or "", file=sys.stderr, flush=True)
             compose("logs", "--no-color", "--tail", "80", "postgres-test")
             raise
         finally:

@@ -37,7 +37,7 @@ jobs:
       - name: Install locked dependencies
         run: make backend-sync
       - name: Pytest
-        run: make backend-test
+        run: make backend-test PYTEST_ARGS=-v
       - name: Ruff check and format
         run: make backend-lint
       - name: Mypy strict
@@ -67,7 +67,7 @@ jobs:
       - name: Typecheck
         run: make frontend-typecheck
       - name: Frontend UI tests
-        run: npm --prefix frontend test
+        run: npm --prefix frontend test -- --reporter=verbose
       - name: Build
         run: make frontend-build
 
