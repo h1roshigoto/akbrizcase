@@ -103,3 +103,57 @@ class CatalogItem(Base):
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=utc_now
     )
+
+
+class CatalogItemModel(Base):
+    """A candidate, with review and disclosure permission kept separate."""
+
+    __tablename__ = "catalog_item_models"
+    __table_args__ = (
+        CheckConstraint(
+            "expert_name IS NULL OR (length(expert_name) BETWEEN 3 AND 200 "
+            "AND expert_name = btrim(expert_name) "
+            "AND expert_name !~ '[[:cntrl:]]')",
+            name="expert_name",
+        ),
+        CheckConstraint(
+            "review_reference IS NULL OR "
+            "review_reference ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]{2,199}$'",
+            name="review_reference",
+        ),
+        CheckConstraint(
+            "approved_at IS NULL OR isfinite(approved_at)", name="approved_at"
+        ),
+        CheckConstraint(
+            "(NOT public_allowed AND published_by IS NULL AND published_at IS NULL) "
+            "OR (public_allowed AND expert_name IS NOT NULL "
+            "AND review_reference IS NOT NULL AND approved_at IS NOT NULL "
+            "AND published_by IS NOT NULL AND published_at IS NOT NULL "
+            "AND isfinite(published_at) AND approved_at <= published_at)",
+            name="publication",
+        ),
+        Index("ix_catalog_item_models_model_item", "model_id", "item_id"),
+        Index("ix_catalog_item_models_evidence_section_id", "evidence_section_id"),
+    )
+
+    item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.catalog_items.id", ondelete="RESTRICT"), primary_key=True
+    )
+    model_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.equipment_models.id", ondelete="RESTRICT"), primary_key=True
+    )
+    evidence_section_id: Mapped[UUID] = mapped_column(
+        ForeignKey("app.document_sections.id", ondelete="RESTRICT")
+    )
+    expert_name: Mapped[str | None] = mapped_column(String(200))
+    review_reference: Mapped[str | None] = mapped_column(String(200))
+    approved_at: Mapped[datetime | None]
+    public_allowed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    published_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("app.staff_users.id", ondelete="RESTRICT")
+    )
+    published_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=utc_now
+    )
