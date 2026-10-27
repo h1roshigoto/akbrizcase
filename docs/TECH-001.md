@@ -62,7 +62,8 @@ commit `45cba9c43ed26ef95678d8cb263d0ce81f88c93b` меняет только от
   job неуспешным; остальные уже выбранные независимые suites также выполняются.
 - Полные pytest/Vitest IDs в журналах. Backend выполняет исходную команду без
   новых pytest options; после её успеха отдельная collection записывает IDs.
-  Сравнение требует совпадения количества всех passed с полным inventory и
+  File acceptance также сохраняет исходную команду и после её успеха записывает
+  collection в том же sandbox/image. Сравнение требует совпадения количества всех passed с полным inventory и
   отсутствия skipped/failed, иначе отказывается приписывать результат IDs.
   `scripts/compare_ci_tests.py` сравнивает
   мультимножества `(node ID, outcome)`, включая параметры, дубли и existing skip,
@@ -87,7 +88,7 @@ lifecycle 43, applicability 75, trees 73. Окончательное доказ�
 исполнения — сравнение результатов GitHub CI, а не collection сама по себе.
 
 Локально: 622 backend unit/contract tests, backend Ruff check/format,
-strict Mypy (138 файлов), 28 script tests. Новые scripts также проверены Ruff.
+strict Mypy (138 файлов), 29 script tests. Новые scripts также проверены Ruff.
 Реальные PostgreSQL/ClamAV/Chromium проверки подтверждаются GitHub CI.
 
 Для рабочего цикла достаточно проверок затронутого набора, например:

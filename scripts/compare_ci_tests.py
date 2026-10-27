@@ -31,14 +31,23 @@ def normalize_id(identifier):
     return identifier
 
 
+def all_passed(collected, log):
+    counts = [int(n) for n in re.findall(r"\b(\d+) passed(?:,| in)", log)]
+    if counts != [len(collected)] or re.search(r"\b\d+ (?:skipped|failed|error)", log):
+        raise ValueError("Execution does not match its collected inventory")
+    return [(identifier, "PASSED") for identifier in collected]
+
+
 def inventory(directory):
     result = {}
     for job in ("backend", "frontend", "database", "compose"):
         entries = []
         collected = []
         log = (directory / (job + ".log")).read_text()
+        cleaned = []
         for line in log.splitlines():
             line = TIMESTAMP.sub("", ANSI.sub("", line)).strip()
+            cleaned.append(line)
             if match := re.fullmatch(
                 r"(tests/.+?::.+?)\s+(PASSED|SKIPPED|FAILED|ERROR)(?:\s+\[.*\])?", line
             ):
@@ -59,14 +68,17 @@ def inventory(directory):
             # The original command stays unchanged. Its all-passed summary,
             # followed by collection in the same checkout, proves execution of
             # the complete ID set. Refuse missing results or any skip/failure.
-            counts = [int(n) for n in re.findall(r"\b(\d+) passed(?:,| in)", log)]
-            if counts != [len(collected)] or re.search(
-                r"\b\d+ (?:skipped|failed|error)", log
-            ):
-                raise ValueError(
-                    "Backend execution does not match its collected inventory"
-                )
-            entries = [(identifier, "PASSED") for identifier in collected]
+            entries = all_passed(collected, log)
+        if job == "database" and collected:
+            clean_log = "\n".join(cleaned)
+            results = re.search(
+                r"CI_FILE_TEST_RESULTS_BEGIN\n(.*?)\nCI_FILE_TEST_RESULTS_END",
+                clean_log,
+                re.DOTALL,
+            )
+            if results is None:
+                raise ValueError("File test execution summary is missing")
+            entries.extend(all_passed(collected, results[1]))
         if not entries:
             raise ValueError("No executed identities found for " + job)
         result[job] = Counter(entries)

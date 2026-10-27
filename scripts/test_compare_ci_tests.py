@@ -9,6 +9,22 @@ from compare_ci_tests import RANDOM_UUID_CASES, compare, inventory, normalize_id
 
 
 class InventoryTests(unittest.TestCase):
+    def test_file_inventory_needs_its_own_complete_execution_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for job in ("backend", "frontend", "compose"):
+                (root / (job + ".log")).write_text("tests/a.py::one PASSED [100%]\n")
+            database = root / "database.log"
+            database.write_text(
+                "tests/integration/db.py::one PASSED [100%]\n"
+                "CI_FILE_TEST_RESULTS_BEGIN\n1 passed in 1.0s\nCI_FILE_TEST_RESULTS_END\n"
+                "CI_FILE_TEST_INVENTORY_BEGIN\ntests/files.py::one\nCI_FILE_TEST_INVENTORY_END\n"
+            )
+            self.assertEqual(inventory(root)["database"].total(), 2)
+            database.write_text(database.read_text().replace("1 passed", "0 passed"))
+            with self.assertRaisesRegex(ValueError, "Execution"):
+                inventory(root)
+
     def test_collection_is_evidence_only_when_the_full_execution_passed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -24,7 +40,7 @@ class InventoryTests(unittest.TestCase):
                 "=== 2 passed, 1 skipped in 1.0s ===\n",
             ):
                 backend.write_text(summary + ids)
-                with self.assertRaisesRegex(ValueError, "Backend execution"):
+                with self.assertRaisesRegex(ValueError, "Execution"):
                     inventory(root)
 
     def test_only_known_collection_time_uuid4_parameters_are_normalized(self):
