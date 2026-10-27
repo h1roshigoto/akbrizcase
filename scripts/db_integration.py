@@ -60,7 +60,11 @@ def reset() -> None:
 
 
 def run(
-    project: str, *, cleanup_only: bool = False, clean_upgrade_only: bool = False
+    project: str,
+    *,
+    cleanup_only: bool = False,
+    clean_upgrade_only: bool = False,
+    lifecycle_only: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
@@ -124,7 +128,25 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    compose("run", "--rm", "tests")
+                    selection = (
+                        ["tests/integration/test_kb_lifecycle.py"]
+                        if lifecycle_only
+                        else ["--ignore=tests/integration/test_kb_lifecycle.py"]
+                    )
+                    compose(
+                        "run",
+                        "--rm",
+                        "tests",
+                        "python",
+                        "-m",
+                        "pytest",
+                        "-m",
+                        "integration",
+                        "-p",
+                        "no:cacheprovider",
+                        "-v",
+                        *selection,
+                    )
             else:
                 stack.recover_for_stop()
         except subprocess.CalledProcessError:
@@ -140,5 +162,9 @@ if __name__ == "__main__":
     elif not sys.argv[1:]:
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12])
+        # Lifecycle concurrency commits immutable editions with reviewer FKs.
+        # Retain these historical facts in a separate marked database: legacy
+        # staff fixtures must still test an actually empty bootstrap database.
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], lifecycle_only=True)
     else:
         sys.exit("Usage: db_integration.py [reset]")
