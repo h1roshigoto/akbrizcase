@@ -5,10 +5,19 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-from compare_ci_tests import compare, inventory
+from compare_ci_tests import RANDOM_UUID_CASES, compare, inventory, normalize_id
 
 
 class InventoryTests(unittest.TestCase):
+    def test_only_known_collection_time_uuid4_parameters_are_normalized(self):
+        value = "12345678-1234-4123-8123-123456789abc"
+        for prefix in RANDOM_UUID_CASES:
+            self.assertEqual(normalize_id(prefix + value + "]"), prefix + "<uuid4>]")
+        other = "tests/other.py::case[" + value + "]"
+        self.assertEqual(normalize_id(other), other)
+        non_v4 = RANDOM_UUID_CASES[0] + value.replace("-4123-", "-1123-") + "]"
+        self.assertEqual(normalize_id(non_v4), non_v4)
+
     def test_equal_counts_cannot_hide_a_replaced_test_or_changed_outcome(self):
         before = {"backend": Counter({("tests/a.py::one", "PASSED"): 1})}
         for replacement in (

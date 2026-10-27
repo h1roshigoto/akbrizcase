@@ -14,6 +14,21 @@ from pathlib import Path
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 TIMESTAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ")
+RANDOM_UUID_CASES = (
+    "tests/test_applicability_evidence.py::test_review_rejects_missing_or_fabricated_permission[actor_id-",
+    "tests/test_kb_lifecycle_contracts.py::test_review_requires_operator_evidence[reviewed_by-",
+    "tests/test_orders_http.py::test_invalid_input[consent_id-",
+)
+UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+
+
+def normalize_id(identifier):
+    # These existing parameter values use uuid4() at collection time. Preserve
+    # every other parameter/ID, including UUIDs outside these exact cases.
+    for prefix in RANDOM_UUID_CASES:
+        if re.fullmatch(re.escape(prefix) + UUID4 + r"\]", identifier):
+            return prefix + "<uuid4>]"
+    return identifier
 
 
 def inventory(directory):
@@ -25,11 +40,11 @@ def inventory(directory):
             if match := re.fullmatch(
                 r"(tests/.+?::.+?)\s+(PASSED|SKIPPED|FAILED|ERROR)(?:\s+\[.*\])?", line
             ):
-                entries.append((match[1], match[2]))
+                entries.append((normalize_id(match[1]), match[2]))
             elif match := re.fullmatch(
                 r"(PASSED|SKIPPED|FAILED|ERROR) (tests/.+?::.+)", line
             ):
-                entries.append((match[2], match[1]))
+                entries.append((normalize_id(match[2]), match[1]))
             elif match := re.fullmatch(r"✓ (src/.+? > .+?)\s+[\d.]+\s*m?s", line):
                 entries.append((match[1], "PASSED"))
             elif line.startswith("PASS: "):

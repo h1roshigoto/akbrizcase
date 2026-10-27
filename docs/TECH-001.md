@@ -63,6 +63,9 @@ commit `45cba9c43ed26ef95678d8cb263d0ce81f88c93b` меняет только от
 - Полные pytest/Vitest IDs в журналах. `scripts/compare_ci_tests.py` сравнивает
   мультимножества `(node ID, outcome)`, включая параметры, дубли и existing skip,
   и статические PASS checkpoints smoke. HEAD в checkpoint нормализуется.
+  Только у трёх известных backend-параметров со случайным UUIDv4 нормализуется
+  случайная часть; список зафиксирован в `RANDOM_UUID_CASES`. Все остальные
+  параметры и outcomes сравниваются буквально.
 - Новые unit tests проверяют лимит параллелизма, передачу ошибок, отчёт ошибок
   и обнаружение подмены теста/результата при неизменном числе тестов.
 
@@ -80,7 +83,7 @@ lifecycle 43, applicability 75, trees 73. Окончательное доказ�
 исполнения — сравнение результатов GitHub CI, а не collection сама по себе.
 
 Локально: 622 backend unit/contract tests, backend Ruff check/format,
-strict Mypy (138 файлов), 26 script tests. Новые scripts также проверены Ruff.
+strict Mypy (138 файлов), 27 script tests. Новые scripts также проверены Ruff.
 Реальные PostgreSQL/ClamAV/Chromium проверки подтверждаются GitHub CI.
 
 Для рабочего цикла достаточно проверок затронутого набора, например:
