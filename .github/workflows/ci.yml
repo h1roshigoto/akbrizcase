@@ -25,7 +25,6 @@ jobs:
     timeout-minutes: 10
     env:
       UV_PYTHON_DOWNLOADS: never
-      CI_INVENTORY_DIR: ${{ runner.temp }}/tech001-inventory
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -36,6 +35,8 @@ jobs:
           python-version: '3.12.14'
       - name: Install pinned uv
         run: python -m pip install --disable-pip-version-check uv==0.12.23
+      - name: Prepare inventory output directory
+        run: echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
       - name: Verify toolchain
         run: |
           python -c 'import platform; assert platform.python_version() == "3.12.14"'
@@ -164,8 +165,6 @@ jobs:
     name: PostgreSQL 16 integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      CI_INVENTORY_DIR: ${{ runner.temp }}/tech001-inventory
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -176,6 +175,7 @@ jobs:
           python-version: '3.12.14'
       - name: Prepare disposable synthetic secret
         run: |
+          echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
           cp .env.example .env
           make init-secrets
       - name: All PostgreSQL suites and real ClamAV/sandbox (at most two stacks)
