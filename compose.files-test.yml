@@ -20,4 +20,4 @@ services:
       - app_files:/var/lib/akbrizcase/files
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=96m,mode=1777
-    command: [python, -m, pytest, -m, "not integration", -p, "no:cacheprovider", --tb=short, -v, tests/test_files.py, tests/test_files_acceptance.py, tests/test_catalog_images.py]
+    command: [python, -m, pytest, -m, "not integration", -p, "no:cacheprovider", --tb=short, -q, -rA, tests/test_files.py, tests/test_files_acceptance.py, tests/test_catalog_images.py]

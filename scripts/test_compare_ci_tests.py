@@ -27,6 +27,7 @@ class InventoryTests(unittest.TestCase):
                     "2026-10-27T19:00:00.123Z tests/a.py::one[with spaces] PASSED [ 50%]\n"
                     "tests/a.py::one[with spaces] PASSED [100%]\n"
                     "tests/a.py::two SKIPPED [100%]\n"
+                    "PASSED tests/a.py::summary[with spaces]\n"
                     " ✓ src/test/a.ts > group > title 23ms\n"
                     "PASS: browser HEAD=" + "a" * 40 + "\n"
                 )
@@ -35,6 +36,9 @@ class InventoryTests(unittest.TestCase):
                 results["backend"][("tests/a.py::one[with spaces]", "PASSED")], 2
             )
             self.assertEqual(results["backend"][("tests/a.py::two", "SKIPPED")], 1)
+            self.assertEqual(
+                results["backend"][("tests/a.py::summary[with spaces]", "PASSED")], 1
+            )
             self.assertEqual(
                 results["frontend"][("src/test/a.ts > group > title", "PASSED")], 1
             )

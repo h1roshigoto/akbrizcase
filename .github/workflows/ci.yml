@@ -42,7 +42,7 @@ jobs:
       - name: Install locked dependencies
         run: make backend-sync
       - name: Pytest
-        run: make backend-test PYTEST_ARGS=-v
+        run: make backend-test PYTEST_ARGS=-rA
       - name: Ruff check and format
         run: make backend-lint
       - name: Mypy strict

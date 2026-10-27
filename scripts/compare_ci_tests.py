@@ -26,6 +26,10 @@ def inventory(directory):
                 r"(tests/.+?::.+?)\s+(PASSED|SKIPPED|FAILED|ERROR)(?:\s+\[.*\])?", line
             ):
                 entries.append((match[1], match[2]))
+            elif match := re.fullmatch(
+                r"(PASSED|SKIPPED|FAILED|ERROR) (tests/.+?::.+)", line
+            ):
+                entries.append((match[2], match[1]))
             elif match := re.fullmatch(r"✓ (src/.+? > .+?)\s+[\d.]+\s*m?s", line):
                 entries.append((match[1], "PASSED"))
             elif line.startswith("PASS: "):
