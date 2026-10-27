@@ -1,0 +1,2 @@
+key: &synthetic [1, 2]
+nodes: [*synthetic, *synthetic]

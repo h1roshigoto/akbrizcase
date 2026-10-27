@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db_types import Base, utc_now
+from app.modules.kb import tree_models  # noqa: F401 -- register diagnostic FK tables
 
 
 class Document(Base):

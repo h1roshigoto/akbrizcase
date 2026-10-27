@@ -7,6 +7,7 @@ from app.core.db import DatabaseSettings, create_database_engine
 from app.core.db_types import Base
 from app.modules.catalog import models  # noqa: F401 -- register domain metadata
 from app.modules.kb import models as kb_models  # noqa: F401
+from app.modules.kb import tree_models  # noqa: F401
 from app.modules.notify import models as notify_models  # noqa: F401
 from app.modules.orders import models as orders_models  # noqa: F401
 

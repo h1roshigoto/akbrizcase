@@ -109,13 +109,15 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
         compose("run", "--rm", "migrate")
         assert http("/readyz") == (200, '{"status":"ok"}')
         assert (
-            sql("SELECT version_num FROM app.alembic_version") == "0005_mvp024_applicability"
+            sql("SELECT version_num FROM app.alembic_version")
+            == "0006_mvp027_diagnostic_trees"
         )
         assert sql(
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
             "WHERE schemaname = 'app'"
         ) == (
             "alembic_version,audit_events,catalog_item_models,catalog_items,consent_texts,consents,"
+            "diag_tree_items,diag_tree_sources,diag_trees,"
             "document_sections,document_versions,documents,email_outbox,equipment_models,"
             "order_items,order_status_history,orders,"
             "staff_sessions,staff_users"

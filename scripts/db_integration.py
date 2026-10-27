@@ -68,6 +68,7 @@ def run(
     lifecycle_only: bool = False,
     applicability_only: bool = False,
     images_only: bool = False,
+    trees_only: bool = False,
     reuse_image: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
@@ -133,7 +134,9 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    if images_only:
+                    if trees_only:
+                        selection = ["tests/integration/test_diagnostic_trees.py"]
+                    elif images_only:
                         selection = [
                             "tests/integration/test_catalog_image_binding.py",
                             "tests/integration/test_admin_images.py",
@@ -147,6 +150,7 @@ def run(
                             "--ignore=tests/integration/test_kb_lifecycle.py",
                             "--ignore=tests/integration/test_catalog_applicability.py",
                             "--ignore=tests/integration/test_catalog_image_binding.py",
+                            "--ignore=tests/integration/test_diagnostic_trees.py",
                             "--ignore=tests/integration/test_admin_images.py",
                         ]
                     compose(
@@ -177,6 +181,8 @@ if __name__ == "__main__":
         reset()
     elif sys.argv[1:] == ["--images"]:
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], images_only=True)
+    elif sys.argv[1:] == ["--trees"]:
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], trees_only=True)
     elif not sys.argv[1:]:
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
         # Build the exact checkout once, then run image acceptance independently
@@ -204,5 +210,10 @@ if __name__ == "__main__":
                 reuse_image=True,
             )
             images.result()
+        run(
+            "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
+            trees_only=True,
+            reuse_image=True,
+        )
     else:
-        sys.exit("Usage: db_integration.py [reset|--images]")
+        sys.exit("Usage: db_integration.py [reset|--images|--trees]")

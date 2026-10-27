@@ -244,6 +244,22 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 ).all()
                 for table in ("documents", "document_versions", "document_sections")
             }
+        command.upgrade(config, "0005_mvp024_applicability")
+        with runtime.unit_of_work() as session:
+            session.execute(
+                text(
+                    "INSERT INTO app.catalog_item_models "
+                    "(item_id,model_id,evidence_section_id) "
+                    "SELECT i.id,m.id,s.id FROM app.catalog_items i "
+                    "CROSS JOIN app.equipment_models m "
+                    "CROSS JOIN app.document_sections s LIMIT 1"
+                )
+            )
+        with runtime.engine.connect() as connection:
+            preserved_applicability = connection.execute(
+                text("SELECT * FROM app.catalog_item_models ORDER BY item_id,model_id")
+            ).all()
+            assert len(preserved_applicability) == 1
         command.upgrade(config, "head")
         command.upgrade(config, "head")
         with migrator.engine.begin() as connection:
@@ -254,7 +270,8 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "FROM information_schema.columns WHERE table_schema='app' "
                     "AND table_name NOT IN "
                     "('documents','document_versions','document_sections',"
-                    "'catalog_item_models') "
+                    "'catalog_item_models','diag_trees',"
+                    "'diag_tree_sources','diag_tree_items') "
                     "AND column_name <> 'manual_document_id' "
                     "ORDER BY table_name,ordinal_position"
                 )
@@ -277,6 +294,11 @@ def databases() -> Iterator[tuple[Database, Database]]:
                         "ck_catalog_item_models",
                         "fk_catalog_item_models",
                         "ix_catalog_item_models",
+                        "pk_diag_",
+                        "uq_diag_",
+                        "ck_diag_",
+                        "fk_diag_",
+                        "ix_diag_",
                     )
                 )
                 or name == "fk_equipment_models_manual_document_id_documents"
@@ -292,9 +314,16 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 == 0
             )
             assert (
-                connection.scalar(text("SELECT count(*) FROM app.catalog_item_models"))
-                == 0
+                connection.execute(
+                    text(
+                        "SELECT * FROM app.catalog_item_models "
+                        "ORDER BY item_id,model_id"
+                    )
+                ).all()
+                == preserved_applicability
             )
+            for table in ("diag_trees", "diag_tree_sources", "diag_tree_items"):
+                assert connection.scalar(text(f"SELECT count(*) FROM app.{table}")) == 0
             for table, rows in preserved_kb.items():
                 assert (
                     connection.execute(
@@ -320,6 +349,7 @@ def databases() -> Iterator[tuple[Database, Database]]:
             # the synthetic setup; production/runtime cannot erase audit/users.
             connection.execute(text("DELETE FROM app.orders"))
             connection.execute(text("DELETE FROM app.consents"))
+            connection.execute(text("DELETE FROM app.catalog_item_models"))
             connection.execute(text("DELETE FROM app.document_sections"))
             connection.execute(text("DELETE FROM app.document_versions"))
             connection.execute(text("DELETE FROM app.documents"))
