@@ -448,6 +448,7 @@ def run_tree(
                             tree_id=edition.id, node_key=key, section_id=identifier
                         )
                     )
+                session.flush()
                 for key, identifier, qty in sorted(_items(tree)):
                     session.add(
                         DiagnosticTreeItem(

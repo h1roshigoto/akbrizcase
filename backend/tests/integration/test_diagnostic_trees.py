@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import event, func, select, text
@@ -19,7 +19,7 @@ from test_kb_lifecycle import cli_request
 
 from app.core.db import Database
 from app.core.staff import disable_staff
-from app.core.staff_models import AuditEvent
+from app.core.staff_models import AuditEvent, StaffUser
 from app.modules.catalog.models import CatalogItemModel, EquipmentModel
 from app.modules.kb.files import FilePipeline
 from app.modules.kb.models import Document, DocumentSection
@@ -618,6 +618,68 @@ def test_concurrent_imports(database: Database, tmp_path: Path, case: str) -> No
             .select_from(DiagnosticTree)
             .where(DiagnosticTree.key == one["key"])
         ) == (2 if case == "versions" else 1)
+
+
+def test_commit_scoped_admin_lock(database: Database, tmp_path: Path) -> None:
+    with database.unit_of_work() as session:
+        c = corpus(session)
+        supervisor = admin(session)
+        supervisor_login = supervisor.login
+        value = payload(session, c)
+    path = write(tmp_path / "synthetic.yaml", value)
+
+    def disable() -> bool:
+        with database.unit_of_work() as session:
+            return disable_staff(
+                session,
+                admin_login=supervisor_login,
+                admin_password=PASSWORD,
+                user_id=c.actor,
+            ).ok
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with database.unit_of_work() as session:
+            report = invoke(session, c, path)
+            assert report.ok
+            future = pool.submit(disable)
+            wait_for_lock(database)
+            assert not future.done()
+        assert future.result(timeout=10)
+    with database.unit_of_work() as session:
+        assert session.get(DiagnosticTree, report.tree_id) is not None
+        actor = session.get(StaffUser, c.actor)
+        assert actor and not actor.is_active
+        assert invoke(session, c, path).code == "AUTHENTICATION_DENIED"
+
+
+def test_database_model_guard_serializes_direct_inserts(database: Database) -> None:
+    with database.unit_of_work() as session:
+        first = corpus(session)
+        second = corpus(session)
+    key = "SYNTHETIC027-SQL-" + uuid4().hex
+
+    def insert(model: UUID) -> str:
+        try:
+            with database.unit_of_work() as session:
+                session.add(
+                    DiagnosticTree(
+                        key=key,
+                        version=1 if model == first.model else 2,
+                        model_id=model,
+                        title="SYNTHETIC ONLY",
+                        graph={},
+                        yaml_checksum="a" * 64,
+                        git_commit=COMMIT,
+                    )
+                )
+            return "INSERTED"
+        except DBAPIError as error:
+            assert error.orig.sqlstate == "23514"  # type: ignore[union-attr]
+            return "MODEL_CONFLICT"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(insert, [first.model, second.model]))
+    assert sorted(results) == ["INSERTED", "MODEL_CONFLICT"]
 
 
 @pytest.mark.parametrize("case", ["visibility", "delete_source", "item", "disable"])

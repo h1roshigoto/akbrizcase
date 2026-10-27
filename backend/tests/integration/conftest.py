@@ -316,7 +316,8 @@ def databases() -> Iterator[tuple[Database, Database]]:
             assert (
                 connection.execute(
                     text(
-                        "SELECT * FROM app.catalog_item_models ORDER BY item_id,model_id"
+                        "SELECT * FROM app.catalog_item_models "
+                        "ORDER BY item_id,model_id"
                     )
                 ).all()
                 == preserved_applicability
