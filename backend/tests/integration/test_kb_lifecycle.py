@@ -432,6 +432,11 @@ def test_lifecycle_preview_actual_dependencies(
             "links": [],
             "link_count": 0,
         },
+        {
+            "kind": "diag_tree_sources.section_id",
+            "count": 0,
+            "ids": [],
+        },
     ]
     assert "Private" not in json.dumps(report.technical)
     assert operation(session, login, pipeline, "revoke", document).ok

@@ -29,7 +29,10 @@ SUITES = {
     ],
     "lifecycle": ["tests/integration/test_kb_lifecycle.py"],
     "applicability": ["tests/integration/test_catalog_applicability.py"],
-    "trees": ["tests/integration/test_diagnostic_trees.py"],
+    "trees": [
+        "tests/integration/test_diagnostic_trees.py",
+        "tests/integration/test_tree_lifecycle.py",
+    ],
     "chat": ["tests/integration/test_chat_schema.py"],
 }
 # Preserve the legacy selection, including its existing clean-upgrade skip.

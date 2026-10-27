@@ -6,7 +6,7 @@ of disclosure of its evidence; SourceRef uses MVP-022's PUBLIC_VIEWER ACL.
 
 from uuid import UUID
 
-from sqlalchemy import Select, case, cast, func, literal, select
+from sqlalchemy import Select, SQLColumnExpression, case, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -16,7 +16,9 @@ from app.modules.kb.access import PUBLIC_VIEWER, accessible_version
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 
 
-def confirmed_evidence(model_id: UUID) -> Select[tuple[UUID]]:
+def confirmed_evidence(
+    model_id: UUID | SQLColumnExpression[UUID],
+) -> Select[tuple[UUID]]:
     """Correlated to CatalogItem; EXISTS is safe before count/limit/offset.
 
     A publisher FK is historical attribution. Disabling that user later does
