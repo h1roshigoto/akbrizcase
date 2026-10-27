@@ -116,7 +116,8 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
             "WHERE schemaname = 'app'"
         ) == (
-            "alembic_version,audit_events,catalog_item_models,catalog_items,consent_texts,consents,"
+            "alembic_version,audit_events,catalog_item_models,catalog_items,"
+            "chat_messages,chat_sessions,consent_texts,consents,"
             "diag_tree_items,diag_tree_sources,diag_trees,"
             "document_sections,document_versions,documents,email_outbox,equipment_models,"
             "order_items,order_status_history,orders,"
