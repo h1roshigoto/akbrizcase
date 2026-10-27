@@ -797,6 +797,21 @@ h1 {
   align-items: start;
   justify-content: space-between;
 }
+.selected-row-title > .selected-image {
+  flex: 0 0 64px;
+}
+.selected-image .item-image {
+  width: 64px;
+  height: 64px;
+  min-height: 0;
+}
+.selected-image .image-placeholder span,
+.selected-image .image-placeholder small {
+  display: none;
+}
+.selected-image .image-placeholder {
+  padding: 8px;
+}
 .selected-row-title > div {
   min-width: 0;
 }

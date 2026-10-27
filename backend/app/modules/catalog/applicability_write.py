@@ -1,5 +1,7 @@
 """Protected applicability workflow, sharing the KB lock order and outer UoW."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -24,6 +26,27 @@ from app.modules.kb.lifecycle_service import LifecycleRejected, LifecycleReport
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 
 Operation = Literal["candidate", "replace", "review", "publish", "revoke", "preview"]
+
+
+@contextmanager
+def workflow_evidence[Evidence: (ApplicabilityReview, ApplicabilityPublication)](
+    path: Path | None,
+    schema: type[Evidence],
+    evidence: ApplicabilityReview | None,
+) -> Iterator[Evidence]:
+    """CLI keeps private-file integrity; HTTP supplies an explicit validated DTO.
+
+    No file, identity or expert attestation is synthesized by the HTTP adapter.
+    Both transports reach the same binding, review audit and publication checks.
+    """
+    if path is not None and evidence is None:
+        with checked_record(path, schema) as record:
+            yield record
+    elif path is None and type(evidence) is schema:
+        assert evidence is not None
+        yield schema.model_validate(evidence.model_dump())
+    else:
+        raise LifecycleRejected("EVIDENCE_REQUIRED")
 
 
 class ApplicabilityWriteService:
@@ -190,6 +213,8 @@ class ApplicabilityWriteService:
         *,
         section_id: UUID | None = None,
         evidence_path: Path | None = None,
+        evidence: ApplicabilityReview | None = None,
+        expected_revision: int | None = None,
     ) -> LifecycleReport:
         if operation in {"candidate", "replace"}:
             if section_id is None:
@@ -199,6 +224,10 @@ class ApplicabilityWriteService:
         item, model, link, version, document = self._locked(
             item_id, model_id, section_id
         )
+        if expected_revision is not None and (
+            type(expected_revision) is not int or item.revision != expected_revision
+        ):
+            raise LifecycleRejected("CATALOG_CHANGED")
         if (
             operation == "candidate"
             and link is not None
@@ -246,28 +275,30 @@ class ApplicabilityWriteService:
         elif operation in {"review", "publish"}:
             if document.status != "active" or version.status != "published":
                 raise LifecycleRejected("EVIDENCE_UNAVAILABLE")
-            if evidence_path is None:
+            if evidence_path is None and evidence is None:
                 raise LifecycleRejected("EVIDENCE_REQUIRED")
             if operation == "review":
-                with checked_record(evidence_path, ApplicabilityReview) as evidence:
+                with workflow_evidence(
+                    evidence_path, ApplicabilityReview, evidence
+                ) as review:
                     if PairBinding.model_validate(
-                        evidence.model_dump(include=set(PairBinding.model_fields))
+                        review.model_dump(include=set(PairBinding.model_fields))
                     ) != PairBinding(
                         item_id=str(item_id),
                         model_id=str(model_id),
                         evidence_section_id=str(link.evidence_section_id),
                     ):
                         raise LifecycleRejected("REVIEW_STALE")
-                    approved = datetime.fromisoformat(evidence.approved_at)
+                    approved = datetime.fromisoformat(review.approved_at)
                     changed = (
                         link.expert_name,
                         link.review_reference,
                         link.approved_at,
-                    ) != (evidence.expert_name, evidence.review_reference, approved)
+                    ) != (review.expert_name, review.review_reference, approved)
                     if changed:
                         link.expert_name, link.review_reference, link.approved_at = (
-                            evidence.expert_name,
-                            evidence.review_reference,
+                            review.expert_name,
+                            review.review_reference,
                             approved,
                         )
                         clear_permission(link)
@@ -290,7 +321,9 @@ class ApplicabilityWriteService:
                         else str(self._review(link).id)
                     },
                 )
-            with checked_record(evidence_path, ApplicabilityPublication) as release:
+            with workflow_evidence(
+                evidence_path, ApplicabilityPublication, evidence
+            ) as release:
                 event = self._review(link)
                 if any(
                     getattr(release, k) != v for k, v in self._binding(link).items()

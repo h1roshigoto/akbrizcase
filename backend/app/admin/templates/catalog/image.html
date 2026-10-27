@@ -1,0 +1,23 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Image: {{ row.name }}</h2>
+<p><a href="/admin/catalog/items/{{ row.id }}">Back to item</a></p>
+<p>Revision: <span id="image-revision">{{ row.revision }}</span>. Status: {{ row.status }}.</p>
+<p role="status">Current committed state: {% if row.image_key %}image attached{% else %}no image{% endif %}.</p>
+{% if row.image_key %}
+<img src="/admin/catalog/items/{{ row.id }}/image/preview" alt="{{ row.name }}" width="320" height="240" style="object-fit:contain;max-width:100%">
+{% endif %}
+<p>JPEG or PNG, at most 5 MiB. Scanning and decoding must succeed before binding. On rejection the previous committed image remains attached. Old files are retained privately.</p>
+<form method="post" enctype="multipart/form-data" action="/admin/catalog/items/{{ row.id }}/image/replace">
+<input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+<input type="hidden" name="expected_revision" value="{{ row.revision }}">
+<fieldset{% if row.status == 'archived' %} disabled{% endif %}>
+<p><label for="image">Image file</label><input type="file" id="image" name="image" accept="image/jpeg,image/png" required></p>
+<button type="submit">{% if row.image_key %}Replace image{% else %}Upload image{% endif %}</button>
+</fieldset></form>
+<form method="post" action="/admin/catalog/items/{{ row.id }}/image/remove">
+<input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+<input type="hidden" name="expected_revision" value="{{ row.revision }}">
+<button type="submit"{% if row.status == 'archived' %} disabled{% endif %}>Remove image</button>
+</form>
+{% endblock %}

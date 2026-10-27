@@ -1,0 +1,54 @@
+{% extends "sqladmin/layout.html" %}
+{% macro binding(row, model) %}
+<input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+<input type="hidden" name="expected_revision" value="{{ row.revision }}">
+{% if model %}<input type="hidden" name="model_id" value="{{ model.id }}">{% endif %}
+{% endmacro %}
+{% macro expert(link) %}
+<input type="hidden" name="evidence_section_id" value="{{ link.evidence_section_id }}">
+<p><label>Expert name <input name="expert_name" value="{{ link.expert_name or '' }}" minlength="3" maxlength="200" required></label></p>
+<p><label>Review reference <input name="review_reference" value="{{ link.review_reference or '' }}" minlength="3" maxlength="200" required></label></p>
+<p><label>Expert approval time (ISO 8601 with timezone) <input name="approved_at" value="{{ link.approved_at.isoformat() if link.approved_at else '' }}" required></label></p>
+<p><label>Expert decision <select name="decision"><option value="approved">approved</option></select></label></p>
+<p><label><input type="checkbox" name="applicability_checked" value="true" required> Expert has checked this exact applicability</label></p>
+{% endmacro %}
+{% block content %}
+<h2>Applicability: {{ row.name }}</h2>
+<p><a href="/admin/catalog/items/{{ row.id }}">Back to item</a>. Revision: {{ row.revision }}.</p>
+<p>Expert review and administrative permission to disclose the fact are separate actions. Technical validation does not independently verify the expert's qualifications.</p>
+<p>Permission for the fact does not publish the evidence text. Internal evidence remains private; public confirmed can have no sources. Document visibility is managed by the existing protected document workflow.</p>
+<h3>Create candidate</h3>
+<form method="post" action="/admin/catalog/items/{{ row.id }}/applicability/candidate">
+{{ binding(row, none) }}
+<p><label>Equipment model UUID <input name="model_id" required></label></p>
+<p><label>Exact evidence section UUID <input name="evidence_section_id" required></label></p>
+<button type="submit">Create candidate</button></form>
+{% for link, model, document, version in links %}
+<section aria-label="Applicability {{ model.code }}">
+<h3>{{ model.code }} — {{ model.name }}</h3>
+<p>Exact section: {{ link.evidence_section_id }}. Evidence: {{ document.title }}; {{ document.visibility }}; document {{ document.status }}; version {{ version.status }}.</p>
+<p>Fact disclosure permission: <strong>{{ link.public_allowed }}</strong>. Evidence text visibility: <strong>{{ document.visibility }}</strong> (separate permission).</p>
+<form method="post" action="/admin/catalog/items/{{ row.id }}/applicability/replace">
+{{ binding(row, model) }}
+<p><label>Replacement evidence section UUID <input name="evidence_section_id" required></label></p>
+<button type="submit">Replace evidence and clear review</button></form>
+<h4>Record expert review</h4>
+<form method="post" action="/admin/catalog/items/{{ row.id }}/applicability/review">
+{{ binding(row, model) }}{{ expert(link) }}
+<button type="submit">Record expert review</button></form>
+{% if reviews.get(model.id) %}
+<h4>Separate administrative permission</h4>
+<form method="post" action="/admin/catalog/items/{{ row.id }}/applicability/publish">
+{{ binding(row, model) }}{{ expert(link) }}
+<input type="hidden" name="review_event_id" value="{{ reviews[model.id] }}">
+<p><label>Publication approval reference <input name="publication_reference" minlength="3" maxlength="200" required></label></p>
+<p><label><input type="checkbox" name="fact_publication_allowed" value="true" required> Allow public disclosure of this applicability fact</label></p>
+<button type="submit">Allow fact publication</button></form>
+{% endif %}
+{% for operation, label in [('revoke','Revoke fact permission'),('preview','Technical preview')] %}
+<form method="post" action="/admin/catalog/items/{{ row.id }}/applicability/{{ operation }}">
+{{ binding(row, model) }}<button type="submit">{{ label }}</button></form>
+{% endfor %}
+</section>
+{% endfor %}
+{% endblock %}
