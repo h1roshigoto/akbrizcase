@@ -30,6 +30,7 @@ try {
   const submit = async (tab, label, expected = 303) => {
     const [response] = await Promise.all([
       tab.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/admin/catalog/')),
+      tab.waitForNavigation({ waitUntil: 'load' }),
       tab.getByRole('button', { name: label, exact: true }).click(),
     ]);
     assert.equal(response.status(), expected);
