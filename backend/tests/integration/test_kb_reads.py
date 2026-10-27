@@ -200,6 +200,9 @@ def corpus(
                 "draft": create(status="draft"),
                 "internal_draft": create(visibility="internal", status="draft"),
                 "retired": create(status="retired", reviewer=users["admin"]),
+                "internal_retired": create(
+                    status="retired", visibility="internal", reviewer=users["admin"]
+                ),
                 "unapproved_retired": create(status="retired"),
                 "revoked_document": create(active=False),
                 "revoked_version": create(status="revoked"),
@@ -354,7 +357,8 @@ def test_files_exact_acl_and_headers(corpus: Corpus, role: str | None) -> None:
     corpus.cookie(role)
     for key, entry in corpus.entries.items():
         accessible = key in {"public", "excluded", "retired"} or (
-            role is not None and key in {"internal", "internal_excluded"}
+            role is not None
+            and key in {"internal", "internal_excluded", "internal_retired"}
         )
         response = corpus.browser.get(entry.url)
         assert response.status_code == (200 if accessible else 404), (
@@ -369,9 +373,9 @@ def test_files_exact_acl_and_headers(corpus: Corpus, role: str | None) -> None:
             assert response.headers["cache-control"] == "no-store"
             assert response.headers["vary"] == "Cookie"
             assert response.headers["x-document-version-status"] == (
-                "retired" if key == "retired" else "published"
+                "retired" if key in {"retired", "internal_retired"} else "published"
             )
-            if key == "retired":
+            if key in {"retired", "internal_retired"}:
                 assert "предыдущая редакция" in unquote(
                     response.headers["content-disposition"]
                 )
@@ -394,6 +398,8 @@ def test_sources_revalidate_and_chat_ignores_staff(corpus: Corpus) -> None:
         "internal",
         "draft",
         "internal_draft",
+        "internal_retired",
+        "unapproved_retired",
         "revoked_document",
         "revoked_version",
         "excluded",
@@ -424,6 +430,61 @@ def test_sources_revalidate_and_chat_ignores_staff(corpus: Corpus) -> None:
         staff.get_source(entry.section)
     corpus.cookie("admin")
     assert corpus.browser.get(old_source.url).status_code == 404
+
+
+def test_current_published_with_old_and_draft_editions(
+    corpus: Corpus, pipeline: FilePipeline
+) -> None:
+    previous = corpus.entries["retired"]
+    verified = pipeline.accept(
+        io.BytesIO(b"Synthetic current edition"),
+        filename="current.txt",
+        mime="text/plain",
+    )
+    versions: list[DocumentVersion] = []
+    for number in (2, 3):
+        version = DocumentVersion(
+            document_id=previous.document,
+            version=number,
+            file_key=verified.file_key,
+            mime=verified.mime,
+            size_bytes=verified.size_bytes,
+            checksum_sha256=verified.checksum_sha256,
+        )
+        corpus.session.add(version)
+        corpus.session.flush()
+        corpus.session.add(
+            DocumentSection(
+                document_version_id=version.id,
+                section_key="intro",
+                title="Раздел",
+                text="Синтетический насос",
+                assistant_allowed=True,
+                page_from=None,
+                page_to=None,
+            )
+        )
+        corpus.session.flush()
+        if number == 2:
+            version.status = "published"
+            corpus.session.flush()
+        versions.append(version)
+    listing = corpus.browser.get("/api/v1/documents").json()
+    item = next(row for row in listing["items"] if row["id"] == str(previous.document))
+    assert item["document_version_id"] == str(versions[0].id) and item["version"] == 2
+    search = corpus.browser.get("/api/v1/knowledge/search", params={"q": WORD}).json()
+    version_ids = {hit["source"]["document_version_id"] for hit in search["items"]}
+    assert str(versions[0].id) in version_ids
+    assert (
+        str(previous.version) not in version_ids
+        and str(versions[1].id) not in version_ids
+    )
+    assert corpus.browser.get(previous.url).content == DATA
+    assert corpus.browser.get(item["url"]).content == b"Synthetic current edition"
+    assert (
+        corpus.browser.get(file_url(previous.document, versions[1].id)).status_code
+        == 404
+    )
 
 
 @pytest.mark.parametrize(
@@ -551,6 +612,11 @@ def test_real_query_ranking_fence_and_gin(corpus: Corpus) -> None:
     assert "published" in parameters.values() and "public" in parameters.values()
     assert WORD not in statement and WORD in parameters.values()
     connection.exec_driver_sql("SET LOCAL enable_seqscan=off")
+    # This small corpus can use a selective FK B-tree instead. Demonstrate
+    # that the actual ACL query also has a GIN path, without promising its cost
+    # wins on tiny tables or changing any runtime planner settings.
+    connection.exec_driver_sql("SET LOCAL enable_indexscan=off")
+    connection.exec_driver_sql("SET LOCAL enable_nestloop=off")
     plan = connection.exec_driver_sql(
         "EXPLAIN (ANALYZE, FORMAT JSON) " + statement, parameters
     ).scalar_one()
@@ -562,10 +628,12 @@ def test_session_expiring_during_scan(
 ) -> None:
     corpus.cookie("admin")
     scan = pipeline.scanner.scan
+    # Start the fixture's savepoint before the HTTP UoW nests inside it.
+    connection = corpus.session.connection()
 
     def expire(descriptor: int) -> ScanStamp:
         result = scan(descriptor)
-        corpus.session.execute(
+        connection.execute(
             update(StaffSession)
             .where(StaffSession.id == corpus.sessions["admin"])
             .values(expires_at=utc_now() - timedelta(seconds=1))
@@ -661,12 +729,12 @@ def test_real_scanner_failure_and_exit_mutation(
     assert corpus.browser.get(corpus.entries["public"].url).status_code == 503
     monkeypatch.undo()
     scan = pipeline.scanner.scan
+    version = corpus.session.get(DocumentVersion, corpus.entries["public"].version)
+    assert version is not None
+    target = pipeline.root / "documents" / "verified" / version.file_key
 
     def mutation(descriptor: int) -> ScanStamp:
         stamp = scan(descriptor)
-        version = corpus.session.get(DocumentVersion, corpus.entries["public"].version)
-        assert version is not None
-        target = pipeline.root / "documents" / "verified" / version.file_key
         target.chmod(0o600)
         target.write_bytes(b"synthetic changed after actual AV")
         target.chmod(0o400)
