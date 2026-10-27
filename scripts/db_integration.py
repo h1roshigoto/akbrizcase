@@ -30,6 +30,7 @@ SUITES = {
     "lifecycle": ["tests/integration/test_kb_lifecycle.py"],
     "applicability": ["tests/integration/test_catalog_applicability.py"],
     "trees": ["tests/integration/test_diagnostic_trees.py"],
+    "chat": ["tests/integration/test_chat_schema.py"],
 }
 # Preserve the legacy selection, including its existing clean-upgrade skip.
 # The same clean-upgrade test actually executes in its dedicated fresh DB.
@@ -231,7 +232,7 @@ def main() -> None:
             checks.append(("files:clamav-sandbox", files_acceptance))
         checks.extend(
             ("db:" + name, partial(exercise, name, reuse_image=True))
-            for name in ("applicability", "trees")
+            for name in ("applicability", "trees", "chat")
         )
         parallel(checks)
 

@@ -266,7 +266,6 @@ def test_valid_support_comment(orders_database: Database, comment: str) -> None:
 @pytest.mark.parametrize(
     "changes",
     [
-        {"source": "chat"},
         {"source": "other"},
         {"kind": "other"},
         {"status": "other"},

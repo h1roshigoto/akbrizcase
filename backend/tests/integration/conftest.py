@@ -18,7 +18,12 @@ from app.core.staff import bootstrap_admin, create_staff
 from app.core.staff_models import StaffSession
 from app.modules.catalog.seed import seed_catalog
 from app.modules.notify.models import EmailOutbox
-from app.modules.orders.models import Consent, ConsentText, Order, OrderItem
+from app.modules.orders.models import (
+    Consent,
+    ConsentText,
+    OrderItem,
+    OrderStatusHistory,
+)
 
 
 @pytest.fixture(scope="session")
@@ -144,24 +149,24 @@ def databases() -> Iterator[tuple[Database, Database]]:
             consent = Consent(text_version="SYNTHETIC-MVP019-UPGRADE")
             session.add(consent)
             session.flush()
-            order = Order(
-                kind="commercial",
-                consent_id=consent.id,
-                idempotency_key=uuid4(),
-                contact_name="Synthetic upgrade",
-                email="synthetic@example.invalid",
-                request_hash="synthetic",
-                receipt_token_hash="synthetic",
-                known_subtotal=Decimal("0"),
-                delivery_status="not_required",
-                delivery_cost=Decimal("0"),
+            # Raw SQL intentionally uses the predecessor's columns, not today's
+            # Order mapping (which now also contains chat_session_id).
+            order_id = uuid4()
+            session.execute(
+                text(
+                    "INSERT INTO app.orders (id,kind,consent_id,idempotency_key,"
+                    "contact_name,email,request_hash,receipt_token_hash,"
+                    "known_subtotal,delivery_status,delivery_cost) VALUES "
+                    "(:id,'commercial',:consent,:key,'Synthetic upgrade',"
+                    "'synthetic@example.invalid','synthetic','synthetic',"
+                    "0,'not_required',0)"
+                ),
+                {"id": order_id, "consent": consent.id, "key": uuid4()},
             )
-            session.add(order)
-            session.flush()
             item_id = session.scalar(text("SELECT id FROM app.catalog_items LIMIT 1"))
             session.add(
                 OrderItem(
-                    order_id=order.id,
+                    order_id=order_id,
                     item_id=item_id,
                     qty=1,
                     sku_snapshot="SYNTHETIC-UPGRADE",
@@ -175,7 +180,25 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     catalog_revision_snapshot=7,
                 )
             )
-            session.add(EmailOutbox(order_id=order.id))
+            session.add(EmailOutbox(order_id=order_id))
+            session.add(OrderStatusHistory(order_id=order_id, to_status="new"))
+            support_consent = Consent(text_version="SYNTHETIC-MVP019-UPGRADE")
+            session.add(support_consent)
+            session.flush()
+            support_id = uuid4()
+            session.execute(
+                text(
+                    "INSERT INTO app.orders (id,kind,consent_id,idempotency_key,"
+                    "contact_name,email,comment,request_hash,receipt_token_hash,"
+                    "known_subtotal,delivery_status,delivery_cost) VALUES "
+                    "(:id,'support',:consent,:key,'Synthetic support',"
+                    "'synthetic@example.invalid','SYNTHETIC independent description',"
+                    "'synthetic','synthetic',0,'not_required',0)"
+                ),
+                {"id": support_id, "consent": support_consent.id, "key": uuid4()},
+            )
+            session.add(EmailOutbox(order_id=support_id))
+            session.add(OrderStatusHistory(order_id=support_id, to_status="new"))
         with runtime.engine.connect() as connection:
             preserved_orders = {
                 table: connection.execute(
@@ -186,6 +209,7 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "consents",
                     "orders",
                     "order_items",
+                    "order_status_history",
                     "email_outbox",
                 )
             }
@@ -260,8 +284,44 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 text("SELECT * FROM app.catalog_item_models ORDER BY item_id,model_id")
             ).all()
             assert len(preserved_applicability) == 1
+        command.upgrade(config, "0006_mvp027_diagnostic_trees")
+        # Verify exactly the immediate predecessor upgrades without changing any
+        # existing rows, indexes, constraints, functions or tree lifecycle triggers.
+        with runtime.engine.connect() as connection:
+            before_0007 = connection.execute(schema_sql).all()
+            tree_objects_sql = text(
+                "SELECT pg_get_functiondef(oid) FROM pg_proc "
+                "WHERE pronamespace='app'::regnamespace ORDER BY proname"
+            )
+            tree_functions = connection.execute(tree_objects_sql).all()
+            triggers_sql = text(
+                "SELECT pg_get_triggerdef(oid) FROM pg_trigger "
+                "WHERE tgrelid IN ('app.diag_trees'::regclass,"
+                "'app.diag_tree_sources'::regclass,'app.diag_tree_items'::regclass) "
+                "AND NOT tgisinternal ORDER BY tgname"
+            )
+            tree_triggers = connection.execute(triggers_sql).all()
         command.upgrade(config, "head")
         command.upgrade(config, "head")
+        with runtime.engine.connect() as connection:
+            after_0007 = connection.execute(schema_sql).all()
+            old_names_0007 = {row[1] for row in before_0007}
+            assert [
+                row
+                for row in after_0007
+                if row[1] in old_names_0007 and row[1] != "ck_orders_source"
+            ] == [row for row in before_0007 if row[1] != "ck_orders_source"]
+            assert connection.execute(tree_objects_sql).all() == tree_functions
+            assert connection.execute(triggers_sql).all() == tree_triggers
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM app.orders "
+                        "WHERE chat_session_id IS NOT NULL"
+                    )
+                )
+                == 0
+            )
         with migrator.engine.begin() as connection:
             new_columns = connection.execute(
                 text(
@@ -271,16 +331,21 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "AND table_name NOT IN "
                     "('documents','document_versions','document_sections',"
                     "'catalog_item_models','diag_trees',"
-                    "'diag_tree_sources','diag_tree_items') "
-                    "AND column_name <> 'manual_document_id' "
+                    "'diag_tree_sources','diag_tree_items',"
+                    "'chat_sessions','chat_messages') "
+                    "AND column_name NOT IN ('manual_document_id','chat_session_id') "
                     "ORDER BY table_name,ordinal_position"
                 )
             ).all()
             assert new_columns == old_columns
             new_schema = connection.execute(schema_sql).all()
-            # Only the three new tables' objects and the manual FK may appear.
+            # Only the planned additive objects and source enum may change.
             old_names = {row[1] for row in old_schema}
-            assert [row for row in new_schema if row[1] in old_names] == old_schema
+            assert [
+                row
+                for row in new_schema
+                if row[1] in old_names and row[1] != "ck_orders_source"
+            ] == [row for row in old_schema if row[1] != "ck_orders_source"]
             added_names = {row[1] for row in new_schema} - old_names
             assert all(
                 name.startswith(
@@ -299,6 +364,13 @@ def databases() -> Iterator[tuple[Database, Database]]:
                         "ck_diag_",
                         "fk_diag_",
                         "ix_diag_",
+                        "pk_chat_",
+                        "uq_chat_",
+                        "ck_chat_",
+                        "fk_chat_",
+                        "ix_chat_",
+                        "fk_orders_chat_session_id_",
+                        "ix_orders_chat_session_id",
                     )
                 )
                 or name == "fk_equipment_models_manual_document_id_documents"

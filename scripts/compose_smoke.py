@@ -110,7 +110,7 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
         assert http("/readyz") == (200, '{"status":"ok"}')
         assert (
             sql("SELECT version_num FROM app.alembic_version")
-            == "0006_mvp027_diagnostic_trees"
+            == "0007_mvp029_chat"
         )
         assert sql(
             "SELECT string_agg(tablename, ',' ORDER BY tablename) FROM pg_tables "
