@@ -361,11 +361,8 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
     async def _valid_csrf(
         self, request: Request, security: StaffSecurity, *, login: bool
     ) -> bool:
-        tokens = request.headers.getlist("x-csrf-token")
-        if len(tokens) > 1:
-            return False
-        token = tokens[0] if tokens else ""
-        if request.headers.get("content-type", "").split(";")[0] in (
+        token = request.headers.get("x-csrf-token", "")
+        if not token and request.headers.get("content-type", "").split(";")[0] in (
             "application/x-www-form-urlencoded",
             "multipart/form-data",
         ):
@@ -374,11 +371,7 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
                 await bounded_body(request, 6 * 1024 * 1024)
                 async with request.form(max_fields=100, max_files=1) as form:
                     values = form.getlist("csrf_token")
-                    if len(values) > 1:
-                        return False
                     if len(values) == 1 and isinstance(values[0], str):
-                        if token and token != values[0]:
-                            return False
                         token = values[0]
             except (ValueError, StarletteHTTPException):
                 return False
