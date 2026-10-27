@@ -42,6 +42,31 @@ def inventory(directory):
     result = {}
     for job in ("backend", "frontend", "database", "compose"):
         entries = []
+        names = (
+            ["backend"]
+            if job == "backend"
+            else [
+                "db-clean-upgrade",
+                "db-core",
+                "db-images",
+                "db-lifecycle",
+                "db-applicability",
+                "db-trees",
+                "files",
+            ]
+            if job == "database"
+            else []
+        )
+        paths = [directory / (name + ".json") for name in names]
+        artifact_records = []
+        if any(path.exists() for path in paths):
+            for path in paths:
+                if not path.is_file():
+                    raise ValueError("Missing inventory artifact: " + path.name)
+                data = json.loads(path.read_text())
+                artifact_records.extend(
+                    (normalize_id(n), outcome) for n, outcome in data["tests"]
+                )
         collected = []
         log = (directory / (job + ".log")).read_text()
         cleaned = []
@@ -64,12 +89,16 @@ def inventory(directory):
                 )
             elif line.startswith("tests/") and "::" in line:
                 collected.append(normalize_id(line))
+        if artifact_records:
+            entries = artifact_records + [
+                e for e in entries if e[0].startswith("PASS: ")
+            ]
         if job == "backend" and not entries and collected:
             # The original command stays unchanged. Its all-passed summary,
             # followed by collection in the same checkout, proves execution of
             # the complete ID set. Refuse missing results or any skip/failure.
             entries = all_passed(collected, log)
-        if job == "database" and collected:
+        if job == "database" and collected and not artifact_records:
             clean_log = "\n".join(cleaned)
             results = re.search(
                 r"CI_FILE_TEST_RESULTS_BEGIN\n(.*?)\nCI_FILE_TEST_RESULTS_END",

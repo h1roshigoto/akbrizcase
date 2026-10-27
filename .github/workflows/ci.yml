@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 10
     env:
       UV_PYTHON_DOWNLOADS: never
+      CI_INVENTORY_DIR: ${{ runner.temp }}/tech001-inventory
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -42,14 +43,22 @@ jobs:
       - name: Install locked dependencies
         run: make backend-sync
       - name: Pytest
-        run: make backend-test
+        run: |
+          set -o pipefail
+          make backend-test | tee "$RUNNER_TEMP/tech001-backend.log"
       - name: Record backend test identities after successful execution
-        working-directory: backend
-        run: uv run --locked pytest --collect-only -q
+        run: python3 scripts/ci_inventory.py backend "$RUNNER_TEMP/tech001-backend.log"
       - name: Ruff check and format
         run: make backend-lint
       - name: Mypy strict
         run: make backend-types
+      - name: Upload test identities only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-test-identities
+          path: ${{ env.CI_INVENTORY_DIR }}/*.json
+          if-no-files-found: error
+          retention-days: 7
 
   frontend:
     name: Frontend checks
@@ -155,6 +164,8 @@ jobs:
     name: PostgreSQL 16 integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      CI_INVENTORY_DIR: ${{ runner.temp }}/tech001-inventory
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -172,3 +183,10 @@ jobs:
       - name: Recover interrupted test stack
         if: always()
         run: make integration-reset
+      - name: Upload test identities only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: postgres-file-test-identities
+          path: ${{ env.CI_INVENTORY_DIR }}/*.json
+          if-no-files-found: error
+          retention-days: 7

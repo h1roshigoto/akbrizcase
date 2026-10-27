@@ -9,6 +9,7 @@ import uuid
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, build_opener
 
+from ci_inventory import record_collection
 from synthetic_stack import SyntheticStack, isolated_environment, synthetic_secrets
 
 
@@ -84,12 +85,12 @@ def main():
             before = stack.sql(snapshot_query), stack.sql(schema_query)
             name = project + "-file-checks"
             print("CI_FILE_TEST_RESULTS_BEGIN", flush=True)
-            print(compose("run", "--name", name, "files-tests"), flush=True)
+            execution_output = compose("run", "--name", name, "files-tests")
+            print(execution_output, flush=True)
             print("CI_FILE_TEST_RESULTS_END", flush=True)
             # Keep execution unchanged; collect IDs only after every test passes.
-            print("CI_FILE_TEST_INVENTORY_BEGIN", flush=True)
-            print(
-                compose(
+            if environment.get("CI_INVENTORY_DIR"):
+                collected_output = compose(
                     "run",
                     "--rm",
                     "files-tests",
@@ -105,10 +106,8 @@ def main():
                     "tests/test_files.py",
                     "tests/test_files_acceptance.py",
                     "tests/test_catalog_images.py",
-                ),
-                flush=True,
-            )
-            print("CI_FILE_TEST_INVENTORY_END", flush=True)
+                )
+                record_collection("files", collected_output, execution_output)
             test = json.loads(stack.docker("inspect", name))[0]
             host = test["HostConfig"]
             assert host["NetworkMode"] == "none" and host["ReadonlyRootfs"]

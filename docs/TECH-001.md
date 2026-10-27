@@ -6,7 +6,8 @@ PR: https://github.com/h1roshigoto/akbrizcase/pull/40. База:
 ## Диагностика до изменений
 
 Успешный push baseline: [run 40566678772](https://github.com/h1roshigoto/akbrizcase/actions/runs/40566678772),
-GitHub-hosted `ubuntu-24.04`, runner image `20261025.353.1`.
+GitHub-hosted `ubuntu-24.04`: image `20261012.334.1` для backend/frontend/Compose,
+`20261025.353.1` для PostgreSQL.
 
 | Обязательный job | До изменений |
 |---|---:|
@@ -60,7 +61,10 @@ commit `45cba9c43ed26ef95678d8cb263d0ce81f88c93b` меняет только от
 - `CI_SUITE_START/END` и GitHub Step Summary показывают длительность и результат
   каждого integration/smoke suite, включая ошибки. Ошибка любого suite делает
   job неуспешным; остальные уже выбранные независимые suites также выполняются.
-- Полные pytest/Vitest IDs в журналах. Backend выполняет исходную команду без
+- Полные pytest IDs/outcomes сохраняются в JSON-артефактах на 7 дней; в них нет
+  stdout, секретов, данных БД, пользовательских файлов или сессий. Upload action
+  зафиксирован SHA тега v4.6.2. Vitest IDs и smoke checkpoints остаются в журнале.
+  Backend выполняет исходную команду без
   новых pytest options; после её успеха отдельная collection записывает IDs.
   File acceptance также сохраняет исходную команду и после её успеха записывает
   collection в том же sandbox/image. Сравнение требует совпадения количества всех passed с полным inventory и
@@ -88,7 +92,7 @@ lifecycle 43, applicability 75, trees 73. Окончательное доказ�
 исполнения — сравнение результатов GitHub CI, а не collection сама по себе.
 
 Локально: 622 backend unit/contract tests, backend Ruff check/format,
-strict Mypy (138 файлов), 29 script tests. Новые scripts также проверены Ruff.
+strict Mypy (138 файлов), 32 script tests. Новые scripts также проверены Ruff.
 Реальные PostgreSQL/ClamAV/Chromium проверки подтверждаются GitHub CI.
 
 Для рабочего цикла достаточно проверок затронутого набора, например:
@@ -110,6 +114,8 @@ file acceptance tests в тот же бюджет двух окружений. `
 
 Для сравнения скачайте полные job logs двух запусков в отдельные директории
 с именами `backend.log`, `frontend.log`, `database.log`, `compose.log`:
+В директорию оптимизированного запуска также скачайте `backend-test-identities`
+и `postgres-file-test-identities`, распаковав JSON в ту же директорию.
 
 ```sh
 python3 scripts/compare_ci_tests.py /tmp/before /tmp/after

@@ -16,6 +16,7 @@ import uuid
 from functools import partial
 from pathlib import Path
 
+from ci_inventory import record_verbose
 from ci_suites import command, measure, parallel
 from synthetic_stack import SyntheticStack, isolated_environment
 
@@ -119,7 +120,10 @@ def run(
                 capture_output=args[0] in ("config", "ps", "exec", "run"),
             )
             # Keep verbose node IDs intact when independent suites overlap.
-            if args[0] == "run":
+            if args[0] == "run" and (
+                not environment.get("CI_INVENTORY_DIR")
+                or not record_verbose("db-" + suite, result.stdout)
+            ):
                 print(result.stdout, flush=True)
             return result.stdout or ""
 

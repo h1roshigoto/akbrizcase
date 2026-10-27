@@ -1,5 +1,6 @@
 """The CI evidence comparison must detect missing IDs despite equal counts."""
 
+import json
 import tempfile
 import unittest
 from collections import Counter
@@ -9,6 +10,34 @@ from compare_ci_tests import RANDOM_UUID_CASES, compare, inventory, normalize_id
 
 
 class InventoryTests(unittest.TestCase):
+    def test_artifacts_are_complete_and_do_not_double_count_console_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for job in ("backend", "frontend", "database", "compose"):
+                (root / (job + ".log")).write_text("tests/a.py::one PASSED [100%]\n")
+            names = [
+                "backend",
+                "db-clean-upgrade",
+                "db-core",
+                "db-images",
+                "db-lifecycle",
+                "db-applicability",
+                "db-trees",
+                "files",
+            ]
+            for name in names:
+                (root / (name + ".json")).write_text(
+                    json.dumps(
+                        {"suite": name, "tests": [["tests/a.py::one", "PASSED"]]}
+                    )
+                )
+            result = inventory(root)
+            self.assertEqual(result["backend"].total(), 1)
+            self.assertEqual(result["database"].total(), 7)
+            (root / "db-trees.json").unlink()
+            with self.assertRaisesRegex(ValueError, "Missing inventory"):
+                inventory(root)
+
     def test_file_inventory_needs_its_own_complete_execution_summary(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
