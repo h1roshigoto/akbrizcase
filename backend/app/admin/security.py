@@ -2,19 +2,25 @@
 
 SQLAdmin and future /api/v1/admin handlers share request.state.staff_db. All
 administrative mutations, including unregistered/direct form URLs, pass CSRF.
+Only exact image replace/preview routes close initial authorization before file
+processing; the image service refreshes authority in the final binding UoW.
 """
 
+import re
 from collections.abc import Callable, Iterator
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
+from app.admin.forms import bounded_body, revision, unique_fields
 from app.core.api_errors import error_response as api_error_response
 from app.core.audit import StaffResult, record_staff_event
 from app.core.auth import StaffRole, has_role
@@ -22,6 +28,14 @@ from app.core.csrf import LOGIN_COOKIE, LOGIN_SECONDS, SESSION_COOKIE, StaffSecu
 from app.core.db import Database
 from app.core.staff import lock_staff
 from app.core.staff_sessions import SESSION_SECONDS, StaffIdentity, resolve_session
+from app.modules.catalog.images.pipeline import MAX_BYTES
+from app.modules.catalog.models import CatalogItem
+
+IMAGE_REPLACE = re.compile(
+    r"/admin/catalog/items/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-"
+    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}/image/replace\Z"
+)
+IMAGE_PREVIEW = re.compile(IMAGE_REPLACE.pattern.replace("/replace", "/preview"))
 
 
 def error_response(
@@ -168,6 +182,19 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
             return error_response(
                 request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"
             )
+        if (method == "POST" and IMAGE_REPLACE.fullmatch(path)) or (
+            method == "GET" and IMAGE_PREVIEW.fullmatch(path)
+        ):
+            return await self._image_upload(request, call_next, database, security)
+        if unsafe and re.fullmatch(
+            r"/admin/catalog/items/[^/]+/(?:applicability/[^/]+|image/remove)", path
+        ):
+            try:
+                await bounded_body(request, 32768)
+            except StarletteHTTPException as error:
+                return error_response(
+                    request, error.status_code, "INVALID_REQUEST", "Invalid form body"
+                )
         uow = database.unit_of_work()
         session = await run_in_threadpool(uow.__enter__)
         response: Response
@@ -210,22 +237,148 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
             await run_in_threadpool(uow.__exit__, None, None, None)
             return response
 
+    async def _image_upload(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+        database: Database,
+        security: StaffSecurity,
+    ) -> Response:
+        """Only exact image replace/preview routes get two-stage transactions.
+
+        Initial authority uses the existing resolver/lock. Its UoW closes before
+        receiving bytes. The fresh binding UoW executes no SQL until the image
+        service has completed AV/Pillow and rechecks active user/session itself.
+        All other routes retain the commit-scoped global staff lock.
+        """
+
+        def authenticate() -> StaffIdentity | None:
+            with database.unit_of_work() as session:
+                lock_staff(session)
+                identity = resolve_session(
+                    session, request.cookies.get(SESSION_COOKIE, "")
+                )
+                if identity is None or not has_role(identity.user, "admin"):
+                    record_staff_event(
+                        session,
+                        actor_id=identity.user.id if identity else None,
+                        action="staff.access",
+                        result="forbidden" if identity else "authentication_denied",
+                    )
+                elif request.method == "GET":
+                    row = session.get(CatalogItem, UUID(request.url.path.split("/")[4]))
+                    request.state.image_preview_key = row.image_key if row else None
+                return identity
+
+        identity = await run_in_threadpool(authenticate)
+        if identity is None:
+            return error_response(
+                request, 401, "AUTHENTICATION_REQUIRED", "Authentication required"
+            )
+        if not has_role(identity.user, "admin"):
+            return error_response(request, 403, "FORBIDDEN", "Insufficient permissions")
+        request.state.staff_identity = identity
+
+        async def proceed() -> Response:
+            uow = database.unit_of_work()
+            request.state.staff_db = await run_in_threadpool(uow.__enter__)
+            try:
+                response = await call_next(request)
+            except BaseException as exc:
+                await run_in_threadpool(uow.__exit__, type(exc), exc, exc.__traceback__)
+                raise
+            else:
+                await run_in_threadpool(uow.__exit__, None, None, None)
+                return response
+
+        if request.method == "GET":
+            return await proceed()
+
+        async def csrf_denied() -> Response:
+            def record() -> None:
+                with database.unit_of_work() as session:
+                    record_staff_event(
+                        session,
+                        actor_id=identity.user.id,
+                        action="staff.csrf",
+                        result="csrf_denied",
+                    )
+
+            await run_in_threadpool(record)
+            return error_response(
+                request, 403, "CSRF_DENIED", "CSRF verification failed"
+            )
+
+        try:
+            await bounded_body(request, MAX_BYTES + 16384)
+            if (
+                request.query_params
+                or request.headers.get("content-type", "").split(";")[0]
+                != "multipart/form-data"
+            ):
+                raise ValueError("Invalid multipart")
+            async with request.form(
+                max_files=1, max_fields=3, max_part_size=1024
+            ) as form:
+                upload = form.get("image")
+                if len(form.getlist("csrf_token")) != 1:
+                    return await csrf_denied()
+                values = unique_fields(
+                    type(form)([(k, v) for k, v in form.multi_items() if k != "image"]),
+                    {"csrf_token", "expected_revision"},
+                )
+                tokens = request.headers.getlist("x-csrf-token")
+                token = values.get("csrf_token", "")
+                if (
+                    len(tokens) > 1
+                    or (tokens and tokens[0] != token)
+                    or not security.verify(
+                        token,
+                        request.cookies.get(SESSION_COOKIE, ""),
+                        "session",
+                        SESSION_SECONDS,
+                    )
+                ):
+                    return await csrf_denied()
+                if len(form.getlist("image")) != 1 or not isinstance(
+                    upload, UploadFile
+                ):
+                    raise ValueError("One image required")
+                if upload.size is None or not 0 < upload.size <= MAX_BYTES:
+                    raise StarletteHTTPException(413, "Image too large")
+                request.state.image_revision = revision(
+                    values.get("expected_revision", "")
+                )
+                request.state.image_upload = upload
+                return await proceed()
+        except StarletteHTTPException as error:
+            return error_response(
+                request, error.status_code, "INVALID_REQUEST", "Invalid image form"
+            )
+        except ValueError:
+            return error_response(request, 422, "INVALID_REQUEST", "Invalid image form")
+
     async def _valid_csrf(
         self, request: Request, security: StaffSecurity, *, login: bool
     ) -> bool:
-        token = request.headers.get("x-csrf-token", "")
-        if not token and request.headers.get("content-type", "").split(";")[0] in (
+        tokens = request.headers.getlist("x-csrf-token")
+        if len(tokens) > 1:
+            return False
+        token = tokens[0] if tokens else ""
+        if request.headers.get("content-type", "").split(";")[0] in (
             "application/x-www-form-urlencoded",
             "multipart/form-data",
         ):
             # Cache body so downstream SQLAdmin receives the same form stream.
-            body = await request.body()
-            if len(body) > 6 * 1024 * 1024:
-                return False
             try:
+                await bounded_body(request, 6 * 1024 * 1024)
                 async with request.form(max_fields=100, max_files=1) as form:
                     values = form.getlist("csrf_token")
+                    if len(values) > 1:
+                        return False
                     if len(values) == 1 and isinstance(values[0], str):
+                        if token and token != values[0]:
+                            return False
                         token = values[0]
             except (ValueError, StarletteHTTPException):
                 return False

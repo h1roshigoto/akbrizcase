@@ -5,6 +5,7 @@ import { type Selection, validQty } from '../state/selection'
 import { useResource } from '../state/useResource'
 import { formatKopecks, formatPrice, toKopecks } from '../state/money'
 import { Icon } from './Icon'
+import { ItemImage } from './ItemImage'
 
 function QuantityInput({
   qty,
@@ -145,6 +146,7 @@ export function SelectedItems({
               return (
                 <li className="selected-row" key={row.item_id}>
                   <div className="selected-row-title">
+                    {item && <div className="selected-image"><ItemImage item={item} /></div>}
                     <div>
                       <p className="sku">{label}</p>
                       {item ? (

@@ -46,4 +46,7 @@
 </form>
 {% endif %}
 {% if row and row.status == 'published' and entity == 'items' %}<p><a href="/api/v1/catalog/items/{{ row.id }}">Public catalog record</a></p>{% endif %}
+{% if row and entity == 'items' %}
+<p><a href="/admin/catalog/items/{{ row.id }}/image">Manage image</a> · <a href="/admin/catalog/items/{{ row.id }}/applicability">Manage applicability</a></p>
+{% endif %}
 {% endblock %}

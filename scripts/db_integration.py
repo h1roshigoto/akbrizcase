@@ -134,7 +134,10 @@ def run(
                     )
                 else:
                     if images_only:
-                        selection = ["tests/integration/test_catalog_image_binding.py"]
+                        selection = [
+                            "tests/integration/test_catalog_image_binding.py",
+                            "tests/integration/test_admin_images.py",
+                        ]
                     elif lifecycle_only:
                         selection = ["tests/integration/test_kb_lifecycle.py"]
                     elif applicability_only:
@@ -144,6 +147,7 @@ def run(
                             "--ignore=tests/integration/test_kb_lifecycle.py",
                             "--ignore=tests/integration/test_catalog_applicability.py",
                             "--ignore=tests/integration/test_catalog_image_binding.py",
+                            "--ignore=tests/integration/test_admin_images.py",
                         ]
                     compose(
                         "run",
