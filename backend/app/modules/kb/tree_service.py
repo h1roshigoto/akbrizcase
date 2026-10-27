@@ -215,8 +215,9 @@ def _dependencies(session: Session, tree: TreeInput) -> tuple[UUID, tuple[Issue,
         != item_ids
     ):
         raise TreeRejected("ITEM_NOT_FOUND")
-    candidates = dict(
-        session.execute(
+    candidates = {
+        item_id: section_id
+        for item_id, section_id in session.execute(
             select(
                 CatalogItemModel.item_id, CatalogItemModel.evidence_section_id
             ).where(
@@ -224,7 +225,7 @@ def _dependencies(session: Session, tree: TreeInput) -> tuple[UUID, tuple[Issue,
                 CatalogItemModel.model_id == model_id,
             )
         ).tuples()
-    )
+    }
     section_ids = source_ids | set(candidates.values())
     parents = list(
         session.execute(
