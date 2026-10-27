@@ -11,6 +11,7 @@ from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.modules.catalog.router import router as catalog_router
+from app.modules.kb.router import router as kb_router
 from app.modules.orders.router import router as orders_router
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=database_lifespan)
@@ -18,6 +19,7 @@ app.add_middleware(StaffSecurityMiddleware)
 # Install last so request IDs wrap even early staff middleware denials.
 install_api_errors(app)
 app.include_router(catalog_router)
+app.include_router(kb_router)
 app.include_router(orders_router)
 app.include_router(auth_router)
 app.include_router(admin_orders_router)
