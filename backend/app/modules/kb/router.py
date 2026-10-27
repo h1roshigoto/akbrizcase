@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from collections.abc import Iterator
 from typing import Annotated
 from urllib.parse import quote
 
@@ -9,8 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ConfigDict
 from sqlalchemy.orm import Session
 
-from app.admin.security import request_identity, staff_transaction
-from app.modules.kb.access import PUBLIC_VIEWER, Viewer
+from app.core.csrf import SESSION_COOKIE
+from app.core.db import Database
+from app.modules.kb.access import cookie_viewer
 from app.modules.kb.files import FilePipeline, FileRejected
 from app.modules.kb.files.formats import MIMES
 from app.modules.kb.read_service import KnowledgeReadService, SourceNotFound
@@ -27,15 +29,22 @@ class DocumentParameters(DocumentQuery):
     model_config = ConfigDict(strict=False)
 
 
+def knowledge_session(request: Request) -> Iterator[Session]:
+    database: Database | None = request.app.state.database
+    if database is None:
+        raise HTTPException(503)
+    with database.unit_of_work() as session:
+        yield session
+
+
 def read_service(
     request: Request,
     response: Response,
-    session: Annotated[Session, Depends(staff_transaction, scope="function")],
+    session: Annotated[Session, Depends(knowledge_session, scope="function")],
 ) -> KnowledgeReadService:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Vary"] = "Cookie"
-    identity = request_identity(request)
-    viewer = Viewer(identity.session.id) if identity is not None else PUBLIC_VIEWER
+    viewer = cookie_viewer(request.cookies.get(SESSION_COOKIE, ""))
     return KnowledgeReadService(session, viewer)
 
 

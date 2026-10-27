@@ -28,6 +28,7 @@ from app.core.auth import hash_password
 from app.core.csrf import SESSION_COOKIE
 from app.core.db import Database, DatabaseSettings
 from app.core.db_types import utc_now
+from app.core.staff import disable_staff, lock_staff
 from app.core.staff_models import StaffSession, StaffUser
 from app.core.staff_sessions import token_hash
 from app.main import app
@@ -776,6 +777,10 @@ def test_concurrent_change_during_real_scan(
                 try:
                     assert started.wait(5)
                     with database.unit_of_work() as session:
+                        # Future lifecycle commands authenticate under this same
+                        # existing staff mutation lock. A public file scan must
+                        # not prevent their authentication/revocation commit.
+                        lock_staff(session)
                         if change == "version_revoked":
                             session.execute(
                                 update(DocumentVersion)
@@ -804,6 +809,69 @@ def test_concurrent_change_during_real_scan(
             ).json()
             assert str(entry.section) not in str(body)
             assert str(entry.document) not in browser.get("/api/v1/documents").text
+    finally:
+        proceed.set()
+        app.dependency_overrides.clear()
+
+
+def test_real_staff_disable_can_commit_during_internal_download(
+    staff_database: Database, pipeline: FilePipeline, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    password = "synthetic-022-password"
+    admin_login = "synthetic022-" + uuid4().hex
+    token = secrets.token_hex(32)
+    with staff_database.unit_of_work() as session:
+        password_hash = hash_password(password)
+        administrator = StaffUser(
+            login=admin_login, password_hash=password_hash, role="admin"
+        )
+        manager = StaffUser(
+            login="synthetic022-" + uuid4().hex,
+            password_hash=password_hash,
+            role="manager",
+        )
+        session.add_all([administrator, manager])
+        session.flush()
+        manager_id = manager.id
+        session.add(
+            StaffSession(
+                user_id=manager_id,
+                token_hash=token_hash(token),
+                expires_at=utc_now() + timedelta(hours=1),
+            )
+        )
+        entry = edition(session, pipeline, visibility="internal")
+    started, proceed = Event(), Event()
+    scan = pipeline.scanner.scan
+
+    def pause(descriptor: int) -> ScanStamp:
+        result = scan(descriptor)
+        started.set()
+        assert proceed.wait(5)
+        return result
+
+    monkeypatch.setattr(pipeline.scanner, "scan", pause)
+    app.dependency_overrides[file_pipeline] = lambda: pipeline
+    try:
+        with TestClient(app, base_url="https://testserver") as browser:
+            app.state.database = staff_database
+            browser.cookies.set(SESSION_COOKIE, token)
+            with ThreadPoolExecutor(1) as executor:
+                pending = executor.submit(browser.get, entry.url)
+                try:
+                    assert started.wait(5)
+                    with staff_database.unit_of_work() as session:
+                        assert disable_staff(
+                            session,
+                            admin_login=admin_login,
+                            admin_password=password,
+                            user_id=manager_id,
+                        ).ok
+                finally:
+                    proceed.set()
+                response = pending.result(timeout=10)
+            assert response.status_code == 404 and DATA not in response.content
+            assert browser.get(entry.url).status_code == 404
     finally:
         proceed.set()
         app.dependency_overrides.clear()
