@@ -424,7 +424,14 @@ def test_lifecycle_preview_actual_dependencies(
             "kind": "equipment_models.manual_document_id",
             "count": 1,
             "ids": [str(model.id)],
-        }
+        },
+        {
+            "kind": "catalog_item_models.evidence_section_id",
+            "count": 0,
+            "ids": [],
+            "links": [],
+            "link_count": 0,
+        },
     ]
     assert "Private" not in json.dumps(report.technical)
     assert operation(session, login, pipeline, "revoke", document).ok

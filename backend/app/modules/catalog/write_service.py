@@ -13,7 +13,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.auth import has_role
 from app.core.staff_models import AuditEvent
 from app.core.staff_sessions import StaffIdentity
-from app.modules.catalog.models import CatalogItem, EquipmentModel
+from app.modules.catalog.applicability_mutations import invalidate_links
+from app.modules.catalog.models import CatalogItem, CatalogItemModel, EquipmentModel
 from app.modules.catalog.write_dto import (
     ItemCreate,
     ItemEdit,
@@ -218,5 +219,14 @@ class CatalogWriteService:
                 {key: getattr(row, key) for key in ModelFields.model_fields}
             )
             row.status = target
+            if target != "published":
+                invalidate_links(
+                    self.session,
+                    select(CatalogItemModel).where(
+                        CatalogItemModel.model_id == identifier
+                    ),
+                    self.actor_id,
+                    "model_status",
+                )
             self._changed(row, action)
             return row

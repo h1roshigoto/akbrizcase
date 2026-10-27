@@ -10,6 +10,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.cli import SafeParser, hidden
 from app.core.db import Database, DatabaseConfigurationError, DatabaseSettings
+from app.modules.catalog.applicability_write import (
+    Operation as ApplicabilityOperation,
+)
+from app.modules.catalog.applicability_write import run_applicability
 from app.modules.kb.files import FilePipeline
 from app.modules.kb.import_service import run_preparation
 from app.modules.kb.lifecycle_service import Operation, run_lifecycle
@@ -46,6 +50,18 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument(
                 "--visibility", choices=("public", "internal"), required=True
             )
+    applicability: dict[str, ApplicabilityOperation] = {
+        "applicability-" + name: name
+        for name in ("candidate", "replace", "review", "publish", "revoke", "preview")
+    }
+    for name, action in applicability.items():
+        command = commands.add_parser(name)
+        command.add_argument("--item", type=UUID, required=True)
+        command.add_argument("--model", type=UUID, required=True)
+        if action in {"candidate", "replace"}:
+            command.add_argument("--section", type=UUID, required=True)
+        if action in {"review", "publish"}:
+            command.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
     database = None
     try:
@@ -55,6 +71,28 @@ def main(argv: list[str] | None = None) -> int:
         if not database.ready():
             print("DATABASE_UNAVAILABLE", file=sys.stderr)
             return 1
+        if args.command in applicability:
+            with database.unit_of_work() as session:
+                applicability_report = run_applicability(
+                    session,
+                    login=login,
+                    password=password,
+                    operation=applicability[args.command],
+                    item_id=args.item,
+                    model_id=args.model,
+                    section_id=getattr(args, "section", None),
+                    evidence_path=getattr(args, "evidence", None),
+                )
+            print(
+                json.dumps(
+                    {
+                        "code": applicability_report.code,
+                        **applicability_report.technical,
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0 if applicability_report.ok else 1
         if args.command in operations:
             with database.unit_of_work() as session:
                 lifecycle = run_lifecycle(

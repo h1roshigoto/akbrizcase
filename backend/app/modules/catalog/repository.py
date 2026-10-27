@@ -1,13 +1,22 @@
 """Parameterized PostgreSQL reads using the existing catalog/search indexes."""
 
+from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import false, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, literal, or_, select, true
+from sqlalchemy.orm import Session, aliased
 
+from app.modules.catalog.applicability import confirmed_evidence, public_applicability
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 from app.schemas.catalog import CatalogQuery
 from app.schemas.common import Pagination
+from app.schemas.sources import Applicability
+
+
+@dataclass(frozen=True)
+class CatalogRecord:
+    item: CatalogItem
+    applicability: Applicability | None
 
 
 class CatalogRepository:
@@ -28,7 +37,7 @@ class CatalogRepository:
         )
         return list(items), total or 0
 
-    def items(self, query: CatalogQuery) -> tuple[list[CatalogItem], int]:
+    def items(self, query: CatalogQuery) -> tuple[list[CatalogRecord], int]:
         predicates = [CatalogItem.status == "published"]
         if query.kind is not None:
             predicates.append(CatalogItem.kind == query.kind)
@@ -44,34 +53,54 @@ class CatalogRepository:
                 )
             )
         if query.model_id is not None:
-            # MVP-024 owns the future public-confirmation predicate. Until its
-            # schema/services exist, no item has a publicly confirmed relation.
-            predicates.append(false())
-        total = self.session.scalar(
-            select(func.count()).select_from(CatalogItem).where(*predicates)
+            predicates.append(confirmed_evidence(query.model_id).exists())
+        applicability = (
+            public_applicability(query.model_id) if query.model_id else literal(None)
         )
-        items = self.session.scalars(
-            select(CatalogItem)
+        allowed = (
+            select(CatalogItem, applicability.label("applicability"))
             .where(*predicates)
-            .order_by(CatalogItem.sku, CatalogItem.id)
+            .cte("allowed_catalog")
+            .prefix_with("MATERIALIZED")
+        )
+        page = (
+            select(allowed)
+            .order_by(allowed.c.sku, allowed.c.id)
             .limit(query.limit)
             .offset(query.offset)
+            .cte("catalog_page")
         )
-        return list(items), total or 0
+        total = select(func.count().label("total")).select_from(allowed).cte("total")
+        item = aliased(CatalogItem, page)
+        rows = self.session.execute(
+            select(total.c.total, item, page.c.applicability)
+            .select_from(total.outerjoin(page, true()))
+            .order_by(page.c.sku, page.c.id)
+            .execution_options(populate_existing=True)
+        ).all()
+        return [
+            CatalogRecord(row, Applicability.model_validate(value) if value else None)
+            for _, row, value in rows
+            if row is not None
+        ], rows[0][0]
 
-    def item(self, item_id: UUID) -> CatalogItem | None:
-        return self.session.scalar(
-            select(CatalogItem).where(
-                CatalogItem.id == item_id, CatalogItem.status == "published"
-            )
-        )
-
-    def model_is_public(self, model_id: UUID) -> bool:
-        return (
-            self.session.scalar(
-                select(EquipmentModel.id).where(
+    def item(self, item_id: UUID, model_id: UUID | None) -> CatalogRecord | None:
+        query = select(
+            CatalogItem, public_applicability(model_id) if model_id else literal(None)
+        ).where(CatalogItem.id == item_id, CatalogItem.status == "published")
+        if model_id is not None:
+            query = query.where(
+                select(EquipmentModel.id)
+                .where(
                     EquipmentModel.id == model_id, EquipmentModel.status == "published"
                 )
+                .exists()
             )
-            is not None
+        row = self.session.execute(
+            query.execution_options(populate_existing=True)
+        ).one_or_none()
+        if row is None:
+            return None
+        return CatalogRecord(
+            row[0], Applicability.model_validate(row[1]) if row[1] else None
         )

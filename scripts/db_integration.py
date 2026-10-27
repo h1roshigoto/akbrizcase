@@ -65,6 +65,7 @@ def run(
     cleanup_only: bool = False,
     clean_upgrade_only: bool = False,
     lifecycle_only: bool = False,
+    applicability_only: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
@@ -128,11 +129,15 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    selection = (
-                        ["tests/integration/test_kb_lifecycle.py"]
-                        if lifecycle_only
-                        else ["--ignore=tests/integration/test_kb_lifecycle.py"]
-                    )
+                    if lifecycle_only:
+                        selection = ["tests/integration/test_kb_lifecycle.py"]
+                    elif applicability_only:
+                        selection = ["tests/integration/test_catalog_applicability.py"]
+                    else:
+                        selection = [
+                            "--ignore=tests/integration/test_kb_lifecycle.py",
+                            "--ignore=tests/integration/test_catalog_applicability.py",
+                        ]
                     compose(
                         "run",
                         "--rm",
@@ -166,5 +171,6 @@ if __name__ == "__main__":
         # Retain these historical facts in a separate marked database: legacy
         # staff fixtures must still test an actually empty bootstrap database.
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], lifecycle_only=True)
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], applicability_only=True)
     else:
         sys.exit("Usage: db_integration.py [reset]")

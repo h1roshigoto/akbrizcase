@@ -13,7 +13,6 @@ from app.schemas.catalog import (
     EquipmentModelsPage,
 )
 from app.schemas.common import Pagination
-from app.schemas.sources import Applicability
 
 
 class CatalogNotFound(Exception):
@@ -63,29 +62,25 @@ class CatalogService:
     def items(self, query: CatalogQuery) -> CatalogPage:
         records, total = self.repository.items(query)
         return CatalogPage(
-            items=[card(row) for row in records],
+            items=[
+                card(row.item).model_copy(update={"applicability": row.applicability})
+                for row in records
+            ],
             total=total,
             limit=query.limit,
             offset=query.offset,
         )
 
     def item(self, item_id: UUID, model_id: UUID | None) -> CatalogItem:
-        record = self.repository.item(item_id)
-        if record is None:
+        result = self.repository.item(item_id, model_id)
+        if result is None:
             raise CatalogNotFound
-        applicability = None
-        if model_id is not None:
-            if not self.repository.model_is_public(model_id):
-                raise CatalogNotFound
-            # A published model is a valid context, never proof of compatibility.
-            applicability = Applicability(
-                model_id=model_id, status="unknown", sources=[]
-            )
+        record = result.item
         return CatalogItem.model_validate(
             {
                 **card(record).model_dump(),
                 "description": record.description,
                 "attributes": record.attributes,
-                "applicability": applicability,
+                "applicability": result.applicability,
             }
         )

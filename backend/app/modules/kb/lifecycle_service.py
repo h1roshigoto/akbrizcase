@@ -19,7 +19,11 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedStaff, has_role
 from app.core.staff import authenticate_operator
 from app.core.staff_models import AuditEvent
-from app.modules.kb.dependencies import DependencyProvider, EquipmentManualDependencies
+from app.modules.kb.dependencies import (
+    ApplicabilityDependencies,
+    DependencyProvider,
+    EquipmentManualDependencies,
+)
 from app.modules.kb.draft_service import DraftFile
 from app.modules.kb.files import FilePipeline, FileRejected
 from app.modules.kb.files.sandbox import run_parser
@@ -56,6 +60,8 @@ class LifecycleReport:
             "VISIBILITY_CHANGED",
             "PREVIEW",
             "NO_OP",
+            "CANDIDATE",
+            "REPLACED",
         }
 
 
@@ -97,13 +103,22 @@ class LifecycleService:
         actor: AuthenticatedStaff,
         pipeline: FilePipeline,
         *,
-        dependencies: tuple[DependencyProvider, ...] = (EquipmentManualDependencies(),),
+        dependencies: tuple[DependencyProvider, ...] = (
+            EquipmentManualDependencies(),
+            ApplicabilityDependencies(),
+        ),
     ) -> None:
         session.refresh(actor.user)
         if not has_role(actor.user, "admin"):
             raise LifecycleRejected("FORBIDDEN")
         self.session, self.actor, self.pipeline = session, actor, pipeline
         self.dependencies = dependencies
+
+    def _invalidate(self, versions: list[DocumentVersion], reason: str) -> None:
+        for provider in self.dependencies:
+            provider.invalidate(
+                self.session, tuple(v.id for v in versions), self.actor.user.id, reason
+            )
 
     def _audit(
         self,
@@ -374,6 +389,9 @@ class LifecycleService:
                 self._audit(operation, document, version, {}, result="no_op")
                 return LifecycleReport("NO_OP", {"before": preview})
             self._checked_file(version, stack)
+            self._invalidate(
+                [v for v in versions if v.status == "published"], "replacement"
+            )
             for old in versions:
                 if old.status == "published":
                     old.status = "retired"
@@ -409,6 +427,7 @@ class LifecycleService:
                 return LifecycleReport("NO_OP", {"before": preview})
             if version.status != "published":
                 raise LifecycleRejected("PUBLISHED_REQUIRED")
+            self._invalidate([version], "retire")
             version.status = "retired"
             self._audit(
                 operation,
@@ -423,6 +442,7 @@ class LifecycleService:
             if before == "revoked":
                 self._audit(operation, document, version, {}, result="no_op")
                 return LifecycleReport("NO_OP", {"before": preview})
+            self._invalidate([version] if version else versions, "revoke")
             target.status = "revoked"
             self._audit(
                 operation,

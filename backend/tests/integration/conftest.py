@@ -208,6 +208,42 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 "WHERE n.nspname='app' ORDER BY 1,2,3"
             )
             old_schema = connection.execute(schema_sql).all()
+        command.upgrade(config, "0004_mvp019_documents")
+        # Existing MVP-023 KB is preserved too; no synthetic applicability is
+        # inferred by the migration from names, JSON or equipment manual links.
+        with runtime.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO app.documents (id,code,title,kind,visibility) VALUES "
+                    "('00000000-0000-4000-8000-000000000024','SYNTHETIC024UPGRADE',"
+                    "'SYNTHETIC ONLY','other','internal')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO app.document_versions "
+                    "(id,document_id,version,file_key,mime,size_bytes,checksum_sha256) "
+                    "VALUES "
+                    "('00000000-0000-4000-8000-000000000025',"
+                    "'00000000-0000-4000-8000-000000000024',1,'SyntheticUpgrade024',"
+                    "'text/plain',20,repeat('a',64))"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO app.document_sections "
+                    "(id,document_version_id,section_key,title,text) VALUES "
+                    "('00000000-0000-4000-8000-000000000026',"
+                    "'00000000-0000-4000-8000-000000000025','intro','SYNTHETIC','SYNTHETIC')"
+                )
+            )
+        with runtime.engine.connect() as connection:
+            preserved_kb = {
+                table: connection.execute(
+                    text(f"SELECT * FROM app.{table} ORDER BY id")
+                ).all()
+                for table in ("documents", "document_versions", "document_sections")
+            }
         command.upgrade(config, "head")
         command.upgrade(config, "head")
         with migrator.engine.begin() as connection:
@@ -217,7 +253,8 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "column_default "
                     "FROM information_schema.columns WHERE table_schema='app' "
                     "AND table_name NOT IN "
-                    "('documents','document_versions','document_sections') "
+                    "('documents','document_versions','document_sections',"
+                    "'catalog_item_models') "
                     "AND column_name <> 'manual_document_id' "
                     "ORDER BY table_name,ordinal_position"
                 )
@@ -236,6 +273,10 @@ def databases() -> Iterator[tuple[Database, Database]]:
                         "ck_document",
                         "fk_document",
                         "ix_document",
+                        "pk_catalog_item_models",
+                        "ck_catalog_item_models",
+                        "fk_catalog_item_models",
+                        "ix_catalog_item_models",
                     )
                 )
                 or name == "fk_equipment_models_manual_document_id_documents"
@@ -250,6 +291,17 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 )
                 == 0
             )
+            assert (
+                connection.scalar(text("SELECT count(*) FROM app.catalog_item_models"))
+                == 0
+            )
+            for table, rows in preserved_kb.items():
+                assert (
+                    connection.execute(
+                        text(f"SELECT * FROM app.{table} ORDER BY id")
+                    ).all()
+                    == rows
+                )
             for table, rows in (
                 preserved_staff | preserved_catalog | preserved_orders
             ).items():
@@ -268,6 +320,9 @@ def databases() -> Iterator[tuple[Database, Database]]:
             # the synthetic setup; production/runtime cannot erase audit/users.
             connection.execute(text("DELETE FROM app.orders"))
             connection.execute(text("DELETE FROM app.consents"))
+            connection.execute(text("DELETE FROM app.document_sections"))
+            connection.execute(text("DELETE FROM app.document_versions"))
+            connection.execute(text("DELETE FROM app.documents"))
             connection.execute(text("DELETE FROM app.catalog_items"))
             connection.execute(text("DELETE FROM app.equipment_models"))
             connection.execute(text("DELETE FROM app.audit_events"))
