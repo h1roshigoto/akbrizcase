@@ -4,6 +4,7 @@ No URLs or credentials are accepted from the caller. Only a unique project with
 our test label may be stopped by recovery. Neither normal nor reset deletes data.
 """
 
+import argparse
 import json
 import os
 import re
@@ -12,12 +13,31 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
+from ci_suites import command, measure, parallel
 from synthetic_stack import SyntheticStack, isolated_environment
 
 LABEL = "com.akbrizcase.db-integration"
+SUITES = {
+    "clean-upgrade": ["tests/integration/test_kb_clean_upgrade.py"],
+    "images": [
+        "tests/integration/test_catalog_image_binding.py",
+        "tests/integration/test_admin_images.py",
+    ],
+    "lifecycle": ["tests/integration/test_kb_lifecycle.py"],
+    "applicability": ["tests/integration/test_catalog_applicability.py"],
+    "trees": ["tests/integration/test_diagnostic_trees.py"],
+}
+# Preserve the legacy selection, including its existing clean-upgrade skip.
+# The same clean-upgrade test actually executes in its dedicated fresh DB.
+SUITES["core"] = [
+    "--ignore=" + path
+    for name, paths in SUITES.items()
+    if name != "clean-upgrade"
+    for path in paths
+]
 
 
 def reset() -> None:
@@ -64,11 +84,7 @@ def run(
     project: str,
     *,
     cleanup_only: bool = False,
-    clean_upgrade_only: bool = False,
-    lifecycle_only: bool = False,
-    applicability_only: bool = False,
-    images_only: bool = False,
-    trees_only: bool = False,
+    suite: str = "core",
     reuse_image: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
@@ -119,7 +135,7 @@ def run(
                 # guard verifies both persistent test volumes. No test runs yet.
                 compose("create", "tests")
                 stack.verify_database()
-                if clean_upgrade_only:
+                if suite == "clean-upgrade":
                     compose(
                         "run",
                         "--rm",
@@ -137,25 +153,6 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    if trees_only:
-                        selection = ["tests/integration/test_diagnostic_trees.py"]
-                    elif images_only:
-                        selection = [
-                            "tests/integration/test_catalog_image_binding.py",
-                            "tests/integration/test_admin_images.py",
-                        ]
-                    elif lifecycle_only:
-                        selection = ["tests/integration/test_kb_lifecycle.py"]
-                    elif applicability_only:
-                        selection = ["tests/integration/test_catalog_applicability.py"]
-                    else:
-                        selection = [
-                            "--ignore=tests/integration/test_kb_lifecycle.py",
-                            "--ignore=tests/integration/test_catalog_applicability.py",
-                            "--ignore=tests/integration/test_catalog_image_binding.py",
-                            "--ignore=tests/integration/test_diagnostic_trees.py",
-                            "--ignore=tests/integration/test_admin_images.py",
-                        ]
                     compose(
                         "run",
                         "--rm",
@@ -168,7 +165,7 @@ def run(
                         "-p",
                         "no:cacheprovider",
                         "-v",
-                        *selection,
+                        *SUITES[suite],
                     )
             else:
                 stack.recover_for_stop()
@@ -181,44 +178,59 @@ def run(
             stack.cleanup()
 
 
-if __name__ == "__main__":
-    if sys.argv[1:] == ["reset"]:
+def exercise(suite: str, *, reuse_image: bool = False) -> None:
+    run(
+        "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
+        suite=suite,
+        reuse_image=reuse_image,
+    )
+
+
+def files_acceptance() -> None:
+    # Build from this checkout with Docker's normal content-addressed cache.
+    # No persistent cache or DB/files/session data is exported.
+    with measure("files:runtime-build"):
+        command("make", "build")
+    command("make", "files-smoke")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", nargs="?", choices=["reset"])
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--suite", choices=SUITES)
+    selection.add_argument(
+        "--images", dest="suite", action="store_const", const="images"
+    )
+    selection.add_argument("--trees", dest="suite", action="store_const", const="trees")
+    parser.add_argument("--with-files", action="store_true")
+    args = parser.parse_args()
+    if (args.action and (args.suite or args.with_files)) or (
+        args.suite and args.with_files
+    ):
+        parser.error("reset, a selected suite, and --with-files are separate modes")
+    if args.action == "reset":
         reset()
-    elif sys.argv[1:] == ["--images"]:
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], images_only=True)
-    elif sys.argv[1:] == ["--trees"]:
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], trees_only=True)
-    elif not sys.argv[1:]:
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
-        # Build the exact checkout once, then run image acceptance independently
-        # of the unchanged legacy sequence. Each stack has its own guarded DB
-        # and retained volumes; no global fixture/database is shared. Preserve
-        # the CI time budget without removing tests or raising any timeouts.
-        with ThreadPoolExecutor(max_workers=2) as checks:
-            images = checks.submit(
-                run,
-                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
-                images_only=True,
-                reuse_image=True,
-            )
-            run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], reuse_image=True)
-            # Lifecycle commits reviewer FKs. Keep its historical facts outside
-            # the legacy staff fixtures that require an empty bootstrap DB.
-            run(
-                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
-                lifecycle_only=True,
-                reuse_image=True,
-            )
-            run(
-                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
-                applicability_only=True,
-                reuse_image=True,
-            )
-            images.result()
-        run(
-            "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
-            trees_only=True,
-            reuse_image=True,
-        )
+    elif args.suite:
+        with measure("db:" + args.suite):
+            exercise(args.suite)
     else:
-        sys.exit("Usage: db_integration.py [reset|--images|--trees]")
+        # One build, then at most two guarded stacks including file acceptance.
+        # Each suite still owns fresh PostgreSQL, secrets, network and volumes.
+        with measure("db:build+clean-upgrade"):
+            exercise("clean-upgrade")
+        checks = [
+            ("db:" + name, partial(exercise, name, reuse_image=True))
+            for name in ("core", "images", "lifecycle")
+        ]
+        if args.with_files:
+            checks.append(("files:clamav-sandbox", files_acceptance))
+        checks.extend(
+            ("db:" + name, partial(exercise, name, reuse_image=True))
+            for name in ("applicability", "trees")
+        )
+        parallel(checks)
+
+
+if __name__ == "__main__":
+    main()
