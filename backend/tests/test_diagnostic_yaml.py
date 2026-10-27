@@ -52,6 +52,12 @@ def test_valid_and_normalized() -> None:
     assert tree.nodes["handoff"].risk == "expert_only"
 
 
+def test_event_budget_before_schema_construction() -> None:
+    with pytest.raises(TreeRejected) as caught:
+        parse_tree(b"synthetic: [" + b"0," * 12000 + b"0]")
+    assert caught.value.code == "YAML_COMPLEXITY"
+
+
 @pytest.mark.parametrize(
     "data",
     [

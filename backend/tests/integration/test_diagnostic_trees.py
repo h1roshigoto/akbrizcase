@@ -173,6 +173,34 @@ def invoke(session: Session, c: Corpus, path: Path) -> TreeReport:
     )
 
 
+@pytest.mark.parametrize("shape", ["linear", "branching", "handoff"])
+def test_synthetic_positive_corpus(
+    session: Session, tmp_path: Path, shape: str
+) -> None:
+    c = corpus(session)
+    value = payload(session, c)
+    if shape == "handoff":
+        value["start"] = "handoff"
+        value["nodes"] = {"handoff": value["nodes"]["handoff"]}
+    elif shape == "linear":
+        del value["nodes"]["handoff"]
+        value["nodes"]["observe"]["options"][1]["next"] = "result"
+    path = write(tmp_path / (shape + ".yaml"), value)
+    report = invoke(session, c, path)
+    assert report.code == "IMPORTED_DRAFT"
+    assert invoke(session, c, path).code == "NO_OP"
+    assert (
+        run_tree(
+            session,
+            login=c.login,
+            password=PASSWORD,
+            operation="check",
+            tree_id=report.tree_id,
+        ).code
+        == "STRUCTURALLY_VALID_DRAFT"
+    )
+
+
 def test_import_check_normalization_audit_and_no_side_effects(
     session: Session, tmp_path: Path
 ) -> None:
@@ -403,7 +431,18 @@ def test_versions_checksum_and_model_conflicts(
     )
 
 
-@pytest.mark.parametrize("case", ["graph", "source", "item", "checksum", "git"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "graph",
+        "source",
+        "item",
+        "checksum",
+        "git",
+        "orphan_node",
+        "embedded_refs",
+    ],
+)
 def test_reimport_and_check_reject_stored_drift(
     session: Session, tmp_path: Path, case: str
 ) -> None:
@@ -426,6 +465,18 @@ def test_reimport_and_check_reject_stored_drift(
         )
     elif case == "checksum":
         saved.yaml_checksum = "b" * 64
+    elif case == "orphan_node":
+        session.add(
+            DiagnosticTreeSource(
+                tree_id=saved.id,
+                node_key="missing",
+                section_id=c.section,
+            )
+        )
+    elif case == "embedded_refs":
+        graph = json.loads(json.dumps(saved.graph))
+        graph["nodes"]["observe"]["source_refs"] = [str(c.section)]
+        saved.graph = graph
     else:
         saved.git_commit = "b" * 40
     session.flush()

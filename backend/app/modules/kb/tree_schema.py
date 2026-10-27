@@ -172,6 +172,8 @@ def _yaml_value(data: bytes) -> object:
                 if not isinstance(current, ScalarEvent):
                     raise TreeRejected("YAML_KEY_INVALID")
                 key = current.value
+                if len(key) > 100:
+                    raise TreeRejected("YAML_KEY_INVALID")
                 if key == "<<" or key in mapping:
                     raise TreeRejected("YAML_DUPLICATE_OR_MERGE_KEY")
                 mapping[key] = value(event(), depth + 1)
