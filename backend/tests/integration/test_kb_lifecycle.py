@@ -100,15 +100,17 @@ def draft(
     visibility: str = "internal",
     extension: str = "txt",
 ) -> tuple[str, UUID, UUID]:
-    user = admin(session)
     # Trusted synthetic fixture setup through the draft service. The actual
     # import/check/hidden-input path is separately exercised by the PTY test;
     # every lifecycle review and publish below still performs fresh real AV.
+    # Prepare bytes before the first DB write: fixture setup does not inherit
+    # the authenticated operator's bounded idle-timeout adjustment.
     accepted = pipeline.accept(
         io.BytesIO(pdf() if extension == "pdf" else b"Synthetic text\n"),
         filename="synthetic." + extension,
         mime="application/pdf" if extension == "pdf" else "text/plain",
     )
+    user = admin(session)
     service = DraftEditService(session, AuthenticatedStaff(user))
     version = service.import_draft(
         DraftDocument("SYNTHETIC-023-" + uuid4().hex, "Synthetic", "other", visibility),
