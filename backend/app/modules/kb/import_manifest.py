@@ -124,12 +124,20 @@ def operator_file(path: Path) -> Iterator[int]:
 
 
 @contextmanager
-def checked_manifest(path: Path) -> Iterator[ImportManifest]:
+def checked_record[Record: StrictModel](
+    path: Path, model: type[Record]
+) -> Iterator[Record]:
+    """Private bounded JSON input, including exit checks before the caller commits."""
     descriptor = _open(path, private=True)
     try:
         data = os.read(descriptor, MAX_MANIFEST + 1)
-        manifest = parse_manifest(data)
-        yield manifest
+        try:
+            if not 1 <= len(data) <= MAX_MANIFEST:
+                raise ValueError
+            record = model.model_validate(json.loads(data, object_pairs_hook=_object))
+        except (ValueError, TypeError, UnicodeError, RecursionError, ValidationError):
+            raise FileRejected("MANIFEST_INVALID") from None
+        yield record
         # Both in-place edits and replacement/rename must fail before DB commit.
         other = _open(path, private=True)
         try:
@@ -146,3 +154,9 @@ def checked_manifest(path: Path) -> Iterator[ImportManifest]:
             os.close(other)
     finally:
         os.close(descriptor)
+
+
+@contextmanager
+def checked_manifest(path: Path) -> Iterator[ImportManifest]:
+    with checked_record(path, ImportManifest) as manifest:
+        yield manifest
