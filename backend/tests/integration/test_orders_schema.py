@@ -782,16 +782,13 @@ def test_outbox_indexes_permissions_and_no_payload(orders_database: Database) ->
             "created_at",
             "sent_at",
         }
-        assert (
-            connection.scalar(
-                text(
-                    "SELECT count(*) FROM information_schema.columns "
-                    "WHERE table_schema='app' "
-                    "AND table_name='orders' AND column_name='chat_session_id'"
-                )
+        assert connection.execute(
+            text(
+                "SELECT data_type,is_nullable FROM information_schema.columns "
+                "WHERE table_schema='app' "
+                "AND table_name='orders' AND column_name='chat_session_id'"
             )
-            == 0
-        )
+        ).one() == ("uuid", "YES")
 
 
 def test_synthetic_consent_seed_guards_repeat_and_conflicts(
