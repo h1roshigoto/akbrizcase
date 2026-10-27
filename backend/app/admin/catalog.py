@@ -211,7 +211,9 @@ class CatalogEditorView(StaffBaseView):
             {"entity": entity, "row": row, "attributes": attributes},
         )
 
-    async def _rejected(self, request: Request, error: CatalogRejected) -> Response:
+    async def _rejected(
+        self: StaffBaseView, request: Request, error: CatalogRejected
+    ) -> Response:
         if error.status == 409:
             return await self.templates.TemplateResponse(
                 request, "catalog/conflict.html", {}, status_code=409

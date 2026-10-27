@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chromium, expect } from '@playwright/test';
 import { staffLogin } from './staff-login.mjs';
+import { catalogMedia } from './catalog-media.mjs';
 
 const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
 const read = async () => JSON.parse((await lines.next()).value);
@@ -29,6 +30,7 @@ try {
   const submit = async (tab, label, expected = 303) => {
     const [response] = await Promise.all([
       tab.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/admin/catalog/')),
+      tab.waitForNavigation({ waitUntil: 'load' }),
       tab.getByRole('button', { name: label, exact: true }).click(),
     ]);
     assert.equal(response.status(), expected);
@@ -158,6 +160,10 @@ try {
   assert.equal(updated.revision, 3);
   assert.equal(updated.price, '234.56');
 
+  step = 'MVP-026 catalog images';
+  await catalogMedia({ browser, context, page, origin: config.origin, created, submit });
+  await rpc('unchanged');
+
   step = 'archive service and model';
   await page.goto(`${config.origin}${created.service.path}`);
   await submit(page, 'Archive');
@@ -186,10 +192,10 @@ try {
   assert.equal(await staff.getByRole('link', { name: 'Catalog items', exact: true }).count(), 0);
   const csrf = await staff.locator('input[name=csrf_token]').first().inputValue();
   secrets.push(csrf);
-  for (const path of ['/admin/catalog-items', '/admin/equipment-models', created.product.path, '/admin/catalog/models/new']) {
+  for (const path of ['/admin/catalog-items', '/admin/equipment-models', created.product.path, '/admin/catalog/models/new', `${created.product.path}/image`, `${created.product.path}/applicability`]) {
     assert.equal((await manager.request.get(config.origin + path)).status(), 403);
   }
-  for (const path of ['/admin/catalog/items/new', created.product.path, '/admin/catalog/models/new', `${created.product.path}/archive`]) {
+  for (const path of ['/admin/catalog/items/new', created.product.path, '/admin/catalog/models/new', `${created.product.path}/archive`, `${created.product.path}/image/replace`, `${created.product.path}/image/remove`, `${created.product.path}/applicability/publish`]) {
     assert.equal((await manager.request.post(config.origin + path, { headers: { Origin: config.origin, 'X-CSRF-Token': csrf }, form: {} })).status(), 403);
   }
   const adminCsrf = await page.locator('input[name=csrf_token]').first().inputValue();

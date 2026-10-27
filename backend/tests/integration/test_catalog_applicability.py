@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -1231,3 +1232,233 @@ def test_changed_private_attestation_rolls_back_publication(
             AuditEvent.result == "success",
         )
     )
+
+
+@pytest.mark.parametrize("kind", ["product", "service"])
+def test_sqladmin_review_disclosure_and_internal_privacy(
+    database: Database, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """Real login/CSRF -> SQLAdmin -> existing service -> public HTTP projection."""
+    import secrets
+
+    from app.core.csrf import StaffSecurity
+
+    origin = "https://localhost:8443"
+    with database.unit_of_work() as session:
+        c = corpus(session, kind=kind, visibility="internal")
+    with TestClient(app, base_url=origin, follow_redirects=False) as browser:
+        monkeypatch.setattr(app.state, "database", database)
+        monkeypatch.setattr(
+            app.state,
+            "staff_security",
+            StaffSecurity(frozenset({origin}), secrets.token_hex(32)),
+        )
+        csrf = browser.get("/admin/auth/csrf").json()["csrf_token"]
+        response = browser.post(
+            "/admin/auth/login",
+            json={"login": c.login, "password": PASSWORD},
+            headers={"Origin": origin, "X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 200
+        csrf = response.json()["csrf_token"]
+        path = f"/admin/catalog/items/{c.item}/applicability"
+
+        def revision() -> int:
+            with database.unit_of_work() as db:
+                row = db.get(CatalogItem, c.item)
+                assert row is not None
+                return row.revision
+
+        def post(action: str, values: dict[str, str] | None = None) -> Response:
+            return browser.post(
+                path + "/" + action,
+                data={
+                    "csrf_token": csrf,
+                    "expected_revision": str(revision()),
+                    "model_id": str(c.model),
+                    **(values or {}),
+                },
+                headers={"Origin": origin},
+            )
+
+        assert browser.get(path).status_code == 200
+        candidate = post("candidate", {"evidence_section_id": str(c.section)})
+        assert candidate.status_code == 303
+        review = {
+            "evidence_section_id": str(c.section),
+            "expert_name": "SYNTHETIC HTTP Expert",
+            "review_reference": "SYNTHETIC:HTTP:026",
+            "approved_at": "2025-01-01T00:00:00+00:00",
+            "decision": "approved",
+            "applicability_checked": "true",
+        }
+        assert post("review", {**review, "actor_id": str(c.actor)}).status_code == 422
+        assert (
+            post("review", {**review, "evidence_section_id": str(uuid4())}).status_code
+            == 409
+        )
+        assert post("review", review).status_code == 303
+        detail_path = f"/api/v1/catalog/items/{c.item}?model_id={c.model}"
+        assert browser.get(detail_path).json()["applicability"] == {
+            "model_id": str(c.model),
+            "status": "unknown",
+            "sources": [],
+        }
+        preview = post("preview")
+        assert (
+            preview.status_code == 200
+            and "Technical applicability preview" in preview.text
+        )
+        with database.unit_of_work() as session:
+            event_id = session.scalar(
+                select(AuditEvent.id).where(
+                    AuditEvent.entity_id == c.item,
+                    AuditEvent.action == "applicability.review",
+                    AuditEvent.result == "success",
+                )
+            )
+            assert event_id is not None
+        release = {
+            **review,
+            "review_event_id": str(event_id),
+            "fact_publication_allowed": "true",
+            "publication_reference": "SYNTHETIC:HTTP:PUBLIC:026",
+        }
+        for field in (
+            "expert_name",
+            "review_reference",
+            "approved_at",
+            "review_event_id",
+        ):
+            forged = {
+                **release,
+                field: str(uuid4())
+                if field == "review_event_id"
+                else "2024-01-01T00:00:00+00:00"
+                if field == "approved_at"
+                else "SYNTHETIC-OTHER",
+            }
+            assert post("publish", forged).status_code == 409
+        assert post("publish", release).status_code == 303
+        public = browser.get(detail_path)
+        assert public.json()["applicability"] == {
+            "model_id": str(c.model),
+            "status": "confirmed",
+            "sources": [],
+        }
+        for secret in (
+            str(c.section),
+            str(c.document),
+            str(c.version),
+            "INTERNAL-SYNTHETIC-TITLE",
+            "INTERNAL-SYNTHETIC-TEXT",
+        ):
+            assert secret not in public.text
+        assert "INTERNAL-SYNTHETIC-TITLE" in browser.get(path).text
+        assert post("revoke").status_code == 303
+        assert browser.get(detail_path).json()["applicability"]["status"] == "unknown"
+        assert post("publish", release).status_code == 409
+        assert post("review", review).status_code == 303
+        with database.unit_of_work() as session:
+            latest = session.scalar(
+                select(AuditEvent.id)
+                .where(
+                    AuditEvent.entity_id == c.item,
+                    AuditEvent.action == "applicability.review",
+                    AuditEvent.result == "success",
+                )
+                .order_by(AuditEvent.at.desc())
+                .limit(1)
+            )
+        release["review_event_id"] = str(latest)
+        assert post("publish", release).status_code == 303
+        # Existing evidence lifecycle read predicate applies immediately too.
+        with database.unit_of_work() as session:
+            version = session.get(DocumentVersion, c.version)
+            assert version is not None
+            version.status = "revoked"
+        assert browser.get(detail_path).json()["applicability"]["status"] == "unknown"
+        with database.unit_of_work() as session:
+            audits = session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.entity_id == c.item,
+                    AuditEvent.action.like("applicability.%"),
+                )
+            ).all()
+            assert all(a.actor_id == c.actor for a in audits)
+
+
+@pytest.mark.parametrize("failure", ["audit", "commit"])
+def test_sqladmin_publication_failure_rolls_back(
+    database: Database, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str
+) -> None:
+    import secrets
+
+    from app.core.csrf import StaffSecurity
+
+    origin = "https://localhost:8443"
+    with database.unit_of_work() as session:
+        c = corpus(session, visibility="internal")
+        _, release = proofs(session, c, tmp_path)
+        values = json.loads(release.read_text())
+        values.pop("item_id")
+        revision = session.get(CatalogItem, c.item).revision  # type: ignore[union-attr]
+    with TestClient(app, base_url=origin, follow_redirects=False) as browser:
+        monkeypatch.setattr(app.state, "database", database)
+        monkeypatch.setattr(
+            app.state,
+            "staff_security",
+            StaffSecurity(frozenset({origin}), secrets.token_hex(32)),
+        )
+        csrf = browser.get("/admin/auth/csrf").json()["csrf_token"]
+        csrf = browser.post(
+            "/admin/auth/login",
+            json={"login": c.login, "password": PASSWORD},
+            headers={"Origin": origin, "X-CSRF-Token": csrf},
+        ).json()["csrf_token"]
+
+        def fail_commit(session: Session) -> None:
+            if not session.in_nested_transaction():
+                raise SQLAlchemyError("SYNTHETIC_COMMIT")
+
+        original = ApplicabilityWriteService._audit
+
+        def fail_audit(
+            self: ApplicabilityWriteService, *args: object, **kwargs: object
+        ) -> AuditEvent:
+            original(self, *args, **kwargs)  # type: ignore[arg-type]
+            raise SQLAlchemyError("SYNTHETIC_AUDIT")
+
+        if failure == "audit":
+            monkeypatch.setattr(ApplicabilityWriteService, "_audit", fail_audit)
+        else:
+            event.listen(database.sessions, "before_commit", fail_commit)
+        try:
+            form = {
+                k: str(v).lower() if isinstance(v, bool) else str(v)
+                for k, v in values.items()
+            }
+            response = browser.post(
+                f"/admin/catalog/items/{c.item}/applicability/publish",
+                data={**form, "csrf_token": csrf, "expected_revision": str(revision)},
+                headers={"Origin": origin},
+            )
+            assert response.status_code == 503
+            assert "SYNTHETIC_" not in response.text
+        finally:
+            if failure == "commit":
+                event.remove(database.sessions, "before_commit", fail_commit)
+        with database.unit_of_work() as session:
+            link = session.get(CatalogItemModel, (c.item, c.model))
+            assert link and not link.public_allowed and link.published_by is None
+            assert session.get(CatalogItem, c.item).revision == revision  # type: ignore[union-attr]
+            assert status(session, c) == "unknown"
+            assert not session.scalar(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(
+                    AuditEvent.entity_id == c.item,
+                    AuditEvent.action == "applicability.publish",
+                    AuditEvent.result == "success",
+                )
+            )

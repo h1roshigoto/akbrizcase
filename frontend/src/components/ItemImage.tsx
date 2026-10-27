@@ -8,13 +8,14 @@ export function ItemImage({ item }: { item: CatalogCard }) {
   const url = item.image_url
   const safe =
     url?.startsWith(`/api/v1/catalog/items/${item.id}/image/`) &&
-    /^\/api\/v1\/catalog\/items\/[0-9a-f-]{36}\/image\/[A-Za-z0-9_-]+(?:\.(?:jpg|jpeg|png))?$/.test(
+    /^\/api\/v1\/catalog\/items\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\/image\/[0-9a-f]{64}\.(?:jpg|png)$/.test(
       url,
     )
   return (
     <div className={`item-image ${item.kind}`}>
       {url && safe && failedUrl !== url ? (
         <img
+          key={url}
           src={url}
           alt={item.name}
           loading="lazy"

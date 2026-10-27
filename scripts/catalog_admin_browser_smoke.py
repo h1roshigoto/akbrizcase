@@ -77,11 +77,11 @@ def run_browser(environment, config, compose, stack):
             AND a.result='success' AND u.login='browser-admin'
             AND a.metadata - ARRAY['status','revision'] = '{}'::jsonb
         """)
-            == "9"
+            == "14"
         )
         assert (
             stack.sql("SELECT revision FROM app.catalog_items WHERE sku='MVP016-P'")
-            == "3"
+            == "6"
         )
         assert (
             stack.sql("SELECT status FROM app.catalog_items WHERE sku='MVP016-S'")
@@ -98,7 +98,8 @@ def run_browser(environment, config, compose, stack):
             "postgresql_version": stack.sql("SHOW server_version"),
             "immutable_order_rows": True,
             "checks": checks,
-            "admin_audit_events": 9,
+            "admin_audit_events": 14,
+            "media_acceptance": "JPEG/PNG SQLAdmin upload, anonymous React list/detail/selection, replace/remove, failed replacement",
             "stale_form_status": 409,
             "manager_get_post_status": 403,
             "xss_executed": False,

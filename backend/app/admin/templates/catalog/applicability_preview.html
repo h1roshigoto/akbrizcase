@@ -1,0 +1,7 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Technical applicability preview</h2>
+<p>This checks stored bindings and document status. It does not independently verify expert qualifications or technical safety.</p>
+<dl>{% for key, value in report.technical.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<a href="/admin/catalog/items/{{ identifier }}/applicability">Back to applicability</a>
+{% endblock %}

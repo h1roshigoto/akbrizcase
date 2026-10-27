@@ -132,7 +132,7 @@ describe('catalog UI on approved fixtures', () => {
     expect(
       screen.getByRole('img', { name: 'Изображение отсутствует' }),
     ).toBeTruthy()
-    rerender(<ItemImage item={confirmed} />)
+    rerender(<ItemImage item={{ ...confirmed, image_url: `/api/v1/catalog/items/${confirmed.id}/image/${'a'.repeat(64)}.png` as CatalogCard['image_url'] }} />)
     fireEvent.error(screen.getByRole('img', { name: confirmed.name }))
     expect(
       screen.getByRole('img', { name: 'Изображение отсутствует' }),

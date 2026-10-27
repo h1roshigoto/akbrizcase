@@ -97,6 +97,20 @@ def main(
                 }
             )
         )
+        if catalog_admin:
+            # Test-only dependency composition: real ClamAV with synthetic ndb,
+            # never a production scanner bypass or runtime environment switch.
+            override = json.loads(labels.read_text())
+            override["services"] = {
+                "api": {
+                    "command": ["python", "/tmp/browser_media_server.py"],
+                    "volumes": [
+                        str(Path("backend/tests/browser_media_server.py").resolve())
+                        + ":/tmp/browser_media_server.py:ro"
+                    ],
+                }
+            }
+            labels.write_text(json.dumps(override))
         prefix = [
             "docker",
             "compose",
