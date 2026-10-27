@@ -59,4 +59,6 @@ def test_actual_openapi_reuses_contracts() -> None:
     assert parameters["q"]["anyOf"][0]["maxLength"] == 1000
     price = schema["components"]["schemas"]["CatalogCard"]["properties"]["price"]
     assert {part["type"] for part in price["anyOf"]} == {"string", "null"}
-    assert not any("/image/" in path for path in paths)
+    image = paths["/api/v1/catalog/items/{id}/image/{image_key}"]
+    assert set(image) == {"get"}
+    assert image["get"].get("security", []) == []

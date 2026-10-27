@@ -2,6 +2,7 @@
 
 from uuid import UUID
 
+from app.modules.catalog.images.pipeline import KEY
 from app.modules.catalog.models import CatalogItem as ItemRecord
 from app.modules.catalog.repository import CatalogRepository
 from app.schemas.catalog import (
@@ -34,7 +35,13 @@ def card(record: ItemRecord) -> CatalogCard:
             "currency": record.currency,
             "tax_note": record.tax_note,
             "requires_shipping": record.requires_shipping,
-            "image_url": None,  # Verified serving is introduced by MVP-025.
+            "image_url": (
+                f"/api/v1/catalog/items/{record.id}/image/{record.image_key}"
+                if record.status == "published"
+                and record.image_key
+                and KEY.fullmatch(record.image_key)
+                else None
+            ),
             "revision": record.revision,
             "applicability": None,
         }

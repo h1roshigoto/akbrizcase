@@ -66,6 +66,7 @@ def run(
     clean_upgrade_only: bool = False,
     lifecycle_only: bool = False,
     applicability_only: bool = False,
+    images_only: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
@@ -129,7 +130,9 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    if lifecycle_only:
+                    if images_only:
+                        selection = ["tests/integration/test_catalog_image_binding.py"]
+                    elif lifecycle_only:
                         selection = ["tests/integration/test_kb_lifecycle.py"]
                     elif applicability_only:
                         selection = ["tests/integration/test_catalog_applicability.py"]
@@ -164,6 +167,8 @@ def run(
 if __name__ == "__main__":
     if sys.argv[1:] == ["reset"]:
         reset()
+    elif sys.argv[1:] == ["--images"]:
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], images_only=True)
     elif not sys.argv[1:]:
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12])
@@ -173,4 +178,4 @@ if __name__ == "__main__":
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], lifecycle_only=True)
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], applicability_only=True)
     else:
-        sys.exit("Usage: db_integration.py [reset]")
+        sys.exit("Usage: db_integration.py [reset|--images]")
