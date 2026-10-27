@@ -22,6 +22,7 @@ from app.core.staff_models import AuditEvent
 from app.modules.kb.dependencies import (
     ApplicabilityDependencies,
     DependencyProvider,
+    DiagnosticTreeDependencies,
     EquipmentManualDependencies,
 )
 from app.modules.kb.draft_service import DraftFile
@@ -106,6 +107,7 @@ class LifecycleService:
         dependencies: tuple[DependencyProvider, ...] = (
             EquipmentManualDependencies(),
             ApplicabilityDependencies(),
+            DiagnosticTreeDependencies(),
         ),
     ) -> None:
         session.refresh(actor.user)

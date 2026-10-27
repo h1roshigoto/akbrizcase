@@ -17,6 +17,8 @@ from app.modules.catalog.applicability_write import run_applicability
 from app.modules.kb.files import FilePipeline
 from app.modules.kb.import_service import run_preparation
 from app.modules.kb.lifecycle_service import Operation, run_lifecycle
+from app.modules.kb.tree_lifecycle import Operation as TreeOperation
+from app.modules.kb.tree_lifecycle import run_tree_lifecycle
 from app.modules.kb.tree_service import run_tree
 
 
@@ -37,6 +39,17 @@ def main(argv: list[str] | None = None) -> int:
     selector = tree_check.add_mutually_exclusive_group(required=True)
     selector.add_argument("--file", type=Path)
     selector.add_argument("--tree", type=UUID)
+    tree_operations: dict[str, TreeOperation] = {
+        "tree-" + name: name
+        for name in ("publish", "restore", "retire", "revoke", "preview")
+    }
+    for name, tree_action in tree_operations.items():
+        command = commands.add_parser(name)
+        command.add_argument("--tree", type=UUID, required=True)
+        if tree_action in {"publish", "restore"}:
+            command.add_argument("--file", type=Path, required=True)
+        if tree_action == "publish":
+            command.add_argument("--evidence", type=Path)
     operations: dict[str, Operation] = {
         "kb-" + name: name
         for name in ("review", "publish", "retire", "revoke", "visibility", "preview")
@@ -79,6 +92,27 @@ def main(argv: list[str] | None = None) -> int:
         if not database.ready():
             print("DATABASE_UNAVAILABLE", file=sys.stderr)
             return 1
+        if args.command in tree_operations:
+            with database.unit_of_work() as session:
+                tree_lifecycle_report = run_tree_lifecycle(
+                    session,
+                    login=login,
+                    password=password,
+                    operation=tree_operations[args.command],
+                    tree_id=args.tree,
+                    path=getattr(args, "file", None),
+                    evidence_path=getattr(args, "evidence", None),
+                )
+            print(
+                json.dumps(
+                    {
+                        "code": tree_lifecycle_report.code,
+                        **tree_lifecycle_report.technical,
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 0 if tree_lifecycle_report.ok else 1
         if args.command in {"tree-import", "tree-check"}:
             with database.unit_of_work() as session:
                 tree_report = run_tree(

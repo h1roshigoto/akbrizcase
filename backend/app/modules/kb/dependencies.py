@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.modules.catalog.applicability_mutations import invalidate_links
 from app.modules.catalog.models import CatalogItemModel, EquipmentModel
 from app.modules.kb.models import DocumentSection
+from app.modules.kb.tree_models import DiagnosticTreeSource
 
 
 @dataclass(frozen=True)
@@ -116,3 +117,38 @@ class ApplicabilityDependencies:
             actor_id,
             reason,
         )
+
+
+class DiagnosticTreeDependencies:
+    """Observe dependencies without taking tree rows or key locks.
+
+    Tree writers hold key -> documents -> ... -> tree rows. KB writers already
+    hold documents, so acquiring a tree key here would invert that order.
+    The read-time guard is authoritative, including for pinned retired trees;
+    source retirement must not destroy immutable tree approval or session pins.
+    """
+
+    def preview(
+        self, session: Session, document_id: UUID, version_ids: tuple[UUID, ...]
+    ) -> DependencyPreview:
+        ids = session.scalars(
+            select(DiagnosticTreeSource.tree_id)
+            .join(
+                DocumentSection, DocumentSection.id == DiagnosticTreeSource.section_id
+            )
+            .where(DocumentSection.document_version_id.in_(version_ids))
+            .distinct()
+            .order_by(DiagnosticTreeSource.tree_id)
+        )
+        return DependencyPreview("diag_tree_sources.section_id", tuple(ids))
+
+    def invalidate(
+        self,
+        session: Session,
+        version_ids: tuple[UUID, ...],
+        actor_id: UUID,
+        reason: str,
+    ) -> None:
+        # No writes to tree rows: availability changes in the same SQL snapshot
+        # as the document transition. Existing kb.* audits carry the actor.
+        pass
