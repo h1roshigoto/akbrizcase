@@ -194,6 +194,28 @@ def test_real_scanner_fault_process(
         pipeline.accept(io.BytesIO(b"synthetic"), filename="a.txt", mime="text/plain")
 
 
+def assert_terminated(children: list[int]) -> None:
+    # killpg returns after queuing SIGKILL, not after every descendant finishes
+    # exiting. Require observed disappearance/Z for EVERY PID within 0.5 s;
+    # merely having sent the signal is never accepted as termination evidence.
+    deadline = time.monotonic() + 0.5
+    pending = set(children)
+    observed: dict[int, list[str]] = {}
+    while pending:
+        for child in list(pending):
+            try:
+                fields = Path(f"/proc/{child}/stat").read_text().split()
+            except FileNotFoundError:
+                pending.remove(child)
+                continue
+            observed[child] = fields[2:6]  # state, ppid, pgrp, session
+            if fields[2] == "Z":
+                pending.remove(child)
+        if pending:
+            assert time.monotonic() < deadline, f"Live descendants: {observed}"
+            time.sleep(0.001)
+
+
 def test_process_tree_killed(tmp_path: Path) -> None:
     marker = tmp_path / "pid"
     script = (
@@ -203,12 +225,35 @@ def test_process_tree_killed(tmp_path: Path) -> None:
     with pytest.raises(FileRejected, match="PROCESS_TIMEOUT"):
         run_bounded([sys.executable, "-c", script], limits=Limits(seconds=2))
     child = int(marker.read_text())
-    # A killed orphan may briefly remain a zombie under a minimal container init.
-    status = Path(f"/proc/{child}/stat")
-    try:
-        assert status.read_text().split()[2] == "Z"
-    except FileNotFoundError:
-        pass
+    assert_terminated([child])
+
+
+def test_entire_process_group_with_grandchildren_killed(tmp_path: Path) -> None:
+    script = f"""
+import os,time,json
+from pathlib import Path
+root=Path({str(tmp_path)!r})
+for _ in range(2):
+    if os.fork() == 0:
+        os.fork()
+        pid=os.getpid()
+        (root/str(pid)).write_text(json.dumps([pid,os.getpgrp(),os.getsid(0)]))
+        time.sleep(60)
+        os._exit(0)
+(root/'group').write_text(str(os.getpgrp()))
+time.sleep(60)
+"""
+    with pytest.raises(FileRejected, match="PROCESS_TIMEOUT"):
+        run_bounded([sys.executable, "-c", script], limits=Limits(seconds=2))
+    group = int((tmp_path / "group").read_text())
+    descendants = [
+        json.loads(path.read_text())
+        for path in tmp_path.iterdir()
+        if path.name != "group"
+    ]
+    assert len(descendants) == 4  # two children, each with one grandchild
+    assert all(pgrp == group and sid == group for _, pgrp, sid in descendants)
+    assert_terminated([pid for pid, _, _ in descendants])
 
 
 def test_stream_failure_no_verified_result(pipeline: FilePipeline) -> None:

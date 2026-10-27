@@ -130,6 +130,10 @@ def main():
                 "/documents/quarantine/" + key,
                 "/documents/verified/" + key,
                 "/documents/receipts/" + key,
+                "/images",
+                "/images/quarantine/" + key + ".png",
+                "/images/verified/" + key + ".png",
+                "/images/receipts/" + key + ".png",
             ):
                 try:
                     opener.open(

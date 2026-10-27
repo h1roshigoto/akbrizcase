@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from synthetic_stack import SyntheticStack, isolated_environment
@@ -66,6 +67,8 @@ def run(
     clean_upgrade_only: bool = False,
     lifecycle_only: bool = False,
     applicability_only: bool = False,
+    images_only: bool = False,
+    reuse_image: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
@@ -105,7 +108,8 @@ def run(
         try:
             if not cleanup_only:
                 stack.claim()
-                compose("build", "tests")
+                if not reuse_image:
+                    compose("build", "tests")
                 compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres-test")
                 # Materialize the isolated file volume before the ownership
                 # guard verifies both persistent test volumes. No test runs yet.
@@ -129,7 +133,9 @@ def run(
                         "tests/integration/test_kb_clean_upgrade.py",
                     )
                 else:
-                    if lifecycle_only:
+                    if images_only:
+                        selection = ["tests/integration/test_catalog_image_binding.py"]
+                    elif lifecycle_only:
                         selection = ["tests/integration/test_kb_lifecycle.py"]
                     elif applicability_only:
                         selection = ["tests/integration/test_catalog_applicability.py"]
@@ -137,6 +143,7 @@ def run(
                         selection = [
                             "--ignore=tests/integration/test_kb_lifecycle.py",
                             "--ignore=tests/integration/test_catalog_applicability.py",
+                            "--ignore=tests/integration/test_catalog_image_binding.py",
                         ]
                     compose(
                         "run",
@@ -164,13 +171,34 @@ def run(
 if __name__ == "__main__":
     if sys.argv[1:] == ["reset"]:
         reset()
+    elif sys.argv[1:] == ["--images"]:
+        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], images_only=True)
     elif not sys.argv[1:]:
         run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], clean_upgrade_only=True)
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12])
-        # Lifecycle concurrency commits immutable editions with reviewer FKs.
-        # Retain these historical facts in a separate marked database: legacy
-        # staff fixtures must still test an actually empty bootstrap database.
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], lifecycle_only=True)
-        run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], applicability_only=True)
+        # Build the exact checkout once, then run image acceptance independently
+        # of the unchanged legacy sequence. Each stack has its own guarded DB
+        # and retained volumes; no global fixture/database is shared. Preserve
+        # the CI time budget without removing tests or raising any timeouts.
+        with ThreadPoolExecutor(max_workers=2) as checks:
+            images = checks.submit(
+                run,
+                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
+                images_only=True,
+                reuse_image=True,
+            )
+            run("akbrizcase-dbtest-" + uuid.uuid4().hex[:12], reuse_image=True)
+            # Lifecycle commits reviewer FKs. Keep its historical facts outside
+            # the legacy staff fixtures that require an empty bootstrap DB.
+            run(
+                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
+                lifecycle_only=True,
+                reuse_image=True,
+            )
+            run(
+                "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
+                applicability_only=True,
+                reuse_image=True,
+            )
+            images.result()
     else:
-        sys.exit("Usage: db_integration.py [reset]")
+        sys.exit("Usage: db_integration.py [reset|--images]")

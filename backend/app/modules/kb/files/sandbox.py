@@ -35,6 +35,8 @@ def run_parser(
 ) -> bytes:
     if task not in {
         "probe",
+        "image",
+        "image-check",
         "pdf",
         "pdf-info",
         "pdf-text",
