@@ -17,6 +17,7 @@ from app.modules.catalog.applicability_write import run_applicability
 from app.modules.kb.files import FilePipeline
 from app.modules.kb.import_service import run_preparation
 from app.modules.kb.lifecycle_service import Operation, run_lifecycle
+from app.modules.kb.tree_service import run_tree
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,6 +30,13 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--manifest", type=Path, required=True)
         if name == "kb-import":
             command.add_argument("--file", type=Path, required=True)
+    tree_import = commands.add_parser("tree-import")
+    tree_import.add_argument("--file", type=Path, required=True)
+    tree_import.add_argument("--git-commit", required=True)
+    tree_check = commands.add_parser("tree-check")
+    selector = tree_check.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--file", type=Path)
+    selector.add_argument("--tree", type=UUID)
     operations: dict[str, Operation] = {
         "kb-" + name: name
         for name in ("review", "publish", "retire", "revoke", "visibility", "preview")
@@ -71,6 +79,19 @@ def main(argv: list[str] | None = None) -> int:
         if not database.ready():
             print("DATABASE_UNAVAILABLE", file=sys.stderr)
             return 1
+        if args.command in {"tree-import", "tree-check"}:
+            with database.unit_of_work() as session:
+                tree_report = run_tree(
+                    session,
+                    login=login,
+                    password=password,
+                    operation="import" if args.command == "tree-import" else "check",
+                    path=getattr(args, "file", None),
+                    tree_id=getattr(args, "tree", None),
+                    git_commit=getattr(args, "git_commit", None),
+                )
+            print(json.dumps(tree_report.technical(), sort_keys=True))
+            return 0 if tree_report.ok else 1
         if args.command in applicability:
             with database.unit_of_work() as session:
                 applicability_report = run_applicability(

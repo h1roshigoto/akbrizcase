@@ -1,0 +1,11 @@
+# SYNTHETIC ONLY; placeholder UUIDs, no expert approval.
+key: SYNTHETIC-027-HANDOFF
+version: 1
+model_code: DEMO-MODEL-001
+title: SYNTHETIC ONLY - diagnostic format example
+start: specialist
+nodes:
+  specialist:
+    type: handoff
+    risk: expert_only
+    text: 'SYNTHETIC ONLY: contact a specialist. No manufacturer instructions.'
