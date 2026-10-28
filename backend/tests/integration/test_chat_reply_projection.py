@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import event, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -645,3 +646,17 @@ def test_new_tree_publication_during_projection_does_not_replace_pin(
     assert reply(read(one, own), "question") == first
     assert reply(post(one, own, request), "question") == first
     assert saved(message_db, own)[0].tree_id == pinned
+
+
+def test_exact_source_metadata_does_not_require_nonempty_excerpt(
+    message_db: Database,
+) -> None:
+    with message_db.unit_of_work() as session:
+        c = corpus(session)
+        source = edition(session, c.actor, content="")
+        reader = KnowledgeReadService(session, PUBLIC_VIEWER)
+        # Preserve the pre-existing SourceRef-only contract. An empty excerpt
+        # cannot become a knowledge quote, but does not erase valid metadata.
+        assert reader.get_source(source.section_id) == source
+        with pytest.raises(ValidationError):
+            reader.get_excerpt(source.section_id)
