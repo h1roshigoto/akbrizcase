@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db_types import Base, utc_now
+from app.modules.chat import models as chat_models  # noqa: F401 -- register FK target
 
 ORDER_STATUSES = "('new', 'in_progress', 'closed', 'cancelled')"
 order_number_sequence = Sequence(
@@ -55,8 +56,7 @@ class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
         CheckConstraint("kind IN ('commercial', 'support')", name="kind"),
-        # No chat table or ownership verification exists before MVP-029/036.
-        CheckConstraint("source = 'site'", name="source"),
+        CheckConstraint("source IN ('site', 'chat')", name="source"),
         CheckConstraint(f"status IN {ORDER_STATUSES}", name="status"),
         CheckConstraint("version > 0", name="version"),
         CheckConstraint(
@@ -103,6 +103,7 @@ class Order(Base):
             name="totals",
         ),
         Index("ix_orders_status_created_at", "status", text("created_at DESC")),
+        Index("ix_orders_chat_session_id", "chat_session_id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -120,6 +121,9 @@ class Order(Base):
     city: Mapped[str | None] = mapped_column(String(200))
     comment: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(16), server_default="site")
+    chat_session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("app.chat_sessions.id", ondelete="SET NULL")
+    )
     status: Mapped[str] = mapped_column(String(16), server_default="new")
     version: Mapped[int] = mapped_column(server_default=text("1"))
     consent_id: Mapped[UUID] = mapped_column(

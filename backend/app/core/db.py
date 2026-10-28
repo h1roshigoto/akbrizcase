@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.csrf import StaffSecurity
 from app.modules.orders.security import OrderSecurity
 
-SCHEMA_REVISION = "0006_mvp027_diagnostic_trees"
+SCHEMA_REVISION = "0007_mvp029_chat"
 
 
 class DatabaseConfigurationError(ValueError):
