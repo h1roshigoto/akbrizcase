@@ -116,6 +116,12 @@ class DiagnosisResult:
     code: StepCode = "ok"
 
 
+def _specialist_action() -> ContactSpecialistAction:
+    return ContactSpecialistAction(
+        type="contact_specialist", payload=SpecialistPayload(kind="support")
+    )
+
+
 def _handoff(state: DiagnosisState, code: StepCode = "ok") -> DiagnosisResult:
     return DiagnosisResult(
         replace(state, outcome="handoff"),
@@ -123,11 +129,7 @@ def _handoff(state: DiagnosisState, code: StepCode = "ok") -> DiagnosisResult:
             mode=state.mode,
             text=HANDOFF_TEXT,
             resolution="handoff",
-            actions=(
-                ContactSpecialistAction(
-                    type="contact_specialist", payload=SpecialistPayload(kind="support")
-                ),
-            ),
+            actions=(_specialist_action(),),
         ),
         code,
     )
@@ -198,6 +200,7 @@ def _current(
                 DiagnosisRecommendation(UUID(item.item_id), item.qty)
                 for item in node.recommendations
             ),
+            actions=(_specialist_action(),) if resolution == "completed" else (),
         ),
         code,
     )

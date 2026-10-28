@@ -516,3 +516,18 @@ def test_step_never_calls_io_or_tree_loader(
             ).reply.resolution
             == "handoff"
         )
+
+
+def test_text_after_completion_offers_specialist_without_changing_resolution(
+    tree: TreeSnapshot,
+) -> None:
+    started = step(DiagnosisState(), START, tree)
+    result = step(started.state, {"type": "button", "option_id": "a"}, tree)
+    completed = step(result.state, {"type": "feedback", "useful": True}, tree)
+    text = step(completed.state, {"type": "text", "value": "continue"}, tree)
+    assert text.state == completed.state
+    assert text.state.outcome == "resolved"
+    assert text.reply.resolution == "completed"
+    assert not text.reply.buttons
+    assert text.reply.actions[0].type == "contact_specialist"
+    assert text.reply.actions[0].payload.kind == "support"
