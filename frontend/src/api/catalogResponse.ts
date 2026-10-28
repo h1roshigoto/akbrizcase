@@ -1,4 +1,9 @@
-import type { CatalogItem, CatalogPage, EquipmentModelsPage } from './types'
+import type {
+  CatalogCard,
+  CatalogItem,
+  CatalogPage,
+  EquipmentModelsPage,
+} from './types'
 
 // Minimal wire checks at the HTTP boundary prevent malformed JSON from crashing
 // rendering. Backend schemas remain authoritative for all business constraints.
@@ -13,7 +18,7 @@ const uuid = (value: unknown) =>
 const strings = (row: RecordValue, keys: string[]) =>
   keys.every((key) => typeof row[key] === 'string')
 
-function card(value: unknown): boolean {
+export function isCatalogCard(value: unknown): value is CatalogCard {
   if (!record(value)) return false
   return (
     uuid(value.id) &&
@@ -46,14 +51,16 @@ function page(value: unknown): value is RecordValue & { items: unknown[] } {
 }
 
 export function isCatalogPage(value: unknown): value is CatalogPage {
-  return page(value) && value.items.every(card)
+  return page(value) && value.items.every(isCatalogCard)
 }
 
 export function isCatalogItem(value: unknown): value is CatalogItem {
   return (
     record(value) &&
-    card(value) &&
+    isCatalogCard(value) &&
+    'description' in value &&
     typeof value.description === 'string' &&
+    'attributes' in value &&
     record(value.attributes)
   )
 }

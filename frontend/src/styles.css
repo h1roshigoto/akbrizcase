@@ -1325,3 +1325,93 @@ h1 {
 .request-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .request-totals dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .request-action { width: 100%; margin-top: 20px; justify-content: center; }
+
+/* Chat shares the portal's existing controls, cards and typography. */
+.chat-page {
+  max-width: 1050px;
+}
+.chat-privacy {
+  border-left: 3px solid var(--accent, #1e6560);
+  padding: 12px 16px;
+  background: #f2f6f5;
+}
+.chat-panel,
+.chat-reply {
+  padding: 24px;
+  margin: 20px 0;
+  border: 1px solid #d9e1df;
+  border-radius: 12px;
+  background: white;
+}
+.chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-reply li,
+.chat-controls a {
+  overflow-wrap: anywhere;
+}
+.chat-reply.handoff {
+  border-left: 4px solid #a56a2b;
+}
+.chat-controls,
+.chat-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 16px 0;
+}
+.chat-modes {
+  border: 0;
+  padding: 0;
+}
+.chat-modes legend {
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+.chat-modes [aria-pressed='true'] {
+  background: #174d47;
+  color: white;
+}
+.chat-panel label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+.chat-panel select,
+.chat-panel textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #b5c5c1;
+  border-radius: 6px;
+  margin: 8px 0 16px;
+  background: white;
+  font: inherit;
+}
+.chat-panel textarea {
+  min-height: 95px;
+  resize: vertical;
+}
+.chat-reply .catalog-grid {
+  margin-top: 16px;
+}
+@media (max-width: 600px) {
+  .chat-panel,
+  .chat-reply {
+    padding: 16px;
+  }
+  .chat-modes {
+    align-items: stretch;
+  }
+  .chat-modes button {
+    flex: 1 1 100%;
+  }
+  .chat-controls button {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .site-header nav {
+    flex-wrap: wrap;
+  }
+}

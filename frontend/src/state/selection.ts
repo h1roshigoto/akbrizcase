@@ -70,6 +70,35 @@ export function useSelection() {
   return {
     items,
     storageFailed,
+    addSuggestions(suggestions: { card: CatalogCard; qty: number }[]) {
+      if (
+        suggestions.length < 1 ||
+        suggestions.length > 50 ||
+        suggestions.some(({ qty }) => !validQty(qty)) ||
+        new Set(suggestions.map(({ card }) => card.id)).size !==
+          suggestions.length ||
+        new Set([
+          ...items.map((i) => i.item_id),
+          ...suggestions.map((s) => s.card.id),
+        ]).size > 100
+      )
+        return false
+      setItems((current) => {
+        const additions = suggestions.filter(
+          (s) => !current.some((i) => i.item_id === s.card.id),
+        )
+        if (current.length + additions.length > 100) return current
+        return [
+          ...current,
+          ...additions.map(({ card, qty }) => ({
+            item_id: card.id,
+            qty,
+            revision: card.revision,
+          })),
+        ]
+      })
+      return true
+    },
     add(card: CatalogCard) {
       setItems((current) =>
         current.some((row) => row.item_id === card.id) || current.length >= 100

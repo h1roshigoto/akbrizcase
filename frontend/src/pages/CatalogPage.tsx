@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { CatalogSource } from '../api/catalog'
 import type { CatalogQuery, UUID } from '../api/types'
 import { useResource } from '../state/useResource'
@@ -11,18 +11,34 @@ import { ItemDetail } from './ItemDetail'
 import { RequestPage } from './RequestPage'
 import { httpOrders, type OrdersSource } from '../api/httpOrders'
 import { Submission } from '../state/submission'
+import { httpChat, type ChatSource } from '../api/httpChat'
+import { ChatController } from '../chat/controller'
+import { ChatPage } from '../chat/ChatPage'
 
 export function CatalogPage({
   source,
   orders = httpOrders,
+  chat = httpChat,
 }: {
   source: CatalogSource
   orders?: OrdersSource
+  chat?: ChatSource
 }) {
+  const [chatController] = useState(() => new ChatController(chat))
+  const [chatOpen, setChatOpen] = useState(
+    () => window.location.hash === '#chat',
+  )
+  useEffect(() => {
+    const change = () => setChatOpen(window.location.hash === '#chat')
+    window.addEventListener('hashchange', change)
+    return () => window.removeEventListener('hashchange', change)
+  }, [])
   const [submission] = useState(() => new Submission(orders))
   const [requestOpen, setRequestOpen] = useState(false)
   const [requestVisited, setRequestVisited] = useState(false)
   const openRequest = () => {
+    setChatOpen(false)
+    window.location.hash = 'request'
     setRequestVisited(true)
     setRequestOpen(true)
   }
@@ -76,6 +92,7 @@ export function CatalogPage({
             className="brand"
             href="#catalog"
             onClick={() => {
+              setChatOpen(false)
               setActiveId(null)
               setRequestOpen(false)
             }}
@@ -89,17 +106,34 @@ export function CatalogPage({
           </a>
           <nav aria-label="Основная навигация">
             <a
-              className="nav-active"
+              className={!chatOpen ? 'nav-active' : undefined}
               href="#catalog"
               onClick={() => {
+                setChatOpen(false)
                 setActiveId(null)
                 setRequestOpen(false)
               }}
             >
               Каталог
             </a>
-            <a href="#selection" onClick={() => setRequestOpen(false)}>
+            <a
+              href="#selection"
+              onClick={() => {
+                setChatOpen(false)
+                setRequestOpen(false)
+              }}
+            >
               Выбранное <span>{selection.items.length}</span>
+            </a>
+            <a
+              href="#chat"
+              className={chatOpen ? 'nav-active' : undefined}
+              onClick={() => {
+                setRequestOpen(false)
+                setChatOpen(true)
+              }}
+            >
+              Помощник
             </a>
           </nav>
           <span className="header-note">Для вашего оборудования</span>
@@ -114,7 +148,25 @@ export function CatalogPage({
           </p>
         </div>
       )}
-      <main className="page-shell" hidden={requestOpen}>
+      {chatOpen && (
+        <ChatPage
+          controller={chatController}
+          catalog={source}
+          selection={selection}
+          onBack={() => {
+            setChatOpen(false)
+            window.location.hash = 'catalog'
+          }}
+          onItem={(id) => {
+            setChatOpen(false)
+            setRequestOpen(false)
+            window.location.hash = 'catalog'
+            openItem(id)
+          }}
+          onRequest={openRequest}
+        />
+      )}
+      <main className="page-shell" hidden={requestOpen || chatOpen}>
         <div className="breadcrumb">
           Главная <span>/</span> Каталог
         </div>
@@ -340,7 +392,7 @@ export function CatalogPage({
         </div>
       </main>
       {requestVisited && (
-        <div hidden={!requestOpen}>
+        <div hidden={!requestOpen || chatOpen}>
           <RequestPage
             source={source}
             orders={orders}
