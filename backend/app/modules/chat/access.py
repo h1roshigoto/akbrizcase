@@ -24,15 +24,25 @@ def owner_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("ascii")).hexdigest()
 
 
-def require_owner(session: Session, identifier: UUID, token: str | None) -> ChatSession:
+def require_owner(
+    session: Session, identifier: UUID, token: str | None, *, exclusive: bool = False
+) -> ChatSession:
     if token is None or re.fullmatch(r"[0-9a-f]{64}", token) is None:
         raise ChatNotFound
+    if exclusive:
+        # Authenticate without a row lock first. Never upgrade a GET's SHARE
+        # lock: two writers doing so could deadlock. Recheck below after waiting.
+        digest = session.scalar(
+            select(ChatSession.owner_token_hash).where(ChatSession.id == identifier)
+        )
+        if not hmac.compare_digest(owner_token_hash(token), digest or "0" * 64):
+            raise ChatNotFound
     # Shared lock gives GET a consistent state/history while future writers hold
     # their exclusive session lock. Refresh even if this Session was used before.
     row = session.scalar(
         select(ChatSession)
         .where(ChatSession.id == identifier)
-        .with_for_update(read=True)
+        .with_for_update(read=not exclusive)
         .execution_options(populate_existing=True)
     )
     matches = hmac.compare_digest(
