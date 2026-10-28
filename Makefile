@@ -139,3 +139,7 @@ notification-retry-browser-smoke: acceptance-guards
 .PHONY: files-smoke
 files-smoke: acceptance-guards
 	python3 scripts/files_smoke.py
+
+.PHONY: chat-browser-smoke
+chat-browser-smoke: acceptance-guards
+	python3 scripts/chat_browser_smoke.py
