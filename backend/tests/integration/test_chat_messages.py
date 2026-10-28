@@ -22,13 +22,13 @@ from sqlalchemy.orm import Session
 from test_catalog_applicability import Corpus, corpus, wait_for_lock
 from test_chat_sessions import ORIGIN, create
 from test_diagnostic_trees import invoke, payload, write
+from test_kb_import import PASSWORD, admin
 from test_tree_lifecycle import prepared, run
 
 from app.core.api_errors import install_api_errors
 from app.core.csrf import SESSION_COOKIE, StaffSecurity
 from app.core.db import Database, database_lifespan
 from app.core.db_types import utc_now
-from app.core.staff import bootstrap_admin
 from app.main import app
 from app.modules.chat.access import owner_token_hash
 from app.modules.chat.message_request import request_hash
@@ -353,18 +353,18 @@ def test_ownership_admin_cookie_and_request_scope(
         ),
     ):
         error(two.post(URL, json=request_body, headers=headers), 404, "NOT_FOUND")
-    password = "synthetic033-admin-password"
     with message_db.unit_of_work() as session:
-        assert bootstrap_admin(
-            session, login="synthetic033-admin", password=password
-        ).ok
+        # Published scenarios retain their expert/admin identities. Bootstrap
+        # must remain closed once any admin exists; use the shared synthetic
+        # staff factory, then authenticate through the real HTTP login below.
+        login = admin(session).login
     csrf = two.get("/admin/auth/csrf").json()["csrf_token"]
     assert (
         two.post(
             "/admin/auth/login",
             json={
-                "login": "synthetic033-admin",
-                "password": password,
+                "login": login,
+                "password": PASSWORD,
             },
             headers={"Origin": ORIGIN, "X-CSRF-Token": csrf},
         ).status_code
