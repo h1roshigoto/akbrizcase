@@ -1,6 +1,7 @@
 """MVP-030 public ownership and fail-closed history on real PostgreSQL 16."""
 
 import json
+import logging
 import secrets
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -394,6 +395,7 @@ def test_failure_rolls_back_and_does_not_disclose_token(
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    caplog.set_level(logging.DEBUG)
     issued = secrets.token_hex(32)
     monkeypatch.setattr(
         "app.modules.chat.service.secrets.token_hex", lambda count: issued
@@ -428,6 +430,7 @@ def test_token_absent_from_storage_logs_and_history(
     caplog: pytest.LogCaptureFixture,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    caplog.set_level(logging.DEBUG)
     one, two = browsers
     body = create(one)
     response = read(one, body)
