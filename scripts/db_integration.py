@@ -36,6 +36,7 @@ SUITES = {
     "chat": [
         "tests/integration/test_chat_schema.py",
         "tests/integration/test_chat_sessions.py",
+        "tests/integration/test_chat_modes.py",
     ],
 }
 # Preserve the legacy selection, including its existing clean-upgrade skip.
