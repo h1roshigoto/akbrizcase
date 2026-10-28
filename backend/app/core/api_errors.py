@@ -56,6 +56,7 @@ def install_api_errors(app: FastAPI) -> None:
             return error_response(request, error.status_code, code, "Request failed")
         code, message = {
             404: ("NOT_FOUND", "Object not found"),
+            410: ("SESSION_EXPIRED", "Session expired"),
             503: ("SERVICE_UNAVAILABLE", "Service temporarily unavailable"),
         }.get(error.status_code, ("HTTP_ERROR", "Request could not be completed"))
         return error_response(request, error.status_code, code, message)

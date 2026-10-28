@@ -25,6 +25,7 @@ from app.schemas.chat import (
     ChatMessageResult,
     ChatSessionCreate,
     ChatSessionCreated,
+    ChatSessionRead,
 )
 from app.schemas.common import MONEY_PATTERN, ChatHeaders, ErrorEnvelope, OrderHeaders
 from app.schemas.consent import ConsentText
@@ -48,6 +49,7 @@ MODELS: tuple[type[BaseModel], ...] = (
     ChatHeaders,
     ChatSessionCreate,
     ChatSessionCreated,
+    ChatSessionRead,
     ChatMessageCreate,
     ChatMessageResult,
     OrderStatusChange,

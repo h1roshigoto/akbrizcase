@@ -169,3 +169,25 @@ class ChatMessageResult(DTO):
     message_id: UUIDValue
     state_version: PositiveInt
     reply: ChatReply
+
+
+class ChatExchangeRead(DTO):
+    """Public exchange metadata and a projected reply, never the stored JSON."""
+
+    message_id: UUIDValue
+    state_version: PositiveInt
+    created_at: UTCDateTime
+    reply: ChatReply
+
+
+class ChatSessionRead(DTO):
+    session_id: UUIDValue
+    mode: ChatMode
+    state_version: Version
+    outcome: Literal["resolved", "handoff", "unresolved"] | None
+    created_at: UTCDateTime
+    last_activity_at: UTCDateTime
+    expires_at: UTCDateTime
+    reply: ChatReply
+    messages: Annotated[list[ChatExchangeRead], Field(max_length=50)]
+    next_before: UUIDValue | None

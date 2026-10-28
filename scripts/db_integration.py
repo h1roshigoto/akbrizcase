@@ -33,7 +33,10 @@ SUITES = {
         "tests/integration/test_diagnostic_trees.py",
         "tests/integration/test_tree_lifecycle.py",
     ],
-    "chat": ["tests/integration/test_chat_schema.py"],
+    "chat": [
+        "tests/integration/test_chat_schema.py",
+        "tests/integration/test_chat_sessions.py",
+    ],
 }
 # Preserve the legacy selection, including its existing clean-upgrade skip.
 # The same clean-upgrade test actually executes in its dedicated fresh DB.
