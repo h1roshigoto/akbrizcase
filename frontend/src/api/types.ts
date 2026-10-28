@@ -116,6 +116,16 @@ export type ChatReply = {
   "resolution": "question" | "results" | "no_match" | "handoff" | "completed"
 }
 
+export type ChatScenario = {
+  "key": string
+  "title": string
+  "model_id": UUID
+}
+
+export type ChatScenarios = {
+  "items": Array<ChatScenario>
+}
+
 export type ChatSessionCreate = {
   "mode": "diagnose" | "knowledge" | "commerce"
 }

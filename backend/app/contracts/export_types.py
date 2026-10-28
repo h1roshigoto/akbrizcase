@@ -23,6 +23,7 @@ from app.schemas.catalog import (
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageResult,
+    ChatScenarios,
     ChatSessionCreate,
     ChatSessionCreated,
     ChatSessionRead,
@@ -52,6 +53,7 @@ MODELS: tuple[type[BaseModel], ...] = (
     ChatSessionRead,
     ChatMessageCreate,
     ChatMessageResult,
+    ChatScenarios,
     OrderStatusChange,
     OrderStatusResult,
     KnowledgeQuery,

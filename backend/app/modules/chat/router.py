@@ -18,9 +18,12 @@ from app.modules.chat.messages import (
 )
 from app.modules.chat.projection import begin_projection_read
 from app.modules.chat.service import create_session, read_session
+from app.modules.kb.tree_reads import published_scenarios
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageResult,
+    ChatScenario,
+    ChatScenarios,
     ChatSessionCreate,
     ChatSessionCreated,
     ChatSessionRead,
@@ -45,6 +48,21 @@ def database_for(request: Request) -> Database:
     if database is None:
         raise HTTPException(503)
     return database
+
+
+@router.get("/scenarios", response_model=ChatScenarios)
+def scenarios(request: Request, model_id: UUIDValue) -> ChatScenarios:
+    with database_for(request).unit_of_work() as session:
+        begin_projection_read(session)
+        result = ChatScenarios(
+            items=[
+                ChatScenario(
+                    key=choice.key, title=choice.title, model_id=choice.model_id
+                )
+                for choice in published_scenarios(session, model_id)
+            ]
+        )
+    return result
 
 
 @router.post("/sessions", status_code=201, response_model=ChatSessionCreated)

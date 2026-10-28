@@ -24,6 +24,16 @@ ChatMode = Literal["diagnose", "knowledge", "commerce"]
 Resolution = Literal["question", "results", "no_match", "handoff", "completed"]
 
 
+class ChatScenario(DTO):
+    key: Code
+    title: Text200
+    model_id: UUIDValue
+
+
+class ChatScenarios(DTO):
+    items: Annotated[list[ChatScenario], Field(max_length=10)]
+
+
 class TextInput(DTO):
     type: Literal["text"]
     value: Annotated[str, StringConstraints(min_length=1, max_length=1000)]
