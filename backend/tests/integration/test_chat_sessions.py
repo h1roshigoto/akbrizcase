@@ -105,7 +105,13 @@ def test_create_hash_once_and_read_without_sliding(
         assert result.mode == mode and result.state_version == 0
         assert result.messages == [] and result.next_before is None
         assert result.reply == ChatSessionCreated.model_validate(body).reply
-        assert result.reply.resolution == "handoff"
+        assert result.reply.resolution == "no_match"
+        assert {b.input.type for b in result.reply.buttons} == {"select_mode"}
+        assert {b.input.mode for b in result.reply.buttons} == {  # type: ignore[union-attr]
+            "diagnose",
+            "knowledge",
+            "commerce",
+        }
         assert response.headers["cache-control"] == "no-store"
         assert body["session_token"] not in response.text + str(response.headers)
         assert "owner_token_hash" not in response.text
@@ -261,10 +267,13 @@ def test_pagination_and_safe_projection(
             "archived",
             "request_hash",
             "latency_ms",
-            "input",
             "response",
         ):
             assert private not in response.text
+        # Public buttons have a server-generated input. Raw stored message input
+        # must remain absent from the session and exchange objects themselves.
+        assert "input" not in response.json()
+        assert all("input" not in m for m in response.json()["messages"])
         if result.next_before is None:
             break
         assert len(result.messages) == 50

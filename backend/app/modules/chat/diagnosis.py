@@ -206,6 +206,11 @@ def _current(
     )
 
 
+def current_reply(state: DiagnosisState, tree: TreeSnapshot | None) -> DiagnosisReply:
+    """Render a pinned node without applying input or changing persisted state."""
+    return _current(state, tree).reply
+
+
 def step(
     state: DiagnosisState,
     input: ChatInput | Mapping[str, object],

@@ -11,7 +11,12 @@ from app.core.db import Database
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.chat.message_request import parse_message_json
 from app.modules.chat.message_state import StoredStateUnavailable
-from app.modules.chat.messages import MessageConflict, create_message
+from app.modules.chat.messages import (
+    MessageConflict,
+    create_message,
+    read_message_result,
+)
+from app.modules.chat.projection import begin_projection_read
 from app.modules.chat.service import create_session, read_session
 from app.schemas.chat import (
     ChatMessageCreate,
@@ -61,6 +66,7 @@ def read(
     token = chat_token if len(request.headers.getlist("X-Chat-Token")) == 1 else None
     try:
         with database_for(request).unit_of_work() as session:
+            begin_projection_read(session)
             return read_session(session, identifier, token, before)
     except ChatNotFound:
         raise HTTPException(404) from None
@@ -72,9 +78,13 @@ def persist_message(
     request: Request, body: ChatMessageCreate, token: str | None
 ) -> ChatMessageResult:
     with database_for(request).unit_of_work() as session:
-        result = create_message(session, body, token)
+        message_id = create_message(session, body, token)
     # A failed flush/COMMIT must never emit an HTTP success.
-    return result
+    # Fresh snapshot after COMMIT: dependency validation in the writer's UoW
+    # does not authorize disclosure. Never reroute or apply an input here.
+    with database_for(request).unit_of_work() as session:
+        begin_projection_read(session)
+        return read_message_result(session, body.session_id, message_id, token)
 
 
 @router.post(
