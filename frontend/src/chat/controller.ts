@@ -338,7 +338,11 @@ export class ChatController {
         this.set({ reply: null, messages: [], ready: false })
         await this.read()
       }
-      if (input.type === 'select_mode' && result.reply.mode === input.mode)
+      if (
+        input.type === 'select_mode' &&
+        result.state_version === this.state.version &&
+        this.state.reply?.mode === input.mode
+      )
         this.set({
           notice:
             previousMode !== result.reply.mode

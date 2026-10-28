@@ -350,3 +350,18 @@ it('refreshes already visible pages before appending history after source revoca
     false,
   )
 })
+
+it('does not announce a historical mode change after replay restores a newer mode', async () => {
+  const api = transport()
+  const controller = new ChatController(api)
+  await controller.open()
+  api.send.mockRejectedValueOnce(new ChatError(503, 'SERVICE_UNAVAILABLE'))
+  await controller.send({ type: 'select_mode', mode: 'knowledge' })
+  api.read.mockResolvedValue(page(5, reply('commerce')))
+  await controller.refresh()
+  api.send.mockResolvedValue(result(1, reply('knowledge')))
+  await controller.retry()
+  expect(controller.snapshot().version).toBe(5)
+  expect(controller.snapshot().reply?.mode).toBe('commerce')
+  expect(controller.snapshot().notice).not.toMatch(/Режим переключён|прогресс сброшен/)
+})
