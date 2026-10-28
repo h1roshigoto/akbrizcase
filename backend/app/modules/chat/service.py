@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.db_types import utc_now
 from app.modules.chat.access import ChatNotFound, owner_token_hash, require_owner
 from app.modules.chat.models import ChatMessage, ChatSession
-from app.modules.chat.projection import safe_reply
+from app.modules.chat.projection import ChatReplyProjector, initial_reply, safe_reply
 from app.schemas.chat import (
     ChatExchangeRead,
     ChatMode,
@@ -38,7 +38,7 @@ def create_session(session: Session, body: ChatSessionCreate) -> ChatSessionCrea
         session_token=token,
         state_version=0,
         expires_at=row.expires_at,
-        reply=safe_reply(body.mode),
+        reply=initial_reply(body.mode),
     )
 
 
@@ -47,10 +47,9 @@ def read_session(
 ) -> ChatSessionRead:
     row = require_owner(session, identifier, token)
     mode = cast(ChatMode, row.mode)
-    # Deliberately select metadata only: raw JSON never crosses the read boundary.
-    query = select(
-        ChatMessage.id, ChatMessage.created_at, ChatMessage.state_version_after
-    ).where(ChatMessage.session_id == row.id)
+    projector = ChatReplyProjector(session)
+    # Raw JSON is consumed only by the shared fail-closed projector.
+    query = select(ChatMessage).where(ChatMessage.session_id == row.id)
     if before is not None:
         cursor = session.execute(
             select(ChatMessage.created_at, ChatMessage.id).where(
@@ -63,10 +62,16 @@ def read_session(
             tuple_(ChatMessage.created_at, ChatMessage.id)
             < tuple_(cursor.created_at, cursor.id)
         )
-    records = session.execute(
+    records = session.scalars(
         query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(51)
     ).all()
     page = records[:50]
+    latest = session.scalar(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == row.id)
+        .order_by(ChatMessage.state_version_after.desc())
+        .limit(1)
+    )
     return ChatSessionRead(
         session_id=row.id,
         mode=mode,
@@ -75,13 +80,19 @@ def read_session(
         created_at=row.created_at,
         last_activity_at=row.last_activity_at,
         expires_at=row.expires_at,
-        reply=safe_reply(mode),
+        reply=(
+            projector.message(latest, mode, current=row)
+            if latest is not None and latest.state_version_after == row.state_version
+            else initial_reply(mode)
+            if row.state_version == 0
+            else safe_reply(mode)
+        ),
         messages=[
             ChatExchangeRead(
                 message_id=record.id,
                 state_version=record.state_version_after,
                 created_at=record.created_at,
-                reply=safe_reply(mode),
+                reply=projector.message(record, mode, current=row),
             )
             for record in reversed(page)
         ],

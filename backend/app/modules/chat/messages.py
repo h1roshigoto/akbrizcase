@@ -3,23 +3,24 @@
 import hmac
 from dataclasses import asdict
 from time import monotonic_ns
+from typing import cast
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db_types import utc_now
-from app.modules.chat.access import ChatExpired, require_owner
+from app.modules.chat.access import ChatExpired, ChatNotFound, require_owner
 from app.modules.chat.message_request import minimized_input, request_hash
 from app.modules.chat.message_state import (
     ResponseEnvelope,
     StateAfter,
-    decode_response,
     restore_state,
 )
 from app.modules.chat.mode_router import ModeRouter
 from app.modules.chat.models import ChatMessage
-from app.modules.chat.projection import safe_reply
-from app.schemas.chat import ChatMessageCreate, ChatMessageResult
+from app.modules.chat.projection import ChatReplyProjector
+from app.schemas.chat import ChatMessageCreate, ChatMessageResult, ChatMode
 
 
 class MessageConflict(Exception):
@@ -27,21 +28,29 @@ class MessageConflict(Exception):
         self.code = code
 
 
-def public_result(
-    message: ChatMessage, envelope: ResponseEnvelope
+def read_message_result(
+    session: Session, session_id: UUID, message_id: UUID, token: str | None
 ) -> ChatMessageResult:
-    # Single temporary new/replay boundary, shared with GET's safe_reply. The
-    # structured logical reply must stay private until the MVP-034 projector.
+    row = require_owner(session, session_id, token)
+    message = session.scalar(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == row.id, ChatMessage.id == message_id)
+        .execution_options(populate_existing=True)
+    )
+    if message is None:
+        raise ChatNotFound
     return ChatMessageResult(
         message_id=message.id,
         state_version=message.state_version_after,
-        reply=safe_reply(envelope.state_after.mode),
+        reply=ChatReplyProjector(session).message(
+            message, cast(ChatMode, row.mode), current=row
+        ),
     )
 
 
 def create_message(
     session: Session, body: ChatMessageCreate, token: str | None
-) -> ChatMessageResult:
+) -> UUID:
     started = monotonic_ns()
     row = require_owner(session, body.session_id, token, exclusive=True)
     digest = request_hash(body)
@@ -53,7 +62,7 @@ def create_message(
     if previous is not None:
         if not hmac.compare_digest(previous.request_hash, digest):
             raise MessageConflict("IDEMPOTENCY_CONFLICT")
-        return public_result(previous, decode_response(previous))
+        return previous.id
     if body.expected_version != row.state_version:
         raise MessageConflict("STATE_CONFLICT")
 
@@ -95,4 +104,4 @@ def create_message(
     row.last_activity_at = max(row.last_activity_at, now)
     session.add(message)
     session.flush()
-    return public_result(message, envelope)
+    return message.id

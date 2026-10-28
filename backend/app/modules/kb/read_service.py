@@ -170,6 +170,13 @@ class KnowledgeReadService:
         )
 
     def get_source(self, section_id: UUID) -> SourceRef:
+        return self.get_excerpt(section_id).source
+
+    def get_excerpt(self, section_id: UUID) -> KnowledgeHit:
+        """Exact approved edition with current ACL, metadata and verbatim text.
+
+        This is not a search; retired editions retain the exact-read contract.
+        """
         row = self.session.execute(
             select(Document, DocumentVersion, DocumentSection)
             .select_from(DocumentSection)
@@ -187,7 +194,9 @@ class KnowledgeReadService:
         ).one_or_none()
         if row is None:
             raise SourceNotFound
-        return source_ref(*row)
+        return KnowledgeHit(
+            source=source_ref(*row), excerpt=row[2].text[:EXCERPT_CHARACTERS]
+        )
 
     def exact_version(self, document_id: UUID, version_id: UUID) -> DocumentVersion:
         row = self.session.scalar(

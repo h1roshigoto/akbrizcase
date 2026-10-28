@@ -88,10 +88,15 @@ def success(response: Any, version: int) -> dict[str, Any]:
     assert response.status_code == 200, response.text
     result = ChatMessageResult.model_validate(response.json())
     assert result.state_version == version
-    assert result.reply.resolution == "handoff"
-    assert (
-        not result.reply.sources and not result.reply.items and not result.reply.buttons
-    )
+    # MVP-034 exposes the projected logical reply, replacing MVP-033's stub.
+    for private in ("format_version", "state_after", "transitions", "request_hash"):
+        assert private not in response.text
+    assert {a.type for a in result.reply.actions} <= {
+        "open_item",
+        "open_document",
+        "open_request_form",
+        "contact_specialist",
+    }
     assert set(response.json()) == {"message_id", "state_version", "reply"}
     assert response.headers["cache-control"] == "no-store"
     assert UUID(response.headers["x-request-id"]).version == 4
@@ -684,7 +689,13 @@ def test_revocation_stops_technical_transition_and_hides_old_reply(
                 .where(Document.id == c.document)
                 .values(visibility="internal")
             )
-    assert success(post(browsers[0], own, request), 1) == original
+    assert original["reply"]["resolution"] == "question"
+    replay = success(post(browsers[0], own, request), 1)
+    assert replay["message_id"] == original["message_id"]
+    assert replay["reply"]["resolution"] == "handoff"
+    assert replay["reply"]["sources"] == []
+    assert replay["reply"]["items"] == []
+    assert replay["reply"]["buttons"] == []
     success(post(browsers[0], own, body(own, 1, type="button", option_id="a")), 2)
     row, records = saved(message_db, own)
     assert row.outcome == "handoff" and row.current_node_key == "observe"
