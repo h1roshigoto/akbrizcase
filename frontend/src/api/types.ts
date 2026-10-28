@@ -82,6 +82,13 @@ export type ChatButton = {
   "input": (TextInput | SelectModeInput | StartDiagnosisInput | ButtonInput | FeedbackInput)
 }
 
+export type ChatExchangeRead = {
+  "message_id": UUID
+  "state_version": number
+  "created_at": UTCDateTime
+  "reply": ChatReply
+}
+
 export type ChatHeaders = {
   "X-Chat-Token": SecretToken
 }
@@ -119,6 +126,19 @@ export type ChatSessionCreated = {
   "state_version": 0
   "expires_at": UTCDateTime
   "reply": ChatReply
+}
+
+export type ChatSessionRead = {
+  "session_id": UUID
+  "mode": "diagnose" | "knowledge" | "commerce"
+  "state_version": number
+  "outcome": ("resolved" | "handoff" | "unresolved" | null)
+  "created_at": UTCDateTime
+  "last_activity_at": UTCDateTime
+  "expires_at": UTCDateTime
+  "reply": ChatReply
+  "messages": Array<ChatExchangeRead>
+  "next_before": (UUID | null)
 }
 
 export type CommercialFormPayload = {
