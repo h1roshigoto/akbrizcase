@@ -34,6 +34,38 @@ class TreeSnapshot:
     content: TreeInput
 
 
+@dataclass(frozen=True)
+class ScenarioChoice:
+    key: str
+    title: str
+    model_id: UUID
+
+
+def published_scenarios(session: Session, model_id: UUID) -> list[ScenarioChoice]:
+    """Small server menu, checked by the same public loader as a new start.
+
+    Never use a draft title or expose a graph through this adapter. Limit only
+    after authorization, so hidden candidates cannot suppress public choices.
+    A subsequent start must load the published key again, not trust this menu.
+    """
+    keys = session.scalars(
+        select(DiagnosticTree.key)
+        .where(
+            DiagnosticTree.model_id == model_id,
+            DiagnosticTree.status == "published",
+        )
+        .order_by(DiagnosticTree.key)
+    ).all()
+    choices = []
+    for key in keys:
+        snapshot = load_tree(session, key=key)
+        if snapshot is not None and snapshot.model_id == model_id:
+            choices.append(ScenarioChoice(key, snapshot.content.title, model_id))
+            if len(choices) == 10:
+                break
+    return choices
+
+
 def load_tree(
     session: Session, *, key: str | None = None, tree_id: UUID | None = None
 ) -> TreeSnapshot | None:
