@@ -83,6 +83,9 @@ def privacy_db(
             session.execute(delete(ChatSession))
             session.execute(delete(Consent))
             session.execute(update(ConsentText).values(retired_at=utc_now()))
+            # Restore fixture isolation for the subsequent MVP-036 demo setup,
+            # which seeds its own sole publication. This is never runtime DML.
+            session.execute(text("TRUNCATE app.consent_publications"))
 
 
 @pytest.fixture
