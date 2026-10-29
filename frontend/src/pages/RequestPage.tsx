@@ -120,6 +120,10 @@ export function RequestPage({
   onBack,
   support,
   onChat,
+  onNew,
+  independentRequested = false,
+  onIndependent,
+  onKeepChat,
 }: {
   source: CatalogSource
   orders: OrdersSource
@@ -129,6 +133,10 @@ export function RequestPage({
   onBack: () => void
   support?: SupportContext
   onChat?: () => void
+  onNew?: () => void
+  independentRequested?: boolean
+  onIndependent?: () => void
+  onKeepChat?: () => void
 }) {
   const state = useSyncExternalStore(submission.subscribe, submission.snapshot)
   const anchor = useRef<HTMLElement>(null)
@@ -150,7 +158,6 @@ export function RequestPage({
   const [touched, setTouched] = useState(false)
   useEffect(() => {
     if (active) anchor.current?.focus()
-    if (state.kind === 'success') setValues(emptyForm)
   }, [active, state.kind === 'success'])
   const idsKey = selection.items.map((row) => row.item_id).join(',')
   const load = useCallback(
@@ -231,6 +238,7 @@ export function RequestPage({
     selection.items.every((row) => validQty(row.qty))
   const ready =
     editing &&
+    !(independentRequested && owner) &&
     source.mode === 'api' &&
     (isSupport || validSelection) &&
     details.status === 'success' &&
@@ -292,7 +300,20 @@ export function RequestPage({
   if (state.kind === 'success')
     return (
       <main className="page-shell request-shell" ref={anchor} tabIndex={-1}>
-        <Receipt receipt={state.receipt} />
+        {submission.succeededFor(isSupport ? 'support' : 'commercial') ? (
+          <Receipt receipt={state.receipt} />
+        ) : (
+          <p role="status">
+            Предыдущая заявка успешно сохранена. Новая заявка ещё не создана.
+          </p>
+        )}
+        {onNew && (
+          <button className="primary-button" onClick={onNew}>
+            {isSupport
+              ? 'Начать новое независимое обращение с сайта'
+              : 'Начать новую коммерческую заявку'}
+          </button>
+        )}
         <button className="secondary-button" onClick={onBack}>
           Вернуться в каталог
         </button>
@@ -334,6 +355,21 @@ export function RequestPage({
             Проверьте позиции и предварительные цены. Выбранное сохраняется при
             возвращении в каталог.
           </p>
+        )}
+        {isSupport && independentRequested && owner && (
+          <section aria-label="Новое независимое обращение">
+            <p>
+              Сейчас открыт черновик из чата. Для независимого обращения
+              подтвердите отделение от чата. Введённые текст и контакты
+              сохранятся; согласие и отправку потребуется подтвердить заново.
+            </p>
+            <button type="button" disabled={!editing} onClick={onIndependent}>
+              Продолжить независимо от чата
+            </button>
+            <button type="button" onClick={onKeepChat}>
+              Вернуться к черновику чата
+            </button>
+          </section>
         )}
         {state.kind === 'recovered' && (
           <p role="alert" className="inline-error">
@@ -380,6 +416,7 @@ export function RequestPage({
                 onClick={() => {
                   if (submission.review(true)) {
                     setSiteFallback(true)
+                    onIndependent?.()
                     refresh()
                   }
                 }}

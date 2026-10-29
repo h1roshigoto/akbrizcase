@@ -22,6 +22,7 @@ export type SubmissionState =
 /** Lives above the catalog/form view switch. No POST from effects or mount. */
 export class Submission {
   private state: SubmissionState
+  private submittedKind: OrderCreate['kind'] | null = null
   private pending: {
     body: string
     headers: OrderHeaders
@@ -49,10 +50,28 @@ export class Submission {
     this.state = state
     this.listeners.forEach((listener) => listener())
   }
+  succeededFor(kind: OrderCreate['kind']) {
+    return this.state.kind === 'success' && this.submittedKind === kind
+  }
+  /** Explicit user action only. Unknown outcomes can never release this gate. */
+  beginNew() {
+    if (this.state.kind !== 'success') return false
+    try {
+      sessionStorage.removeItem(PENDING_KEY)
+    } catch {
+      this.set({ kind: 'storage_error' })
+      return false
+    }
+    this.pending = null
+    this.submittedKind = null
+    this.set({ kind: 'editing' })
+    return true
+  }
   async confirm(body: OrderCreate, chat?: ChatHeaders) {
     if (this.state.kind !== 'editing') return
     // Lock synchronously before generation/storage/fetch, including rapid clicks.
     this.set({ kind: 'sending' })
+    this.submittedKind = body.kind
     try {
       if (body.source === 'chat' && !chat) throw new Error('Missing owner')
       const pending = {

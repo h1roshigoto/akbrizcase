@@ -72,7 +72,7 @@ def run_browser(environment, config, compose, stack):
         diagnostic = process.stderr.read()
         if code or proof is None:
             raise RuntimeError("Support browser failed: " + diagnostic)
-        assert stack.sql("SELECT count(*) FROM app.orders") == "3"
+        assert stack.sql("SELECT count(*) FROM app.orders") == "5"
         return subprocess.CompletedProcess(
             process.args, code, json.dumps(proof), diagnostic
         )

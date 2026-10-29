@@ -298,7 +298,7 @@ d.close()
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
             expected = (
-                3
+                5
                 if support_handoff
                 else (1 if request_form or catalog_admin or notification_retry else 2)
             )
@@ -325,7 +325,7 @@ d.close()
                 str(expected),
                 str(3 if status_changes else expected),
                 "sent" if notification_retry else "pending",
-                "0" if support_handoff else "2",
+                "1" if support_handoff else "2",
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(
