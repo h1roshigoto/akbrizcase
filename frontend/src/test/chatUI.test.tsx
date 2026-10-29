@@ -10,7 +10,7 @@ import { ChatPage } from '../chat/ChatPage'
 import { ReplyView } from '../chat/ReplyView'
 import { useSelection, SELECTION_KEY } from '../state/selection'
 import { ChatError } from '../api/httpChat'
-import { page, reply, result, source, transport } from './chatFixtures'
+import { id, page, reply, result, source, transport } from './chatFixtures'
 
 const synthetic = '<img src=x onerror="window.chatInjected=true">'
 afterEach(() => {
@@ -389,4 +389,132 @@ it('catalog creates no chat until opening; navigation preserves the selected ite
   await user.click(screen.getByRole('button', { name: 'Вернуться в каталог' }))
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toHaveLength(1)
   expect(screen.getByRole('heading', { name: 'Товары и услуги' })).toBeTruthy()
+})
+
+it('keeps the chat open and the selection unchanged when 50 positions plus an action exceed the request limit', async () => {
+  const existing = Array.from({ length: 50 }, (_, n) => ({
+    item_id: id(n + 1000),
+    qty: n + 1,
+    revision: n + 2,
+  }))
+  sessionStorage.setItem(SELECTION_KEY, JSON.stringify(existing))
+  const api = transport(),
+    onRequest = vi.fn()
+  api.create.mockResolvedValue({
+    ...(await api.create('diagnose')),
+    reply: reply('commerce', {
+      actions: [
+        {
+          type: 'open_request_form',
+          payload: {
+            kind: 'commercial',
+            items: [{ item_id: fixtures.catalog_item.id, qty: 1 }],
+          },
+        },
+      ],
+    }),
+  })
+  const { catalog } = mount(api, { onRequest })
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name: 'Проверить коммерческую заявку',
+    }),
+  )
+  await screen.findByText(/не более 50 уникальных позиций/)
+  expect(catalog.getItem).toHaveBeenCalledWith(
+    fixtures.catalog_item.id,
+    null,
+    expect.any(AbortSignal),
+  )
+  expect(onRequest).not.toHaveBeenCalled()
+  expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
+  expect(
+    screen.getByRole('heading', { name: 'Помощник по оборудованию' }),
+  ).toBeTruthy()
+})
+
+it('synchronizes catalog, chat and commercial form on browser Back/Forward and hash changes', async () => {
+  window.history.replaceState(null, '', '#catalog')
+  const existing = [
+    {
+      item_id: fixtures.catalog_item.id,
+      qty: 2,
+      revision: fixtures.catalog_item.revision,
+    },
+  ]
+  sessionStorage.setItem(SELECTION_KEY, JSON.stringify(existing))
+  const api = transport()
+  const commerceReply = reply('commerce', {
+    actions: [
+      {
+        type: 'open_request_form',
+        payload: {
+          kind: 'commercial',
+          items: [{ item_id: fixtures.catalog_item.id, qty: 3 }],
+        },
+      },
+    ],
+  })
+  api.create.mockResolvedValue({
+    ...(await api.create('diagnose')),
+    reply: commerceReply,
+  })
+  api.create.mockClear()
+  api.read.mockResolvedValue(page(0, commerceReply))
+  const orders = {
+    getConsent: vi.fn().mockResolvedValue(fixtures.consent_text),
+    submit: vi.fn(),
+  }
+  render(
+    <StrictMode>
+      <CatalogPage source={fixtureCatalog} chat={api} orders={orders} />
+    </StrictMode>,
+  )
+  const user = userEvent.setup()
+  await screen.findByRole('heading', { name: 'Товары и услуги' })
+  await user.click(screen.getByRole('link', { name: 'Помощник' }))
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Проверить коммерческую заявку',
+    }),
+  )
+  await screen.findByRole('heading', { name: 'Оформление заявки' })
+  expect(window.location.hash).toBe('#request')
+  fireEvent.change(screen.getByLabelText(/Контактное имя/), {
+    target: { value: 'SYNTHETIC NAVIGATION' },
+  })
+  const checkView = async (hash: string, title: string) => {
+    await waitFor(() => expect(window.location.hash).toBe(hash))
+    await screen.findByRole('heading', { name: title })
+    expect(screen.getAllByRole('main')).toHaveLength(1)
+    expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
+  }
+  act(() => window.history.back())
+  await checkView('#chat', 'Помощник по оборудованию')
+  await screen.findByRole('article', { name: 'Актуальный ответ' })
+  act(() => window.history.back())
+  await checkView('#catalog', 'Товары и услуги')
+  act(() => window.history.forward())
+  await checkView('#chat', 'Помощник по оборудованию')
+  await screen.findByRole('article', { name: 'Актуальный ответ' })
+  act(() => window.history.forward())
+  await checkView('#request', 'Оформление заявки')
+  expect(
+    (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
+  ).toBe('SYNTHETIC NAVIGATION')
+  await user.click(screen.getByRole('button', { name: /Вернуться в каталог/ }))
+  await checkView('#catalog', 'Товары и услуги')
+  act(() => {
+    window.location.hash = '#request'
+  })
+  await checkView('#request', 'Оформление заявки')
+  act(() => {
+    window.location.hash = '#selection'
+  })
+  await checkView('#selection', 'Товары и услуги')
+  await user.click(screen.getByRole('link', { name: 'Помощник' }))
+  await screen.findByRole('article', { name: 'Актуальный ответ' })
+  expect(api.create).toHaveBeenCalledTimes(1)
+  expect(api.read.mock.calls.length).toBeGreaterThanOrEqual(3)
+  expect(orders.submit).not.toHaveBeenCalled()
 })

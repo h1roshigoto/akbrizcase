@@ -7,7 +7,7 @@ import {
 } from 'react'
 import type { CatalogSource } from '../api/catalog'
 import type { ChatReply, UUID } from '../api/types'
-import type { Selection } from '../state/selection'
+import { MAX_REQUEST_ITEMS, type Selection } from '../state/selection'
 import { ChatController } from './controller'
 import { DiagnosisMenu } from './DiagnosisMenu'
 import { ReplyView } from './ReplyView'
@@ -88,7 +88,12 @@ export function ChatPage({
           const result = selection.addSuggestions(
             cards.map((card, i) => ({ card, qty: suggestions[i]!.qty })),
           )
-          if (!result) throw new Error('Selection unavailable')
+          if (!result) {
+            setActionNotice(
+              `Не удалось подготовить заявку. В одной заявке допускается не более ${MAX_REQUEST_ITEMS} уникальных позиций. Проверьте выбранное. Список не изменён, заявка не отправлена.`,
+            )
+            return
+          }
           onRequest()
         }
       }

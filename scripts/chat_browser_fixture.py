@@ -15,7 +15,7 @@ from pathlib import Path
 
 from app.core.db import Database, DatabaseSettings
 from app.core.staff import authenticate_operator, bootstrap_admin
-from app.modules.catalog.write_dto import ModelFields, ModelState
+from app.modules.catalog.write_dto import ItemCreate, ItemState, ModelFields, ModelState
 from app.modules.catalog.write_service import CatalogWriteService
 from app.modules.kb.draft_service import (
     DraftDocument,
@@ -254,10 +254,41 @@ def main():
                 evidence_path=proof,
             )
             assert published.ok, published.code
+            # Actual published positions for the 50 + 1 browser regression.
+            # Use the same staff write service; the marked, fresh DB guard above
+            # applies to these fixtures as well as to the document/tree.
+            limit_selection = []
+            for index in range(50):
+                item = service.create_item(
+                    ItemCreate(
+                        sku=f"SYNTHETIC035-LIMIT-{index:02}",
+                        kind="product",
+                        name=f"SYNTHETIC LIMIT {index:02}",
+                        description="SYNTHETIC ONLY",
+                        attributes={},
+                        unit="шт.",
+                        price_mode="on_request",
+                        price=None,
+                        currency="RUB",
+                        tax_note="SYNTHETIC ONLY",
+                        requires_shipping=False,
+                    )
+                )
+                item = service.change_item_state(
+                    item.id, ItemState(expected_revision=item.revision), "publish"
+                )
+                limit_selection.append(
+                    {
+                        "item_id": str(item.id),
+                        "qty": index + 1,
+                        "revision": item.revision,
+                    }
+                )
             metadata = {
                 "model_id": str(model.id),
                 "document_id": str(version.document_id),
                 "version_id": str(version.id),
+                "limit_selection": limit_selection,
             }
         print(json.dumps(metadata))
     database.close()

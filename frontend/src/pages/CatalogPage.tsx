@@ -15,6 +15,14 @@ import { httpChat, type ChatSource } from '../api/httpChat'
 import { ChatController } from '../chat/controller'
 import { ChatPage } from '../chat/ChatPage'
 
+type PageView = 'catalog' | 'chat' | 'request'
+const viewFromHash = (): PageView =>
+  window.location.hash === '#chat'
+    ? 'chat'
+    : window.location.hash === '#request'
+      ? 'request'
+      : 'catalog'
+
 export function CatalogPage({
   source,
   orders = httpOrders,
@@ -25,23 +33,31 @@ export function CatalogPage({
   chat?: ChatSource
 }) {
   const [chatController] = useState(() => new ChatController(chat))
-  const [chatOpen, setChatOpen] = useState(
-    () => window.location.hash === '#chat',
+  const [view, setView] = useState(viewFromHash)
+  const [requestVisited, setRequestVisited] = useState(
+    () => viewFromHash() === 'request',
   )
-  useEffect(() => {
-    const change = () => setChatOpen(window.location.hash === '#chat')
-    window.addEventListener('hashchange', change)
-    return () => window.removeEventListener('hashchange', change)
+  const chatOpen = view === 'chat'
+  const requestOpen = view === 'request'
+  const syncView = useCallback(() => {
+    const next = viewFromHash()
+    setView(next)
+    if (next === 'request') setRequestVisited(true)
   }, [])
-  const [submission] = useState(() => new Submission(orders))
-  const [requestOpen, setRequestOpen] = useState(false)
-  const [requestVisited, setRequestVisited] = useState(false)
-  const openRequest = () => {
-    setChatOpen(false)
-    window.location.hash = 'request'
-    setRequestVisited(true)
-    setRequestOpen(true)
+  useEffect(() => {
+    window.addEventListener('hashchange', syncView)
+    window.addEventListener('popstate', syncView)
+    return () => {
+      window.removeEventListener('hashchange', syncView)
+      window.removeEventListener('popstate', syncView)
+    }
+  }, [syncView])
+  const navigate = (hash: '#catalog' | '#chat' | '#request' | '#selection') => {
+    window.location.hash = hash
+    syncView()
   }
+  const [submission] = useState(() => new Submission(orders))
+  const openRequest = () => navigate('#request')
   const selection = useSelection()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState<CatalogQuery>({ limit: 20, offset: 0 })
@@ -82,7 +98,7 @@ export function CatalogPage({
       <a
         className="skip-link"
         href="#catalog"
-        onClick={() => setRequestOpen(false)}
+        onClick={() => navigate('#catalog')}
       >
         Перейти к каталогу
       </a>
@@ -92,9 +108,8 @@ export function CatalogPage({
             className="brand"
             href="#catalog"
             onClick={() => {
-              setChatOpen(false)
               setActiveId(null)
-              setRequestOpen(false)
+              navigate('#catalog')
             }}
           >
             <span className="brand-mark">
@@ -109,9 +124,8 @@ export function CatalogPage({
               className={!chatOpen ? 'nav-active' : undefined}
               href="#catalog"
               onClick={() => {
-                setChatOpen(false)
                 setActiveId(null)
-                setRequestOpen(false)
+                navigate('#catalog')
               }}
             >
               Каталог
@@ -119,8 +133,7 @@ export function CatalogPage({
             <a
               href="#selection"
               onClick={() => {
-                setChatOpen(false)
-                setRequestOpen(false)
+                navigate('#selection')
               }}
             >
               Выбранное <span>{selection.items.length}</span>
@@ -129,8 +142,7 @@ export function CatalogPage({
               href="#chat"
               className={chatOpen ? 'nav-active' : undefined}
               onClick={() => {
-                setRequestOpen(false)
-                setChatOpen(true)
+                navigate('#chat')
               }}
             >
               Помощник
@@ -154,13 +166,10 @@ export function CatalogPage({
           catalog={source}
           selection={selection}
           onBack={() => {
-            setChatOpen(false)
-            window.location.hash = 'catalog'
+            navigate('#catalog')
           }}
           onItem={(id) => {
-            setChatOpen(false)
-            setRequestOpen(false)
-            window.location.hash = 'catalog'
+            navigate('#catalog')
             openItem(id)
           }}
           onRequest={openRequest}
@@ -399,7 +408,7 @@ export function CatalogPage({
             selection={selection}
             submission={submission}
             active={requestOpen}
-            onBack={() => setRequestOpen(false)}
+            onBack={() => navigate('#catalog')}
           />
         </div>
       )}

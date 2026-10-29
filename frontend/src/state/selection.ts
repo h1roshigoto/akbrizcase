@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CatalogCard, UUID } from '../api/types'
 
 export const SELECTION_KEY = 'akbrizcase.selected-items'
+export const MAX_REQUEST_ITEMS = 50
 export type SelectedItem = { item_id: UUID; qty: number; revision: number }
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -48,6 +49,15 @@ function restore(): SelectedItem[] {
 
 export function useSelection() {
   const [items, setItems] = useState(restore)
+  const currentItems = useRef(items)
+  // Update the in-memory selection before returning to the caller. Chat actions
+  // can finish after another render or within the same React batch; their
+  // success result must describe the actual committed selection, not a closure.
+  const updateItems = (change: (current: SelectedItem[]) => SelectedItem[]) => {
+    const next = change(currentItems.current)
+    currentItems.current = next
+    setItems(next)
+  }
   const [storageFailed, setStorageFailed] = useState(false)
   useEffect(() => {
     try {
@@ -73,34 +83,29 @@ export function useSelection() {
     addSuggestions(suggestions: { card: CatalogCard; qty: number }[]) {
       if (
         suggestions.length < 1 ||
-        suggestions.length > 50 ||
+        suggestions.length > MAX_REQUEST_ITEMS ||
         suggestions.some(({ qty }) => !validQty(qty)) ||
         new Set(suggestions.map(({ card }) => card.id)).size !==
-          suggestions.length ||
-        new Set([
-          ...items.map((i) => i.item_id),
-          ...suggestions.map((s) => s.card.id),
-        ]).size > 100
+          suggestions.length
       )
         return false
-      setItems((current) => {
-        const additions = suggestions.filter(
-          (s) => !current.some((i) => i.item_id === s.card.id),
-        )
-        if (current.length + additions.length > 100) return current
-        return [
-          ...current,
-          ...additions.map(({ card, qty }) => ({
-            item_id: card.id,
-            qty,
-            revision: card.revision,
-          })),
-        ]
-      })
+      const current = currentItems.current
+      const additions = suggestions.filter(
+        (s) => !current.some((i) => i.item_id === s.card.id),
+      )
+      if (current.length + additions.length > MAX_REQUEST_ITEMS) return false
+      updateItems(() => [
+        ...current,
+        ...additions.map(({ card, qty }) => ({
+          item_id: card.id,
+          qty,
+          revision: card.revision,
+        })),
+      ])
       return true
     },
     add(card: CatalogCard) {
-      setItems((current) =>
+      updateItems((current) =>
         current.some((row) => row.item_id === card.id) || current.length >= 100
           ? current
           : [...current, { item_id: card.id, qty: 1, revision: card.revision }],
@@ -108,12 +113,12 @@ export function useSelection() {
     },
     setQty(id: UUID, qty: number) {
       if (validQty(qty))
-        setItems((current) =>
+        updateItems((current) =>
           current.map((row) => (row.item_id === id ? { ...row, qty } : row)),
         )
     },
     acceptRevision(id: UUID, previous: number, revision: number) {
-      setItems((current) =>
+      updateItems((current) =>
         current.map((row) =>
           row.item_id === id && row.revision === previous
             ? { ...row, revision }
@@ -122,7 +127,7 @@ export function useSelection() {
       )
     },
     remove(id: UUID) {
-      setItems((current) => current.filter((row) => row.item_id !== id))
+      updateItems((current) => current.filter((row) => row.item_id !== id))
     },
   }
 }
