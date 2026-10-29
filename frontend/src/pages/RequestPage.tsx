@@ -17,7 +17,7 @@ import type {
 } from '../api/types'
 import { formatKopecks, formatPrice, toKopecks } from '../state/money'
 import { emptyForm, validateForm, type FormValues } from '../state/requestForm'
-import { validQty, type Selection } from '../state/selection'
+import { MAX_REQUEST_ITEMS, validQty, type Selection } from '../state/selection'
 import { Submission } from '../state/submission'
 import { useResource } from '../state/useResource'
 
@@ -199,7 +199,7 @@ export function RequestPage({
   const errors = validateForm({ ...values, city: shipping ? values.city : '' })
   const validSelection =
     selection.items.length >= 1 &&
-    selection.items.length <= 50 &&
+    selection.items.length <= MAX_REQUEST_ITEMS &&
     new Set(selection.items.map((row) => row.item_id)).size ===
       selection.items.length &&
     selection.items.every((row) => validQty(row.qty))

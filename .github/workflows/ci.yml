@@ -145,6 +145,8 @@ jobs:
         run: npx playwright install --with-deps --only-shell chromium
       - name: Live PostgreSQL catalog browser acceptance
         run: python3 scripts/ci_suites.py compose:catalog-browser -- make catalog-browser-smoke
+      - name: Public chat through React, Nginx, FastAPI and PostgreSQL
+        run: python3 scripts/ci_suites.py compose:chat-browser -- make chat-browser-smoke
       - name: Trusted HTTPS browser authentication and CSRF
         run: |
           make local-tls

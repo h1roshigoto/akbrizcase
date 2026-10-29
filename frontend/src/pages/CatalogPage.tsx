@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { CatalogSource } from '../api/catalog'
 import type { CatalogQuery, UUID } from '../api/types'
 import { useResource } from '../state/useResource'
@@ -11,21 +11,53 @@ import { ItemDetail } from './ItemDetail'
 import { RequestPage } from './RequestPage'
 import { httpOrders, type OrdersSource } from '../api/httpOrders'
 import { Submission } from '../state/submission'
+import { httpChat, type ChatSource } from '../api/httpChat'
+import { ChatController } from '../chat/controller'
+import { ChatPage } from '../chat/ChatPage'
+
+type PageView = 'catalog' | 'chat' | 'request'
+const viewFromHash = (): PageView =>
+  window.location.hash === '#chat'
+    ? 'chat'
+    : window.location.hash === '#request'
+      ? 'request'
+      : 'catalog'
 
 export function CatalogPage({
   source,
   orders = httpOrders,
+  chat = httpChat,
 }: {
   source: CatalogSource
   orders?: OrdersSource
+  chat?: ChatSource
 }) {
-  const [submission] = useState(() => new Submission(orders))
-  const [requestOpen, setRequestOpen] = useState(false)
-  const [requestVisited, setRequestVisited] = useState(false)
-  const openRequest = () => {
-    setRequestVisited(true)
-    setRequestOpen(true)
+  const [chatController] = useState(() => new ChatController(chat))
+  const [view, setView] = useState(viewFromHash)
+  const [requestVisited, setRequestVisited] = useState(
+    () => viewFromHash() === 'request',
+  )
+  const chatOpen = view === 'chat'
+  const requestOpen = view === 'request'
+  const syncView = useCallback(() => {
+    const next = viewFromHash()
+    setView(next)
+    if (next === 'request') setRequestVisited(true)
+  }, [])
+  useEffect(() => {
+    window.addEventListener('hashchange', syncView)
+    window.addEventListener('popstate', syncView)
+    return () => {
+      window.removeEventListener('hashchange', syncView)
+      window.removeEventListener('popstate', syncView)
+    }
+  }, [syncView])
+  const navigate = (hash: '#catalog' | '#chat' | '#request' | '#selection') => {
+    window.location.hash = hash
+    syncView()
   }
+  const [submission] = useState(() => new Submission(orders))
+  const openRequest = () => navigate('#request')
   const selection = useSelection()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState<CatalogQuery>({ limit: 20, offset: 0 })
@@ -66,7 +98,7 @@ export function CatalogPage({
       <a
         className="skip-link"
         href="#catalog"
-        onClick={() => setRequestOpen(false)}
+        onClick={() => navigate('#catalog')}
       >
         Перейти к каталогу
       </a>
@@ -77,7 +109,7 @@ export function CatalogPage({
             href="#catalog"
             onClick={() => {
               setActiveId(null)
-              setRequestOpen(false)
+              navigate('#catalog')
             }}
           >
             <span className="brand-mark">
@@ -89,17 +121,31 @@ export function CatalogPage({
           </a>
           <nav aria-label="Основная навигация">
             <a
-              className="nav-active"
+              className={!chatOpen ? 'nav-active' : undefined}
               href="#catalog"
               onClick={() => {
                 setActiveId(null)
-                setRequestOpen(false)
+                navigate('#catalog')
               }}
             >
               Каталог
             </a>
-            <a href="#selection" onClick={() => setRequestOpen(false)}>
+            <a
+              href="#selection"
+              onClick={() => {
+                navigate('#selection')
+              }}
+            >
               Выбранное <span>{selection.items.length}</span>
+            </a>
+            <a
+              href="#chat"
+              className={chatOpen ? 'nav-active' : undefined}
+              onClick={() => {
+                navigate('#chat')
+              }}
+            >
+              Помощник
             </a>
           </nav>
           <span className="header-note">Для вашего оборудования</span>
@@ -114,7 +160,22 @@ export function CatalogPage({
           </p>
         </div>
       )}
-      <main className="page-shell" hidden={requestOpen}>
+      {chatOpen && (
+        <ChatPage
+          controller={chatController}
+          catalog={source}
+          selection={selection}
+          onBack={() => {
+            navigate('#catalog')
+          }}
+          onItem={(id) => {
+            navigate('#catalog')
+            openItem(id)
+          }}
+          onRequest={openRequest}
+        />
+      )}
+      <main className="page-shell" hidden={requestOpen || chatOpen}>
         <div className="breadcrumb">
           Главная <span>/</span> Каталог
         </div>
@@ -340,14 +401,14 @@ export function CatalogPage({
         </div>
       </main>
       {requestVisited && (
-        <div hidden={!requestOpen}>
+        <div hidden={!requestOpen || chatOpen}>
           <RequestPage
             source={source}
             orders={orders}
             selection={selection}
             submission={submission}
             active={requestOpen}
-            onBack={() => setRequestOpen(false)}
+            onBack={() => navigate('#catalog')}
           />
         </div>
       )}

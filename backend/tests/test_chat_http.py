@@ -39,6 +39,7 @@ def test_creation_validation(client: TestClient, body: dict[str, object]) -> Non
 
 def test_unavailable_database(client: TestClient) -> None:
     for response in (
+        client.get(f"/api/v1/chat/scenarios?model_id={uuid4()}"),
         client.post("/api/v1/chat/sessions", json={"mode": "diagnose"}),
         client.get(f"/api/v1/chat/sessions/{uuid4()}"),
         client.post(
@@ -55,6 +56,26 @@ def test_unavailable_database(client: TestClient) -> None:
         assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
         assert response.headers["cache-control"] == "no-store"
     assert client.post("/api/v1/chat/messages", json={}).status_code == 422
+
+
+@pytest.mark.parametrize("query", ["", "?model_id=bad", "?model_id="])
+def test_scenarios_validation(client: TestClient, query: str) -> None:
+    response = client.get("/api/v1/chat/scenarios" + query)
+    assert response.status_code == 422
+    assert response.json()["error"]["details"] == {}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_scenarios_openapi(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/v1/chat/scenarios"]["get"]
+    assert [(p["name"], p["in"], p["required"]) for p in operation["parameters"]] == [
+        ("model_id", "query", True)
+    ]
+    assert {"200", "422", "503"} <= operation["responses"].keys()
+    schemas = schema["components"]["schemas"]
+    assert set(schemas["ChatScenario"]["properties"]) == {"key", "title", "model_id"}
+    assert schemas["ChatScenarios"]["properties"]["items"]["maxItems"] == 10
 
 
 def test_openapi_uses_header_and_bounded_read_contract(client: TestClient) -> None:
