@@ -279,6 +279,20 @@ describe('browser field constraints preserve exact input', () => {
     name: '  Synthetic Name  ',
     email: 'buyer@example.invalid',
   }
+  it('uses Unicode character bounds for support without trimming the final text', () => {
+    expect(
+      validateForm({ ...valid, comment: '🙂'.repeat(2000) }, true),
+    ).toEqual({})
+    expect(
+      validateForm({ ...valid, comment: '🙂'.repeat(2001) }, true),
+    ).toHaveProperty('comment')
+    expect(
+      validateForm({ ...valid, comment: ' ' + 'x'.repeat(2000) }, true),
+    ).toHaveProperty('comment')
+    expect(validateForm({ ...valid, comment: ' \n\t' }, true)).toHaveProperty(
+      'comment',
+    )
+  })
   it('requires a channel and nonblank name', () => {
     expect(validateForm(emptyForm)).toHaveProperty('name')
     expect(validateForm(emptyForm)).toHaveProperty('channel')

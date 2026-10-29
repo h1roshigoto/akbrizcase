@@ -544,9 +544,13 @@ export function RequestPage({
                 const props = {
                   id,
                   value: values[key],
+                  // DOM maxLength counts UTF-16 units. Validate support's 2000
+                  // Unicode characters separately, without clipping emoji text.
                   maxLength:
                     key === 'comment'
-                      ? 2000
+                      ? isSupport
+                        ? 4000
+                        : 2000
                       : key === 'email'
                         ? 254
                         : key === 'phone'

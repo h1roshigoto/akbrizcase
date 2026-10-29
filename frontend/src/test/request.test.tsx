@@ -143,15 +143,51 @@ it('requires a meaningful support comment, resets confirmation and sends exact s
   expect(localStorage.length).toBe(0)
 })
 
+it('opens the direct support hash and preserves edits across catalog navigation without chat or selection', async () => {
+  window.location.hash = '#support'
+  const api = orders()
+  render(<CatalogPage source={source} orders={api} />)
+  await screen.findByRole('heading', { name: 'Обращение к специалисту' })
+  await fill()
+  fireEvent.click(screen.getByRole('link', { name: 'Каталог' }))
+  await screen.findByRole('heading', { name: 'Товары и услуги' })
+  fireEvent.click(
+    screen.getByRole('link', { name: 'Обратиться к специалисту' }),
+  )
+  await screen.findByRole('heading', { name: 'Обращение к специалисту' })
+  expect(
+    (screen.getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
+  ).toBe('  exact\ncomment  ')
+  expect(api.submit).not.toHaveBeenCalled()
+  await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(accept())
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /Подтверждаю окончательное/ }),
+  )
+  fireEvent.click(send())
+  await screen.findByRole('heading', {
+    name: `Заявка №${fixtures.receipt.number}`,
+  })
+  const call = vi.mocked(api.submit).mock.calls[0]!
+  expect(JSON.parse(call[0])).toMatchObject({
+    source: 'site',
+    kind: 'support',
+    items: [],
+  })
+  expect(JSON.parse(call[0])).not.toHaveProperty('chat_session_id')
+  expect(call[2]).toBeUndefined()
+})
+
 it('keeps support edits after 410 and requires explicit site review with new secrets', async () => {
   const api = orders()
   vi.mocked(api.submit).mockResolvedValueOnce({ kind: 'chat_expired' })
   vi.mocked(crypto.randomUUID)
     .mockReturnValueOnce('00000000-0000-4000-8000-000000000010')
     .mockReturnValueOnce('00000000-0000-4000-8000-000000000011')
-  vi.mocked(crypto.getRandomValues).mockImplementationOnce(
-    (bytes) => { new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength).fill(8); return bytes },
-  )
+  vi.mocked(crypto.getRandomValues).mockImplementationOnce((bytes) => {
+    new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength).fill(8)
+    return bytes
+  })
   render(
     <Harness
       api={api}
@@ -162,7 +198,11 @@ it('keeps support edits after 410 and requires explicit site review with new sec
     />,
   )
   expect(
-    (screen.getByLabelText(/Комментарий|Описание проблемы/) as HTMLTextAreaElement).value,
+    (
+      screen.getByLabelText(
+        /Комментарий|Описание проблемы/,
+      ) as HTMLTextAreaElement
+    ).value,
   ).toBe('Safe proposed draft')
   await fill()
   fireEvent.click(accept())
@@ -186,7 +226,11 @@ it('keeps support edits after 410 and requires explicit site review with new sec
     expect((send() as HTMLButtonElement).disabled).toBe(false),
   )
   expect(
-    (screen.getByLabelText(/Комментарий|Описание проблемы/) as HTMLTextAreaElement).value,
+    (
+      screen.getByLabelText(
+        /Комментарий|Описание проблемы/,
+      ) as HTMLTextAreaElement
+    ).value,
   ).toBe('  exact\ncomment  ')
   expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
     'buyer@example.invalid',
