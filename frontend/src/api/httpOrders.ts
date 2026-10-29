@@ -1,6 +1,7 @@
 import {
   secretToken,
   type ConsentText,
+  type PrivacyPolicy,
   type ChatHeaders,
   type OrderCreate,
   type OrderHeaders,
@@ -23,6 +24,7 @@ export type OrderResult =
 
 export interface OrdersSource {
   getConsent(signal: AbortSignal): Promise<ConsentText>
+  getPolicy(signal: AbortSignal): Promise<PrivacyPolicy>
   submit(
     body: string,
     headers: OrderHeaders,
@@ -83,6 +85,35 @@ export function newOrderHeaders(): OrderHeaders {
 export const orderSnapshot = (body: OrderCreate): string => JSON.stringify(body)
 
 export const httpOrders: OrdersSource = {
+  async getPolicy(signal) {
+    const response = await fetch('/api/v1/privacy-policy', {
+      method: 'GET',
+      signal,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) throw new Error('Политика недоступна.')
+    const v: unknown = await response.json()
+    if (
+      !record(v) ||
+      !['version', 'text', 'withdrawal_instructions', 'consent_version'].every(
+        (key) => typeof v[key] === 'string' && v[key].trim().length > 0,
+      ) ||
+      typeof v.checksum !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(v.checksum) ||
+      typeof v.synthetic !== 'boolean'
+    )
+      throw new Error('Некорректная политика.')
+    return {
+      version: v.version,
+      text: v.text,
+      checksum: v.checksum,
+      withdrawal_instructions: v.withdrawal_instructions,
+      consent_version: v.consent_version,
+      synthetic: v.synthetic,
+    } as PrivacyPolicy
+  },
   async getConsent(signal) {
     const response = await fetch('/api/v1/consent-text', {
       method: 'GET',

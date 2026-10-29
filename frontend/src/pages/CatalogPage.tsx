@@ -180,6 +180,9 @@ export function CatalogPage({
             <a href="#support" onClick={openSiteSupport}>
               Обратиться к специалисту
             </a>
+            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">
+              Политика обработки ПДн
+            </a>
           </nav>
           <span className="header-note">Для вашего оборудования</span>
         </div>

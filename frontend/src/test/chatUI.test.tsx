@@ -1,3 +1,4 @@
+import { policyFixture } from './privacyFixture'
 import { StrictMode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -469,6 +470,7 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
   api.create.mockClear()
   api.read.mockResolvedValue(page(0, commerceReply))
   const orders = {
+    getPolicy: vi.fn().mockResolvedValue(policyFixture),
     getConsent: vi.fn().mockResolvedValue(fixtures.consent_text),
     submit: vi.fn(),
   }

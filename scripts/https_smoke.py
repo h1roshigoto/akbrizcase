@@ -156,6 +156,10 @@ def main(
             assert stack.sql("SELECT count(*) FROM app.orders") == "0"
             stack.sql(f"COMMENT ON DATABASE akbrizcase IS '{MARKER}'")
             stack.verify_database()
+            # This owner-marked disposable database was migrated while unmarked;
+            # explicitly enable its synthetic fixtures, never production privileges.
+            stack.sql("GRANT INSERT, UPDATE, DELETE ON app.consent_texts TO akbrizcase_runtime; "
+                      "GRANT INSERT ON app.consent_publications TO akbrizcase_runtime")
             # Explicit fixture creation in this disposable project only. The
             # application never auto-creates accounts or accepts piped CLI auth.
             setup = """

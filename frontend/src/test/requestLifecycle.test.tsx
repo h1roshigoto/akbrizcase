@@ -1,3 +1,4 @@
+import { policyFixture } from './privacyFixture'
 import {
   act,
   fireEvent,
@@ -32,6 +33,7 @@ const route = (hash: string) =>
 function api() {
   let number = 0
   return {
+    getPolicy: vi.fn().mockResolvedValue(policyFixture),
     getConsent: vi.fn().mockResolvedValue(fixtures.consent_text),
     submit: vi.fn<OrdersSource['submit']>().mockImplementation(async () => ({
       kind: 'success',

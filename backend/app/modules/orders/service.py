@@ -22,6 +22,11 @@ from app.modules.orders.models import (
     OrderItem,
     OrderStatusHistory,
 )
+from app.modules.orders.privacy_service import (
+    PrivacyUnavailable,
+    approved_publication,
+    lock_privacy,
+)
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.seed import DEMO_VERSION
 from app.schemas.common import OrderHeaders
@@ -105,6 +110,7 @@ def replay_order(
 
 
 def effective_consent(session: Session, *, lock: bool = False) -> ConsentTextDTO:
+    lock_privacy(session, shared=True)
     query = (
         select(ConsentText)
         .where(
@@ -150,6 +156,14 @@ def effective_consent(session: Session, *, lock: bool = False) -> ConsentTextDTO
             raise ValueError
     except (ValidationError, ValueError, UnicodeError):
         raise OrderRejected(503, "SERVICE_UNAVAILABLE", "Consent unavailable") from None
+    try:
+        bundle = approved_publication(session, row.version, row.checksum)
+        if bundle.consent != result:
+            raise PrivacyUnavailable("Consent publication mismatch")
+    except PrivacyUnavailable:
+        raise OrderRejected(
+            503, "SERVICE_UNAVAILABLE", "Privacy documents unavailable"
+        ) from None
     return result
 
 
@@ -162,6 +176,7 @@ def create_order(
 ) -> OrderReceipt:
     # Only reached after replay_order. Hold the shared owner lock through commit:
     # DELETE and chat writers cannot invalidate this FK/ownership decision.
+    lock_privacy(session, shared=True)
     chat = None
     if request.source == "chat":
         assert request.chat_session_id is not None  # OrderCreate contract.
@@ -220,7 +235,10 @@ def create_order(
         raise OrderRejected(409, "CONSENT_CHANGED", "Consent has changed")
     if chat is not None and chat.expires_at <= utc_now():
         raise ChatExpired
-    consent = Consent(text_version=consent_text.version)
+    consent = Consent(
+        text_version=consent_text.version,
+        granted_at=session.scalar(select(func.clock_timestamp())),
+    )
     session.add(consent)
     session.flush()
     order = Order(
@@ -283,6 +301,8 @@ def create_order(
     # entire prepared write set; a UNIQUE loser still follows AQ-01 in the router.
     if chat is not None and chat.expires_at <= utc_now():
         raise ChatExpired
+    if effective_consent(session, lock=True).version != request.consent.version:
+        raise OrderRejected(409, "CONSENT_CHANGED", "Consent has changed")
     return OrderReceipt(
         number=order.number,
         status="new",

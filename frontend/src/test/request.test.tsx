@@ -1,3 +1,4 @@
+import { policyFixture } from './privacyFixture'
 import { StrictMode, useState } from 'react'
 import {
   act,
@@ -30,6 +31,7 @@ const service = {
 const consent = fixtures.consent_text
 const source: CatalogSource = { ...fixtureCatalog, mode: 'api' }
 const orders = (): OrdersSource => ({
+  getPolicy: vi.fn().mockResolvedValue(policyFixture),
   getConsent: vi.fn().mockResolvedValue(consent),
   submit: vi.fn().mockResolvedValue({
     kind: 'success',
@@ -159,7 +161,9 @@ it('opens the direct support hash and preserves edits across catalog navigation 
     (screen.getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
   ).toBe('  exact\ncomment  ')
   expect(api.submit).not.toHaveBeenCalled()
-  await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false))
+  await waitFor(() =>
+    expect((send() as HTMLButtonElement).disabled).toBe(false),
+  )
   fireEvent.click(accept())
   fireEvent.click(
     screen.getByRole('checkbox', { name: /Подтверждаю окончательное/ }),
@@ -406,6 +410,10 @@ it.each(['catalog_changed', 'consent_changed', 'validation'] as const)(
     const reload = new Promise<typeof consent>((resolve) => {
       resolveConsent = resolve
     })
+    vi.mocked(api.getPolicy).mockResolvedValue({
+      ...policyFixture,
+      consent_version: reviewedConsent.version,
+    })
     vi.mocked(api.getConsent).mockReturnValue(reload)
     fireEvent.click(screen.getByRole('button', { name: 'Пересмотреть заявку' }))
     await waitFor(() =>
@@ -565,6 +573,7 @@ it('connects App catalog → form → real same-origin consent and POST adapters
   const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
     if (path === '/api/v1/orders')
       return { status: 201, json: async () => fixtures.receipt }
+    if (path === '/api/v1/privacy-policy') return Response.json(policyFixture)
     if (path === '/api/v1/consent-text')
       return { ok: true, json: async () => consent }
     if (path.startsWith('/api/v1/catalog/items/'))
@@ -644,3 +653,147 @@ it('shows actual price changes after a catalog conflict before revision acceptan
     product.revision,
   )
 })
+
+it.each([false, true])(
+  'blocks %s support/commercial when policy is unavailable and retains fields',
+  async (support) => {
+    saved()
+    const api = orders()
+    vi.mocked(api.getPolicy).mockRejectedValue(new Error('unavailable'))
+    render(
+      <Harness
+        api={api}
+        {...(support
+          ? { support: { draft: 'Synthetic description', owner: null } }
+          : {})}
+      />,
+    )
+    await screen.findByText(/Политика недоступна или документы изменились/)
+    fireEvent.change(screen.getByLabelText(/Контактное имя/), {
+      target: { value: 'Synthetic retained' },
+    })
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'retained@example.invalid' },
+    })
+    expect((send() as HTMLButtonElement).disabled).toBe(true)
+    expect((accept() as HTMLInputElement).checked).toBe(false)
+    expect((accept() as HTMLInputElement).disabled).toBe(true)
+    expect(api.submit).not.toHaveBeenCalled()
+    expect(JSON.stringify(sessionStorage)).not.toContain(
+      'retained@example.invalid',
+    )
+    expect(JSON.stringify(localStorage)).not.toContain('Synthetic retained')
+  },
+)
+
+it('renders policy and withdrawal instructions as literal text, independently of consent', async () => {
+  saved()
+  const api = orders()
+  const attack =
+    '<img src=x onerror="window.policyInjected=true"><script>unsafe()</script>'
+  vi.mocked(api.getPolicy).mockResolvedValue({
+    ...policyFixture,
+    text: attack,
+    version: 'plain-version',
+    synthetic: true,
+  })
+  const { container } = render(<Harness api={api} />)
+  await fill()
+  fireEvent.click(screen.getByText('Прочитать политику и порядок обращения'))
+  expect(screen.getByText(attack)).toBeTruthy()
+  expect(screen.getByText(policyFixture.withdrawal_instructions)).toBeTruthy()
+  expect(screen.getByText(consent.text)).toBeTruthy()
+  expect(screen.getByText(/Политика не разрешает сбор реальных/)).toBeTruthy()
+  expect(container.querySelector('script')).toBeNull()
+  expect(container.querySelector('img[onerror]')).toBeNull()
+  const link = screen.getByRole('link', { name: /Открыть политику/ })
+  expect(link.getAttribute('href')).toBe('/privacy-policy')
+  expect(link.getAttribute('rel')).toContain('noopener')
+  expect(api.submit).not.toHaveBeenCalled()
+})
+
+it.each([false, true])(
+  'refuses mixed consent/policy versions in %s support/commercial',
+  async (support) => {
+    saved()
+    const api = orders()
+    vi.mocked(api.getPolicy).mockResolvedValue({
+      ...policyFixture,
+      consent_version: 'different-version',
+    })
+    render(
+      <Harness
+        api={api}
+        {...(support
+          ? { support: { draft: 'Synthetic description', owner: null } }
+          : {})}
+      />,
+    )
+    await screen.findByText(/Политика недоступна или документы изменились/)
+    expect((send() as HTMLButtonElement).disabled).toBe(true)
+    expect(api.submit).not.toHaveBeenCalled()
+  },
+)
+
+it.each([false, true])(
+  'requires a new consent approval after 409 and preserves %s support/commercial input',
+  async (support) => {
+    saved()
+    const api = orders()
+    vi.mocked(api.submit).mockImplementationOnce(async () => {
+      vi.mocked(api.getConsent).mockResolvedValue({
+        ...consent,
+        version: 'next-approved',
+      })
+      vi.mocked(api.getPolicy).mockResolvedValue({
+        ...policyFixture,
+        consent_version: 'next-approved',
+      })
+      return { kind: 'consent_changed' }
+    })
+    render(
+      <Harness
+        api={api}
+        {...(support
+          ? { support: { draft: 'Synthetic support draft', owner: null } }
+          : {})}
+      />,
+    )
+    await fill()
+    fireEvent.click(accept())
+    fireEvent.click(screen.getByRole('checkbox', { name: /Подтверждаю/ }))
+    fireEvent.click(send())
+    await screen.findByRole('button', { name: 'Пересмотреть заявку' })
+    expect(api.submit).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Пересмотреть заявку' }))
+    await waitFor(() =>
+      expect((send() as HTMLButtonElement).disabled).toBe(false),
+    )
+    expect((accept() as HTMLInputElement).checked).toBe(false)
+    expect(
+      (
+        screen.getByRole('checkbox', {
+          name: /Подтверждаю/,
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(false)
+    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
+      'buyer@example.invalid',
+    )
+    expect(
+      (
+        screen.getByLabelText(
+          /Комментарий|Описание проблемы/,
+        ) as HTMLTextAreaElement
+      ).value,
+    ).toBe('  exact\ncomment  ')
+    expect(api.submit).toHaveBeenCalledTimes(1)
+    fireEvent.click(accept())
+    fireEvent.click(screen.getByRole('checkbox', { name: /Подтверждаю/ }))
+    fireEvent.click(send())
+    await screen.findByRole('heading', { name: /Заявка №/ })
+    const submitted = JSON.parse(vi.mocked(api.submit).mock.calls[1]![0])
+    expect(submitted.consent.version).toBe('next-approved')
+    expect(submitted.comment).toBe('  exact\ncomment  ')
+  },
+)

@@ -21,6 +21,7 @@ import { emptyForm, validateForm, type FormValues } from '../state/requestForm'
 import { MAX_REQUEST_ITEMS, validQty, type Selection } from '../state/selection'
 import { Submission } from '../state/submission'
 import { useResource } from '../state/useResource'
+import { PrivacyPolicy } from '../components/PrivacyPolicy'
 
 function CatalogChanges({
   previous,
@@ -188,10 +189,27 @@ export function RequestPage({
       [orders, attempt, active],
     ),
   )
+  const policy = useResource(
+    useCallback(
+      (signal: AbortSignal) => orders.getPolicy(signal),
+      [orders, attempt, active],
+    ),
+  )
+  const documentsReady =
+    consent.status === 'success' &&
+    policy.status === 'success' &&
+    policy.data.consent_version === consent.data.version
   useEffect(() => {
     setAccepted(false)
     setConfirmed(false)
-  }, [active, attempt, consent.data?.version, consent.data?.checksum])
+  }, [
+    active,
+    attempt,
+    consent.data?.version,
+    consent.data?.checksum,
+    policy.data?.version,
+    policy.data?.checksum,
+  ])
   // Conflict responses prove rejection of this logical request. Refresh while
   // retaining the rejected marker until the user explicitly starts a review.
   useEffect(() => {
@@ -244,7 +262,7 @@ export function RequestPage({
     details.status === 'success' &&
     !unavailable &&
     !needsReview &&
-    consent.status === 'success'
+    documentsReady
   const submit = (event: FormEvent) => {
     event.preventDefault()
     setTouched(true)
@@ -647,6 +665,32 @@ export function RequestPage({
               </p>
             )}
           </fieldset>
+          <section aria-label="Политика до отправки">
+            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">
+              Открыть политику обработки персональных данных
+            </a>
+            {policy.status === 'loading' && (
+              <p role="status">Загружаем политику…</p>
+            )}
+            {(policy.status === 'error' ||
+              (policy.status === 'success' &&
+                consent.data &&
+                policy.data.consent_version !== consent.data.version)) && (
+              <p role="alert">
+                Политика недоступна или документы изменились. Отправка
+                заблокирована.
+                <button type="button" onClick={refresh} disabled={!editing}>
+                  Обновить документы
+                </button>
+              </p>
+            )}
+            {policy.data && (
+              <details>
+                <summary>Прочитать политику и порядок обращения</summary>
+                <PrivacyPolicy policy={policy.data} />
+              </details>
+            )}
+          </section>
           <section
             className="consent-panel"
             aria-label="Согласие на обработку данных"
@@ -685,7 +729,7 @@ export function RequestPage({
             <label className="check-label">
               <input
                 type="checkbox"
-                disabled={!editing || consent.status !== 'success'}
+                disabled={!editing || !documentsReady}
                 checked={accepted}
                 onChange={(event) => {
                   setAccepted(event.target.checked)

@@ -218,6 +218,7 @@ def test_single_linear_migration_history() -> None:
     scripts = ScriptDirectory.from_config(config)
     assert scripts.get_heads() == [SCHEMA_REVISION]
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "0008_mvp037_privacy",
         "0007_mvp029_chat",
         "0006_mvp027_diagnostic_trees",
         "0005_mvp024_applicability",

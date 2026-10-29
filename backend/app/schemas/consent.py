@@ -15,3 +15,12 @@ class ConsentText(DTO):
 class ConsentAcceptance(DTO):
     version: Text200
     accepted: Confirmed
+
+
+class PrivacyPolicy(DTO):
+    version: Text200
+    text: str = Field(min_length=1, max_length=100000)
+    checksum: Checksum
+    withdrawal_instructions: str = Field(min_length=1, max_length=4000)
+    consent_version: Text200
+    synthetic: bool

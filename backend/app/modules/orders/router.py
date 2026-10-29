@@ -11,6 +11,7 @@ from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.modules.chat.access import ChatExpired, ChatNotFound
+from app.modules.orders.privacy_service import PrivacyUnavailable, approved_publication
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.service import (
     OrderRejected,
@@ -25,7 +26,7 @@ from app.schemas.common import (
     SecretToken,
     UUIDValue,
 )
-from app.schemas.consent import ConsentText
+from app.schemas.consent import ConsentText, PrivacyPolicy
 from app.schemas.orders import OrderCreate, OrderReceipt
 
 MAX_BODY_BYTES = 64 * 1024
@@ -51,6 +52,23 @@ def consent_text(request: Request) -> ConsentText | JSONResponse:
         return result
     except OrderRejected as error:
         return error_response(request, error.status, error.code, error.message)
+
+
+@router.get("/privacy-policy", response_model=PrivacyPolicy)
+def privacy_policy(request: Request) -> PrivacyPolicy | JSONResponse:
+    try:
+        with database_for(request).unit_of_work() as session:
+            consent = effective_consent(session)
+            bundle = approved_publication(session, consent.version, consent.checksum)
+            return PrivacyPolicy(
+                **bundle.policy.model_dump(),
+                consent_version=consent.version,
+                synthetic=bundle.approval_status == "SYNTHETIC ONLY",
+            )
+    except OrderRejected as error:
+        return error_response(request, error.status, error.code, error.message)
+    except PrivacyUnavailable:
+        raise HTTPException(503) from None
 
 
 def persist_order(

@@ -239,14 +239,32 @@ def run_browser(environment: dict, config: dict, compose, stack):
                 stack.verify_database()
                 # Content is immutable; retirement + a new explicitly synthetic
                 # version follows the same publication shape as integration tests.
-                sql("""
-                    UPDATE app.consent_texts SET retired_at=clock_timestamp()
-                        WHERE retired_at IS NULL;
-                    INSERT INTO app.consent_texts(version,purpose,text,checksum,active_from)
-                    SELECT 'SYNTHETIC-DEMO-ONLY-MVP013-v2',purpose,text,checksum,
-                        clock_timestamp() FROM app.consent_texts
-                        WHERE version='SYNTHETIC-DEMO-ONLY-v1';
-                """)
+                compose("exec", "-T", "api", "python", "-c", """
+from app.core.db import Database, DatabaseSettings
+from app.core.privacy import PrivacyBundle
+from app.core.db_types import utc_now
+from app.modules.orders.models import ConsentText
+from app.modules.orders.privacy_models import ConsentPublication
+from app.modules.orders.privacy_service import lock_privacy
+from app.modules.orders.seed import demo_bundle, DEMO_VERSION
+from sqlalchemy import select
+# Restricted synthetic acceptance fixture; owner marker checked by the harness.
+d = Database(DatabaseSettings.from_environment())
+with d.unit_of_work() as s:
+ lock_privacy(s, shared=False)
+ old=s.get(ConsentText, DEMO_VERSION)
+ assert old is not None
+ old.retired_at=utc_now()
+ data=demo_bundle().model_dump(mode='json')
+ data['consent']['version']='SYNTHETIC-DEMO-ONLY-MVP013-v2'
+ bundle=PrivacyBundle.model_validate(data)
+ s.add(ConsentText(**bundle.consent.model_dump(),active_from=utc_now()))
+ s.flush()
+ s.add(ConsentPublication(consent_version=bundle.consent.version,
+   bundle_checksum=bundle.checksum(),bundle=bundle.model_dump(mode='json'),
+   published_at=utc_now()))
+d.close()
+""")
                 result = True
             elif action == "change_catalog":
                 stack.verify_database()

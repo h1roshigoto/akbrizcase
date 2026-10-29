@@ -311,7 +311,12 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 for row in after_0007
                 if row[1] in old_names_0007 and row[1] != "ck_orders_source"
             ] == [row for row in before_0007 if row[1] != "ck_orders_source"]
-            assert connection.execute(tree_objects_sql).all() == tree_functions
+            assert [
+                row
+                for row in connection.execute(tree_objects_sql).all()
+                if "app.protect_consent_publication()" not in row[0]
+                and "app.seed_demo_consent(" not in row[0]
+            ] == tree_functions
             assert connection.execute(triggers_sql).all() == tree_triggers
             assert (
                 connection.scalar(
@@ -332,7 +337,7 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "('documents','document_versions','document_sections',"
                     "'catalog_item_models','diag_trees',"
                     "'diag_tree_sources','diag_tree_items',"
-                    "'chat_sessions','chat_messages') "
+                    "'chat_sessions','chat_messages','consent_publications') "
                     "AND column_name NOT IN ('manual_document_id','chat_session_id') "
                     "ORDER BY table_name,ordinal_position"
                 )
@@ -350,6 +355,9 @@ def databases() -> Iterator[tuple[Database, Database]]:
             assert all(
                 name.startswith(
                     (
+                        "pk_consent_publications",
+                        "fk_consent_publications",
+                        "ck_consent_publications",
                         "pk_document",
                         "uq_document",
                         "ck_document",
