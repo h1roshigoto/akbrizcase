@@ -198,6 +198,7 @@ export function RequestPage({
   const documentsReady =
     consent.status === 'success' &&
     policy.status === 'success' &&
+    policy.data.collection_enabled &&
     policy.data.consent_version === consent.data.version
   useEffect(() => {
     setAccepted(false)
@@ -682,6 +683,12 @@ export function RequestPage({
                 <button type="button" onClick={refresh} disabled={!editing}>
                   Обновить документы
                 </button>
+              </p>
+            )}
+            {policy.data && !policy.data.collection_enabled && (
+              <p role="status">
+                Приём новых заявок временно недоступен. Политику можно прочитать
+                ниже.
               </p>
             )}
             {policy.data && (

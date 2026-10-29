@@ -26,6 +26,7 @@ from app.modules.orders.privacy_service import (
     PrivacyUnavailable,
     approved_publication,
     lock_privacy,
+    synthetic_database,
 )
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.seed import DEMO_VERSION
@@ -165,6 +166,12 @@ def effective_consent(session: Session, *, lock: bool = False) -> ConsentTextDTO
             503, "SERVICE_UNAVAILABLE", "Privacy documents unavailable"
         ) from None
     return result
+
+
+def collection_gate(session: Session) -> None:
+    """Authorize new collection only; existing receipts/messages replay first."""
+    if not synthetic_database(session):
+        effective_consent(session, lock=True)
 
 
 def create_order(

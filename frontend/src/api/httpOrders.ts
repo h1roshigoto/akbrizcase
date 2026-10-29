@@ -102,7 +102,8 @@ export const httpOrders: OrdersSource = {
       ) ||
       typeof v.checksum !== 'string' ||
       !/^[0-9a-f]{64}$/.test(v.checksum) ||
-      typeof v.synthetic !== 'boolean'
+      typeof v.synthetic !== 'boolean' ||
+      typeof v.collection_enabled !== 'boolean'
     )
       throw new Error('Некорректная политика.')
     return {
@@ -112,6 +113,7 @@ export const httpOrders: OrdersSource = {
       withdrawal_instructions: v.withdrawal_instructions,
       consent_version: v.consent_version,
       synthetic: v.synthetic,
+      collection_enabled: v.collection_enabled,
     } as PrivacyPolicy
   },
   async getConsent(signal) {

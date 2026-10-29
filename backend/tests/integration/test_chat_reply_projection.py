@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from sqlalchemy import event, update
+from sqlalchemy import event, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from test_catalog_applicability import Corpus, confirmed, corpus
@@ -662,3 +662,69 @@ def test_exact_source_metadata_does_not_require_nonempty_excerpt(
         assert reader.get_source(source.section_id) == source
         with pytest.raises(ValidationError):
             reader.get_excerpt(source.section_id)
+
+
+def test_privacy_shutdown_replay_rechecks_revoked_source(
+    browsers: tuple[TestClient, TestClient],
+    message_db: Database,
+    databases: tuple[Database, Database],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from test_privacy import packet
+
+    from app.core.db_types import utc_now
+    from app.modules.orders.models import ConsentText
+    from app.modules.orders.privacy_operator import run_privacy
+
+    try:
+        one, _ = browsers
+        own, request, source, c = knowledge(message_db, one)
+        first = post(one, own, request)
+        assert first.status_code == 200 and first.json()["reply"]["sources"]
+        path, bundle = packet(tmp_path, approved=True)
+        with databases[1].unit_of_work() as session:
+            session.execute(update(ConsentText).values(retired_at=utc_now()))
+            assert run_privacy(
+                session,
+                login=c.login,
+                password=PASSWORD,
+                operation="publish",
+                expected_version=None,
+                path=path,
+                expected_checksum=bundle.checksum(),
+            ).ok
+        monkeypatch.setenv("APP_ENV", "production")
+        monkeypatch.delenv("PRIVACY_CONFIG_FILE", raising=False)
+        with databases[1].unit_of_work() as session:
+            assert run_privacy(
+                session,
+                login=c.login,
+                password=PASSWORD,
+                operation="retire",
+                expected_version=bundle.consent.version,
+            ).ok
+            session.execute(
+                update(Document)
+                .where(Document.id == source.document_id)
+                .values(visibility="internal")
+            )
+        before, records = saved(message_db, own)
+        monkeypatch.setattr(
+            ModeRouter, "route", lambda *args: pytest.fail("Replay cannot reroute")
+        )
+        replay = post(one, own, request)
+        hidden(replay)
+        assert replay.json()["message_id"] == first.json()["message_id"]
+        assert replay.json()["state_version"] == first.json()["state_version"]
+        assert str(source.section_id) not in replay.text
+        after, same = saved(message_db, own)
+        assert (
+            after.state_version == before.state_version
+            and len(same) == len(records) == 1
+        )
+    finally:
+        # The suite owns a fresh synthetic DB. Do not leak this deliberately
+        # retired publication into subsequent demo order fixtures.
+        with databases[1].unit_of_work() as session:
+            session.execute(text("TRUNCATE app.consent_publications"))

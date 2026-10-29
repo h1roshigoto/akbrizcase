@@ -24,3 +24,4 @@ class PrivacyPolicy(DTO):
     withdrawal_instructions: str = Field(min_length=1, max_length=4000)
     consent_version: Text200
     synthetic: bool
+    collection_enabled: bool

@@ -309,6 +309,7 @@ export type PrivacyPolicy = {
   "withdrawal_instructions": string
   "consent_version": string
   "synthetic": boolean
+  "collection_enabled": boolean
 }
 
 export type SelectModeInput = {

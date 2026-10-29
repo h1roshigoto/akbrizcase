@@ -797,3 +797,29 @@ it.each([false, true])(
     expect(submitted.comment).toBe('  exact\ncomment  ')
   },
 )
+
+it.each([false, true])(
+  'keeps %s support/commercial closed with a readable retired policy',
+  async (support) => {
+    saved()
+    const api = orders()
+    // Even a stale successful consent fetch cannot override the server's read-only policy state.
+    vi.mocked(api.getPolicy).mockResolvedValue({
+      ...policyFixture,
+      collection_enabled: false,
+    })
+    render(
+      <Harness
+        api={api}
+        {...(support
+          ? { support: { draft: 'Synthetic support', owner: null } }
+          : {})}
+      />,
+    )
+    await screen.findByText(/Приём новых обращений закрыт/)
+    expect((send() as HTMLButtonElement).disabled).toBe(true)
+    expect((accept() as HTMLInputElement).disabled).toBe(true)
+    expect((accept() as HTMLInputElement).checked).toBe(false)
+    expect(api.submit).not.toHaveBeenCalled()
+  },
+)

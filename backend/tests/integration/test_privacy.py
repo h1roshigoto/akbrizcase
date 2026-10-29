@@ -19,6 +19,7 @@ from app.core.db_types import utc_now
 from app.core.privacy import PrivacyBundle, digest
 from app.core.staff import bootstrap_admin, create_staff
 from app.main import app
+from app.modules.chat.models import ChatSession
 from app.modules.notify.models import EmailOutbox
 from app.modules.orders.models import Consent, ConsentText, Order
 from app.modules.orders.privacy_models import ConsentPublication
@@ -54,6 +55,10 @@ def privacy_db(
     runtime, migrator = databases
     with migrator.unit_of_work() as session:
         session.execute(update(ConsentText).values(retired_at=utc_now()))
+        # This fixture runs only in conftest's fresh owner-marked disposable DB.
+        # Isolate immutable publication history so the newest packet belongs to
+        # this test; runtime UPDATE/DELETE protection remains enabled and tested.
+        session.execute(text("TRUNCATE app.consent_publications"))
     seed_consent(runtime, mode="test")
     with migrator.unit_of_work() as session:
         session.execute(
@@ -75,6 +80,7 @@ def privacy_db(
     finally:
         with migrator.unit_of_work() as session:
             session.execute(delete(Order))
+            session.execute(delete(ChatSession))
             session.execute(delete(Consent))
             session.execute(update(ConsentText).values(retired_at=utc_now()))
 
@@ -189,8 +195,11 @@ def test_production_missing_config_synthetic_and_mismatched_packet(
     assert publish(privacy_db[1], path, bundle).ok
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.delenv("PRIVACY_CONFIG_FILE", raising=False)
-    for endpoint in ("/api/v1/consent-text", "/api/v1/privacy-policy"):
-        assert client.get(endpoint).status_code == 503
+    assert client.get("/api/v1/consent-text").status_code == 503
+    policy = client.get("/api/v1/privacy-policy")
+    assert policy.status_code == 200
+    assert policy.json()["text"] == bundle.policy.text
+    assert policy.json()["collection_enabled"] is False
     assert (
         client.post(
             "/api/v1/orders", json=body(bundle.consent.version), headers=headers()
@@ -213,7 +222,9 @@ def test_production_missing_config_synthetic_and_mismatched_packet(
         "/api/v1/orders", json=body(bundle.consent.version), headers=accepted_key
     )
     assert replay.status_code == 200 and replay.json() == accepted.json()
-    assert client.get("/api/v1/privacy-policy").status_code == 503
+    readonly = client.get("/api/v1/privacy-policy")
+    assert readonly.status_code == 200
+    assert readonly.json()["collection_enabled"] is False
     assert (
         client.post(
             "/api/v1/orders", json=body(bundle.consent.version), headers=headers()
@@ -297,6 +308,14 @@ def test_retirement_no_reactivation_and_permanent_packet(
             expected_version=bundle.consent.version,
         ).ok
     assert client.get("/api/v1/consent-text").status_code == 503
+    policy = client.get("/api/v1/privacy-policy")
+    assert policy.status_code == 200
+    assert policy.json()["text"] == bundle.policy.text
+    assert (
+        policy.json()["withdrawal_instructions"]
+        == bundle.policy.withdrawal_instructions
+    )
+    assert policy.json()["collection_enabled"] is False
     assert (
         client.post("/api/v1/orders", json=body(), headers=headers()).status_code == 503
     )
@@ -508,3 +527,314 @@ def test_production_document_privileges_allow_locks_but_deny_mutations(
             session.execute(
                 text("GRANT INSERT ON app.consent_publications TO akbrizcase_runtime")
             )
+
+
+@pytest.mark.parametrize("blocked_by", ["retire", "missing-config"])
+def test_committed_chat_replay_survives_collection_shutdown(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    blocked_by: str,
+) -> None:
+    from app.modules.chat.mode_router import ModeRouter
+    from app.modules.chat.models import ChatMessage
+
+    path, bundle = packet(tmp_path, approved=True)
+    assert publish(privacy_db[1], path, bundle).ok
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(path))
+    own = client.post("/api/v1/chat/sessions", json={"mode": "knowledge"}).json()
+    token = {"X-Chat-Token": own["session_token"]}
+    original = {
+        "session_id": own["session_id"],
+        "request_id": str(uuid4()),
+        "expected_version": 0,
+        "input": {"type": "select_mode", "mode": "commerce"},
+    }
+    first = client.post("/api/v1/chat/messages", json=original, headers=token)
+    assert first.status_code == 200
+    with privacy_db[0].unit_of_work() as session:
+        row = session.get(ChatSession, own["session_id"])
+        assert row is not None
+        before = (row.state_version, row.last_activity_at, row.mode)
+    if blocked_by == "retire":
+        with privacy_db[1].unit_of_work() as session:
+            assert run_privacy(
+                session,
+                login="privacy-admin",
+                password=PASSWORD,
+                operation="retire",
+                expected_version=bundle.consent.version,
+            ).ok
+    else:
+        monkeypatch.delenv("PRIVACY_CONFIG_FILE")
+    monkeypatch.setattr(
+        ModeRouter, "route", lambda *args: pytest.fail("Replay must not route")
+    )
+    # The original committed response was lost. Only its immutable identity is
+    # reused; a fresh projector supplies the actual response after COMMIT.
+    replay = client.post("/api/v1/chat/messages", json=original, headers=token)
+    assert replay.status_code == 200 and replay.json() == first.json()
+    changed = original | {"input": {"type": "select_mode", "mode": "knowledge"}}
+    conflict = client.post("/api/v1/chat/messages", json=changed, headers=token)
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    fresh = original | {"request_id": str(uuid4()), "expected_version": 1}
+    assert (
+        client.post("/api/v1/chat/messages", json=fresh, headers=token).status_code
+        == 503
+    )
+    wrong = client.post(
+        "/api/v1/chat/messages", json=original, headers={"X-Chat-Token": "f" * 64}
+    )
+    assert wrong.status_code == 404
+    policy = client.get("/api/v1/privacy-policy")
+    assert policy.status_code == 200 and policy.json()["collection_enabled"] is False
+    assert policy.json()["text"] == bundle.policy.text
+    assert client.get("/api/v1/consent-text").status_code == 503
+    assert (
+        client.post(
+            "/api/v1/orders", json=body(bundle.consent.version), headers=headers()
+        ).status_code
+        == 503
+    )
+    with privacy_db[0].unit_of_work() as session:
+        row = session.get(ChatSession, own["session_id"])
+        assert (
+            row is not None
+            and (row.state_version, row.last_activity_at, row.mode) == before
+        )
+        assert session.scalar(select(func.count()).select_from(ChatMessage)) == 1
+        row.created_at = utc_now() - timedelta(hours=25)
+        row.last_activity_at = row.created_at
+        row.expires_at = row.created_at + timedelta(hours=24)
+    assert (
+        client.post("/api/v1/chat/messages", json=original, headers=token).status_code
+        == 410
+    )
+    assert (
+        client.post(
+            "/api/v1/chat/messages", json=original, headers={"X-Chat-Token": "f" * 64}
+        ).status_code
+        == 404
+    )
+
+
+@pytest.mark.parametrize("operation", ["retire", "publish"])
+def test_new_chat_waits_for_privacy_change_before_session_lock(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: Literal["retire", "publish"],
+) -> None:
+    from test_catalog_applicability import wait_for_lock
+
+    from app.modules.chat.models import ChatMessage
+
+    path, bundle = packet(tmp_path, approved=True)
+    assert publish(privacy_db[1], path, bundle).ok
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(path))
+    own = client.post("/api/v1/chat/sessions", json={"mode": "knowledge"}).json()
+    next_path, next_bundle = packet(tmp_path, approved=True)
+    request = {
+        "session_id": own["session_id"],
+        "request_id": str(uuid4()),
+        "expected_version": 0,
+        "input": {"type": "select_mode", "mode": "commerce"},
+    }
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with privacy_db[1].unit_of_work() as session:
+            assert run_privacy(
+                session,
+                login="privacy-admin",
+                password=PASSWORD,
+                operation=operation,
+                expected_version=bundle.consent.version,
+                path=next_path,
+                expected_checksum=next_bundle.checksum(),
+            ).ok
+            future = pool.submit(
+                client.post,
+                "/api/v1/chat/messages",
+                json=request,
+                headers={"X-Chat-Token": own["session_token"]},
+            )
+            wait_for_lock(privacy_db[0])
+            assert not future.done()
+            # The contender waits for privacy, without holding the session row.
+            session.execute(text("SET LOCAL lock_timeout='500ms'"))
+            session.execute(
+                select(ChatSession)
+                .where(ChatSession.id == own["session_id"])
+                .with_for_update()
+            )
+        assert future.result(timeout=10).status_code == 503
+    with privacy_db[0].unit_of_work() as session:
+        assert session.scalar(select(func.count()).select_from(ChatMessage)) == 0
+        row = session.get(ChatSession, own["session_id"])
+        assert row is not None and row.state_version == 0
+    if operation == "publish":
+        monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(next_path))
+        assert (
+            client.post(
+                "/api/v1/chat/messages",
+                json=request,
+                headers={"X-Chat-Token": own["session_token"]},
+            ).status_code
+            == 200
+        )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "packet-checksum",
+        "text-checksum",
+        "approval-status",
+        "future",
+        "same-time",
+        "overlap",
+    ],
+)
+def test_policy_never_falls_back_from_newer_untrusted_publication(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    tmp_path: Path,
+    damage: str,
+) -> None:
+    path, good = packet(tmp_path)
+    assert publish(privacy_db[1], path, good).ok
+    assert client.get("/api/v1/privacy-policy").json()["version"] == good.policy.version
+    _, newer = packet(tmp_path)
+    with privacy_db[1].unit_of_work() as session:
+        moment = utc_now()
+        if damage != "overlap":
+            session.execute(update(ConsentText).values(retired_at=moment))
+        original = session.get(ConsentPublication, good.consent.version)
+        assert original is not None
+        at = original.published_at if damage == "same-time" else moment
+        if damage == "future":
+            at += timedelta(days=1)
+        data = newer.model_dump(mode="json")
+        if damage == "approval-status":
+            data["approval_status"] = "PENDING EXTERNAL APPROVAL"
+        session.add(
+            ConsentText(
+                **(
+                    newer.consent.model_dump()
+                    | ({"checksum": "0" * 64} if damage == "text-checksum" else {})
+                ),
+                active_from=at,
+            )
+        )
+        session.flush()
+        session.add(
+            ConsentPublication(
+                consent_version=newer.consent.version,
+                bundle=data,
+                bundle_checksum="0" * 64
+                if damage == "packet-checksum"
+                else newer.checksum(),
+                published_at=at,
+            )
+        )
+    assert client.get("/api/v1/privacy-policy").status_code == 503
+
+
+def test_policy_requires_a_publication_and_rejects_synthetic_in_production(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    assert client.get("/api/v1/privacy-policy").status_code == 503
+    with privacy_db[1].unit_of_work() as session:
+        session.execute(text("TRUNCATE app.consent_publications"))
+    assert client.get("/api/v1/privacy-policy").status_code == 503
+
+
+def test_newest_approved_policy_stays_current_without_runtime_config(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_path, first = packet(tmp_path, approved=True)
+    assert publish(privacy_db[1], first_path, first).ok
+    next_path, newer = packet(tmp_path, approved=True)
+    assert publish(privacy_db[1], next_path, newer, expected=first.consent.version).ok
+    monkeypatch.setenv("APP_ENV", "production")
+    # A stale deployment file must not make the old policy current again.
+    monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(first_path))
+    current = client.get("/api/v1/privacy-policy")
+    assert current.status_code == 200
+    assert current.json()["version"] == newer.policy.version
+    assert current.json()["consent_version"] == newer.consent.version
+    assert current.json()["collection_enabled"] is False
+    assert client.get("/api/v1/consent-text").status_code == 503
+    monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(next_path))
+    assert client.get("/api/v1/privacy-policy").json()["collection_enabled"] is True
+
+
+@pytest.mark.parametrize("operation", ["retire", "publish"])
+def test_committed_new_message_holds_privacy_lock_until_commit(
+    privacy_db: tuple[Database, Database],
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: Literal["retire", "publish"],
+) -> None:
+    from test_catalog_applicability import wait_for_lock
+
+    from app.modules.chat.messages import create_message
+    from app.schemas.chat import ChatMessageCreate
+
+    path, bundle = packet(tmp_path, approved=True)
+    assert publish(privacy_db[1], path, bundle).ok
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("PRIVACY_CONFIG_FILE", str(path))
+    own = client.post("/api/v1/chat/sessions", json={"mode": "knowledge"}).json()
+    next_path, next_bundle = packet(tmp_path, approved=True)
+    original = {
+        "session_id": own["session_id"],
+        "request_id": str(uuid4()),
+        "expected_version": 0,
+        "input": {"type": "select_mode", "mode": "commerce"},
+    }
+
+    def change() -> PrivacyOutcome:
+        with privacy_db[1].unit_of_work() as session:
+            return run_privacy(
+                session,
+                login="privacy-admin",
+                password=PASSWORD,
+                operation=operation,
+                expected_version=bundle.consent.version,
+                path=next_path,
+                expected_checksum=next_bundle.checksum(),
+            )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with privacy_db[0].unit_of_work() as session:
+            message_id = create_message(
+                session,
+                ChatMessageCreate.model_validate(original),
+                own["session_token"],
+            )
+            future = pool.submit(change)
+            wait_for_lock(privacy_db[0])
+            assert not future.done()
+        assert future.result(timeout=10).ok
+    replay = client.post(
+        "/api/v1/chat/messages",
+        json=original,
+        headers={"X-Chat-Token": own["session_token"]},
+    )
+    assert replay.status_code == 200
+    assert (
+        replay.json()["message_id"] == str(message_id)
+        and replay.json()["state_version"] == 1
+    )

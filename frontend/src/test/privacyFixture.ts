@@ -9,4 +9,5 @@ export const policyFixture: PrivacyPolicy = {
     'Synthetic only. Use the agreed test contact channel.',
   consent_version: fixtures.consent_text.version,
   synthetic: true,
+  collection_enabled: true,
 }

@@ -53,3 +53,20 @@ it('loads a same-origin policy without caching and rejects malformed responses',
     await expect(httpOrders.getPolicy(signal)).rejects.toThrow()
   }
 })
+
+it('keeps the published policy readable after retirement without suggesting consent is active', async () => {
+  const api: OrdersSource = {
+    getPolicy: vi
+      .fn()
+      .mockResolvedValue({ ...policyFixture, collection_enabled: false }),
+    getConsent: vi.fn().mockRejectedValue(new Error('retired')),
+    submit: vi.fn(),
+  }
+  render(<PrivacyPage orders={api} />)
+  await screen.findByText(policyFixture.text)
+  expect(screen.getByText(policyFixture.withdrawal_instructions)).toBeTruthy()
+  expect(screen.getByText(/Приём новых обращений закрыт/)).toBeTruthy()
+  expect(screen.getByText(/не возобновляет действие согласия/)).toBeTruthy()
+  expect(api.getConsent).not.toHaveBeenCalled()
+  expect(api.submit).not.toHaveBeenCalled()
+})

@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.api_errors import error_response
@@ -20,8 +19,7 @@ from app.modules.chat.messages import (
 from app.modules.chat.projection import begin_projection_read
 from app.modules.chat.service import create_session, read_session
 from app.modules.kb.tree_reads import published_scenarios
-from app.modules.orders.privacy_service import synthetic_database
-from app.modules.orders.service import OrderRejected, effective_consent
+from app.modules.orders.service import OrderRejected, collection_gate
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageResult,
@@ -68,20 +66,14 @@ def scenarios(request: Request, model_id: UUIDValue) -> ChatScenarios:
     return result
 
 
-def collection_gate(session: Session) -> None:
-    if synthetic_database(session):
-        return
-    try:
-        effective_consent(session, lock=True)
-    except OrderRejected:
-        raise HTTPException(503) from None
-
-
 @router.post("/sessions", status_code=201, response_model=ChatSessionCreated)
 def create(request: Request, body: ChatSessionCreate) -> ChatSessionCreated:
-    with database_for(request).unit_of_work() as session:
-        collection_gate(session)
-        result = create_session(session, body)
+    try:
+        with database_for(request).unit_of_work() as session:
+            collection_gate(session)
+            result = create_session(session, body)
+    except OrderRejected:
+        raise HTTPException(503) from None
     # UoW must commit successfully before the sole disclosure of the raw token.
     return result
 
@@ -109,7 +101,6 @@ def persist_message(
     request: Request, body: ChatMessageCreate, token: str | None
 ) -> ChatMessageResult:
     with database_for(request).unit_of_work() as session:
-        collection_gate(session)
         message_id = create_message(session, body, token)
     # A failed flush/COMMIT must never emit an HTTP success.
     # Fresh snapshot after COMMIT: dependency validation in the writer's UoW
@@ -169,5 +160,5 @@ async def message(
         raise HTTPException(410) from None
     except MessageConflict as error:
         return error_response(request, 409, error.code, "Message conflict")
-    except StoredStateUnavailable:
+    except (StoredStateUnavailable, OrderRejected):
         raise HTTPException(503) from None

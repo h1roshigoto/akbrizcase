@@ -11,7 +11,7 @@ from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.modules.chat.access import ChatExpired, ChatNotFound
-from app.modules.orders.privacy_service import PrivacyUnavailable, approved_publication
+from app.modules.orders.privacy_service import PrivacyUnavailable, public_policy
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.service import (
     OrderRejected,
@@ -58,11 +58,11 @@ def consent_text(request: Request) -> ConsentText | JSONResponse:
 def privacy_policy(request: Request) -> PrivacyPolicy | JSONResponse:
     try:
         with database_for(request).unit_of_work() as session:
-            consent = effective_consent(session)
-            bundle = approved_publication(session, consent.version, consent.checksum)
+            bundle, collection_enabled = public_policy(session)
             return PrivacyPolicy(
                 **bundle.policy.model_dump(),
-                consent_version=consent.version,
+                consent_version=bundle.consent.version,
+                collection_enabled=collection_enabled,
                 synthetic=bundle.approval_status == "SYNTHETIC ONLY",
             )
     except OrderRejected as error:
