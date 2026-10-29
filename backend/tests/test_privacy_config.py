@@ -123,3 +123,10 @@ def test_read_only_cli_validation_needs_no_credentials(
     assert main(["check", "--bundle", str(path)]) == 1
     output = capsys.readouterr()
     assert not output.out and "must never be echoed" not in output.err
+
+
+def test_blank_policy_version_refused_before_publication() -> None:
+    data = demo_bundle().model_dump(mode="json")
+    data["policy"]["version"] = "   "
+    with pytest.raises(ValidationError):
+        PrivacyBundle.model_validate(data)

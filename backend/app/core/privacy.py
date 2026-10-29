@@ -9,6 +9,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.common import Text200
 from app.schemas.consent import ConsentText
 
 Days = Annotated[int, Field(strict=True, ge=1, le=36500)]
@@ -55,7 +56,7 @@ class RetentionSettings(BaseModel):
 class PolicyDocument(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Annotated[str, Field(min_length=1, max_length=200)]
+    version: Text200
     text: Annotated[str, Field(min_length=1, max_length=100000)]
     checksum: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     withdrawal_instructions: Annotated[str, Field(min_length=1, max_length=4000)]

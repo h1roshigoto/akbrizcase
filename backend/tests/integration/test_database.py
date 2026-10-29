@@ -65,6 +65,7 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "document_sections",
             "staff_users",
             "consent_texts",
+            "consent_publications",
             "consents",
             "orders",
             "order_items",
