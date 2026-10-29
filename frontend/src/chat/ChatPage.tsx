@@ -18,6 +18,7 @@ export function ChatPage({
   selection,
   onItem,
   onRequest,
+  onSupport,
   onBack,
 }: {
   controller: ChatController
@@ -25,6 +26,10 @@ export function ChatPage({
   selection: Selection
   onItem: (id: UUID) => void
   onRequest: () => void
+  onSupport?: (
+    draft: string | null,
+    owner: { session_id: UUID; session_token: string },
+  ) => void
   onBack: () => void
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot)
@@ -62,9 +67,14 @@ export function ChatPage({
       action.type === 'contact_specialist' ||
       (action.type === 'open_request_form' && action.payload.kind === 'support')
     ) {
-      setActionNotice(
-        'Оформление обращения по результатам диагностики будет реализовано в MVP-036. Обращение не отправлено. Можно продолжить чат или вернуться в каталог.',
-      )
+      const owner = controller.supportContext(action)
+      if (owner && onSupport)
+        onSupport(
+          'comment_draft' in action.payload
+            ? (action.payload.comment_draft ?? null)
+            : null,
+          owner,
+        )
       return
     }
     const signal = alive.current!.signal

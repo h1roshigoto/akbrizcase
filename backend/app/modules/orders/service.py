@@ -10,8 +10,10 @@ from pydantic import ValidationError
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, load_only
 
+from app.core.db_types import utc_now
 from app.core.staff_sessions import token_hash
 from app.modules.catalog.models import CatalogItem
+from app.modules.chat.access import ChatExpired, require_owner
 from app.modules.notify.models import EmailOutbox
 from app.modules.orders.models import (
     Consent,
@@ -156,9 +158,14 @@ def create_order(
     request: OrderCreate,
     headers: OrderHeaders,
     security: OrderSecurity,
+    chat_token: str | None = None,
 ) -> OrderReceipt:
-    if request.source != "site":
-        raise OrderRejected(422, "VALIDATION_ERROR", "Invalid request parameters")
+    # Only reached after replay_order. Hold the shared owner lock through commit:
+    # DELETE and chat writers cannot invalidate this FK/ownership decision.
+    chat = None
+    if request.source == "chat":
+        assert request.chat_session_id is not None  # OrderCreate contract.
+        chat = require_owner(session, request.chat_session_id, chat_token)
     consent_text = effective_consent(session, lock=True)
     if request.consent.version != consent_text.version:
         raise OrderRejected(409, "CONSENT_CHANGED", "Consent has changed")
@@ -211,6 +218,8 @@ def create_order(
     # Recheck the effective version immediately before creating any evidence.
     if effective_consent(session, lock=True).version != request.consent.version:
         raise OrderRejected(409, "CONSENT_CHANGED", "Consent has changed")
+    if chat is not None and chat.expires_at <= utc_now():
+        raise ChatExpired
     consent = Consent(text_version=consent_text.version)
     session.add(consent)
     session.flush()
@@ -222,7 +231,8 @@ def create_order(
         phone=request.contact.phone,
         city=request.city,
         comment=request.comment,
-        source="site",
+        source=request.source,
+        chat_session_id=chat.id if chat is not None else None,
         status="new",
         version=1,
         consent_id=consent.id,
@@ -269,6 +279,10 @@ def create_order(
         )
     )
     session.flush()
+    # Flush can itself wait on FK/UNIQUE locks. Any expiry here rolls back the
+    # entire prepared write set; a UNIQUE loser still follows AQ-01 in the router.
+    if chat is not None and chat.expires_at <= utc_now():
+        raise ChatExpired
     return OrderReceipt(
         number=order.number,
         status="new",

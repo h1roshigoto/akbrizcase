@@ -8,20 +8,22 @@ import { SelectedItems } from '../components/SelectedItems'
 import { StatusPanel } from '../components/StatusPanel'
 import { Icon } from '../components/Icon'
 import { ItemDetail } from './ItemDetail'
-import { RequestPage } from './RequestPage'
+import { RequestPage, type SupportContext } from './RequestPage'
 import { httpOrders, type OrdersSource } from '../api/httpOrders'
 import { Submission } from '../state/submission'
 import { httpChat, type ChatSource } from '../api/httpChat'
 import { ChatController } from '../chat/controller'
 import { ChatPage } from '../chat/ChatPage'
 
-type PageView = 'catalog' | 'chat' | 'request'
+type PageView = 'catalog' | 'chat' | 'request' | 'support'
 const viewFromHash = (): PageView =>
-  window.location.hash === '#chat'
-    ? 'chat'
-    : window.location.hash === '#request'
-      ? 'request'
-      : 'catalog'
+  window.location.hash === '#support'
+    ? 'support'
+    : window.location.hash === '#chat'
+      ? 'chat'
+      : window.location.hash === '#request'
+        ? 'request'
+        : 'catalog'
 
 export function CatalogPage({
   source,
@@ -39,10 +41,16 @@ export function CatalogPage({
   )
   const chatOpen = view === 'chat'
   const requestOpen = view === 'request'
+  const supportOpen = view === 'support'
+  const [supportContext, setSupportContext] = useState<SupportContext | null>(
+    () => (viewFromHash() === 'support' ? { draft: null, owner: null } : null),
+  )
   const syncView = useCallback(() => {
     const next = viewFromHash()
     setView(next)
     if (next === 'request') setRequestVisited(true)
+    if (next === 'support')
+      setSupportContext((current) => current ?? { draft: null, owner: null })
   }, [])
   useEffect(() => {
     window.addEventListener('hashchange', syncView)
@@ -52,7 +60,9 @@ export function CatalogPage({
       window.removeEventListener('popstate', syncView)
     }
   }, [syncView])
-  const navigate = (hash: '#catalog' | '#chat' | '#request' | '#selection') => {
+  const navigate = (
+    hash: '#catalog' | '#chat' | '#request' | '#selection' | '#support',
+  ) => {
     window.location.hash = hash
     syncView()
   }
@@ -147,6 +157,9 @@ export function CatalogPage({
             >
               Помощник
             </a>
+            <a href="#support" onClick={() => navigate('#support')}>
+              Обратиться к специалисту
+            </a>
           </nav>
           <span className="header-note">Для вашего оборудования</span>
         </div>
@@ -173,9 +186,16 @@ export function CatalogPage({
             openItem(id)
           }}
           onRequest={openRequest}
+          onSupport={(draft, owner) => {
+            setSupportContext({ draft, owner })
+            navigate('#support')
+          }}
         />
       )}
-      <main className="page-shell" hidden={requestOpen || chatOpen}>
+      <main
+        className="page-shell"
+        hidden={requestOpen || chatOpen || supportOpen}
+      >
         <div className="breadcrumb">
           Главная <span>/</span> Каталог
         </div>
@@ -409,6 +429,20 @@ export function CatalogPage({
             submission={submission}
             active={requestOpen}
             onBack={() => navigate('#catalog')}
+          />
+        </div>
+      )}
+      {supportContext && (
+        <div hidden={!supportOpen}>
+          <RequestPage
+            source={source}
+            orders={orders}
+            selection={selection}
+            submission={submission}
+            active={supportOpen}
+            support={supportContext}
+            onBack={() => navigate('#catalog')}
+            onChat={() => navigate('#chat')}
           />
         </div>
       )}

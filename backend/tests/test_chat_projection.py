@@ -11,11 +11,13 @@ from test_diagnosis import tree as tree
 from test_mode_router import source
 
 from app.modules.chat.diagnosis import DiagnosisState
+from app.modules.chat.handoff import GENERAL_SUPPORT_DRAFT
 from app.modules.chat.message_state import ResponseEnvelope, StateAfter
 from app.modules.chat.models import ChatMessage
 from app.modules.chat.projection import ChatReplyProjector, initial_reply, safe_reply
 from app.modules.kb.read_service import SourceNotFound
 from app.modules.kb.tree_reads import TreeSnapshot
+from app.schemas.chat import ContactSpecialistAction
 from app.schemas.sources import KnowledgeHit
 
 
@@ -53,6 +55,10 @@ def test_diagnostic_render_ignores_stored_text_buttons_and_never_steps(
     ]
     assert value == original
     assert "PRIVATE" not in reply.model_dump_json()
+    assert (
+        reply.actions[-1].model_dump()["payload"]["comment_draft"]
+        == GENERAL_SUPPORT_DRAFT
+    )
 
 
 def test_handoff_stays_handoff_without_loading_tree(
@@ -61,6 +67,9 @@ def test_handoff_stays_handoff_without_loading_tree(
 ) -> None:
     value = envelope(DiagnosisState(tree_id=tree.tree_id, current_node_key="root"))
     value.reply = safe_reply("diagnose")
+    action = value.reply.actions[0]
+    assert isinstance(action, ContactSpecialistAction)
+    action.payload.comment_draft = "SYNTHETIC POISON"
 
     def forbidden(*args: object, **kwargs: object) -> None:
         pytest.fail("A handoff cannot become a technical answer")

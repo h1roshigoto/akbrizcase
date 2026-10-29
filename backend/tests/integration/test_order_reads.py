@@ -21,6 +21,7 @@ from app.core.staff_models import StaffSession, StaffUser
 from app.main import admin, app
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 from app.modules.catalog.seed import seed_catalog
+from app.modules.chat.models import ChatSession
 from app.modules.notify.models import EmailOutbox
 from app.modules.orders.models import Consent, ConsentText, Order, OrderStatusHistory
 from app.modules.orders.read_service import OrderReadService
@@ -94,6 +95,52 @@ def login(client: TestClient, role: str = "manager") -> str:
     )
     assert response.status_code == 200
     return str(response.json()["csrf_token"])
+
+
+def test_support_comment_survives_chat_deletion_in_protected_detail(
+    read_client: TestClient, databases: tuple[Database, Database]
+) -> None:
+    runtime, _ = databases
+    own = read_client.post("/api/v1/chat/sessions", json={"mode": "diagnose"}).json()
+    exact = "  SYNTHETIC-036 independently confirmed\n<script>literal</script>  "
+    response = read_client.post(
+        "/api/v1/orders",
+        json={
+            "kind": "support",
+            "items": [],
+            "source": "chat",
+            "chat_session_id": own["session_id"],
+            "comment": exact,
+            "contact": {
+                "name": "Synthetic Support",
+                "email": "support@example.invalid",
+            },
+            "consent": {"version": DEMO_VERSION, "accepted": True},
+            "confirmed": True,
+        },
+        headers={
+            "Idempotency-Key": str(uuid4()),
+            "X-Request-Token": "e" * 64,
+            "X-Chat-Token": own["session_token"],
+        },
+    )
+    assert response.status_code == 201
+    with runtime.unit_of_work() as session:
+        identifier = session.scalar(
+            select(Order.id).where(Order.number == response.json()["number"])
+        )
+        session.execute(
+            delete(ChatSession).where(ChatSession.id == UUID(own["session_id"]))
+        )
+    assert read_client.get(f"/api/v1/admin/orders/{identifier}").status_code == 401
+    login(read_client)
+    detail = read_client.get(f"/api/v1/admin/orders/{identifier}")
+    assert detail.status_code == 200
+    assert detail.json()["comment"] == exact
+    assert detail.json()["source"] == "chat"
+    with runtime.unit_of_work() as session:
+        row = session.get(Order, identifier)
+        assert row is not None and row.chat_session_id is None and row.comment == exact
 
 
 def create(client: TestClient, database: Database, kind: str = "commercial") -> UUID:

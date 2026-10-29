@@ -14,6 +14,7 @@ import type {
   OrderCreate,
   OrderItemInput,
   OrderReceipt,
+  UUID,
 } from '../api/types'
 import { formatKopecks, formatPrice, toKopecks } from '../state/money'
 import { emptyForm, validateForm, type FormValues } from '../state/requestForm'
@@ -91,6 +92,8 @@ function Receipt({ receipt }: { receipt: OrderReceipt }) {
   )
 }
 const messages = {
+  chat_expired:
+    'Срок вашей сессии истёк. Заявка не создана. Введённые данные сохранены в открытой форме. Можно оформить обращение независимо от чата.',
   catalog_changed:
     'Каталог изменился. Перечитываем позиции; проверьте актуальные данные и подтвердите заявку заново.',
   consent_changed:
@@ -103,6 +106,11 @@ const messages = {
     'Не удалось получить подтверждение заявки. Обратитесь к менеджеру для проверки. Автоматическая новая отправка недоступна.',
 }
 
+export type SupportContext = {
+  draft: string | null
+  owner: { session_id: UUID; session_token: string } | null
+}
+
 export function RequestPage({
   source,
   orders,
@@ -110,6 +118,8 @@ export function RequestPage({
   submission,
   active,
   onBack,
+  support,
+  onChat,
 }: {
   source: CatalogSource
   orders: OrdersSource
@@ -117,10 +127,23 @@ export function RequestPage({
   submission: Submission
   active: boolean
   onBack: () => void
+  support?: SupportContext
+  onChat?: () => void
 }) {
   const state = useSyncExternalStore(submission.subscribe, submission.snapshot)
   const anchor = useRef<HTMLElement>(null)
-  const [values, setValues] = useState<FormValues>(emptyForm)
+  const [values, setValues] = useState<FormValues>(() => ({
+    ...emptyForm,
+    comment: support?.draft ?? '',
+  }))
+  const [siteFallback, setSiteFallback] = useState(false)
+  const owner = siteFallback ? null : support?.owner
+  const isSupport = support !== undefined
+  useEffect(() => {
+    setSiteFallback(false)
+    setAccepted(false)
+    setConfirmed(false)
+  }, [support?.owner?.session_id])
   const [accepted, setAccepted] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -132,7 +155,7 @@ export function RequestPage({
   const idsKey = selection.items.map((row) => row.item_id).join(',')
   const load = useCallback(
     async (signal: AbortSignal) => {
-      if (!active) return []
+      if (!active || isSupport) return []
       return Promise.all(
         selection.items.map(async (row) => {
           try {
@@ -148,7 +171,7 @@ export function RequestPage({
         }),
       )
     },
-    [source, idsKey, attempt, active],
+    [source, idsKey, attempt, active, isSupport],
   )
   const details = useResource(load)
   const previousReview = useRef<typeof details.data>(null)
@@ -186,7 +209,7 @@ export function RequestPage({
   let shipping = false
   let needsReview = false
   let unavailable = false
-  for (const row of selection.items) {
+  for (const row of isSupport ? [] : selection.items) {
     const detail = details.data?.find((v) => v.id === row.item_id)
     const item = detail?.item
     if (!item) unavailable = true
@@ -196,7 +219,10 @@ export function RequestPage({
     else unknown++
     shipping ||= item?.requires_shipping ?? false
   }
-  const errors = validateForm({ ...values, city: shipping ? values.city : '' })
+  const errors = validateForm(
+    { ...values, city: shipping ? values.city : '' },
+    isSupport,
+  )
   const validSelection =
     selection.items.length >= 1 &&
     selection.items.length <= MAX_REQUEST_ITEMS &&
@@ -206,7 +232,7 @@ export function RequestPage({
   const ready =
     editing &&
     source.mode === 'api' &&
-    validSelection &&
+    (isSupport || validSelection) &&
     details.status === 'success' &&
     !unavailable &&
     !needsReview &&
@@ -228,9 +254,12 @@ export function RequestPage({
       expected_revision: revision,
     })) as [OrderItemInput, ...OrderItemInput[]]
     const body: OrderCreate = {
-      kind: 'commercial',
-      source: 'site',
-      items,
+      ...(isSupport
+        ? { kind: 'support' as const, items: [] as [], comment: values.comment }
+        : { kind: 'commercial' as const, items }),
+      ...(isSupport && owner
+        ? { source: 'chat' as const, chat_session_id: owner.session_id }
+        : { source: 'site' as const }),
       contact: {
         name: values.name,
         ...(values.email !== '' ? { email: values.email } : {}),
@@ -245,7 +274,15 @@ export function RequestPage({
       confirmed: true,
     }
     previousReview.current = details.data
-    void submission.confirm(body)
+    void submission.confirm(
+      body,
+      isSupport && owner
+        ? {
+            'X-Chat-Token':
+              owner.session_token as import('../api/types').SecretToken,
+          }
+        : undefined,
+    )
   }
   const refresh = () => {
     setAccepted(false)
@@ -266,13 +303,38 @@ export function RequestPage({
       <button className="text-button" onClick={onBack}>
         ← Вернуться в каталог
       </button>
-      <section className="request-panel" aria-labelledby="request-title">
+      <section
+        className="request-panel"
+        aria-labelledby={isSupport ? 'support-title' : 'request-title'}
+      >
         <p className="eyebrow">ОБЗОР И ПОДТВЕРЖДЕНИЕ</p>
-        <h1 id="request-title">Оформление заявки</h1>
-        <p>
-          Проверьте позиции и предварительные цены. Выбранное сохраняется при
-          возвращении в каталог.
-        </p>
+        <h1 id={isSupport ? 'support-title' : 'request-title'}>
+          {isSupport ? 'Обращение к специалисту' : 'Оформление заявки'}
+        </h1>
+        {isSupport ? (
+          <>
+            <p>
+              Опишите проблему и проверьте окончательный текст. Предложенный
+              черновик можно полностью изменить. Обращение будет создано только
+              после подтверждения и отправки.
+            </p>
+            <p>
+              {owner
+                ? 'Обращение связано с вашей сессией чата.'
+                : 'Самостоятельное обращение с сайта.'}
+            </p>
+            {onChat && (
+              <button className="text-button" onClick={onChat}>
+                Вернуться в чат
+              </button>
+            )}
+          </>
+        ) : (
+          <p>
+            Проверьте позиции и предварительные цены. Выбранное сохраняется при
+            возвращении в каталог.
+          </p>
+        )}
         {state.kind === 'recovered' && (
           <p role="alert" className="inline-error">
             Исход предыдущей отправки неизвестен. После обновления страницы
@@ -311,6 +373,20 @@ export function RequestPage({
         {state.kind === 'rejected' && (
           <div role="alert" className="inline-error">
             <p>{messages[state.reason]}</p>
+            {isSupport && owner && state.reason === 'chat_expired' && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  if (submission.review(true)) {
+                    setSiteFallback(true)
+                    refresh()
+                  }
+                }}
+              >
+                Оформить независимо от чата
+              </button>
+            )}
             {['catalog_changed', 'consent_changed', 'validation'].includes(
               state.reason,
             ) && (
@@ -328,123 +404,125 @@ export function RequestPage({
         {source.mode !== 'api' && (
           <p role="alert">Отправка на демонстрационных fixtures недоступна.</p>
         )}
-        {!validSelection && (
+        {!isSupport && !validSelection && (
           <p role="alert" className="inline-error">
             Для заявки нужно от 1 до 50 уникальных позиций, количество каждой —
             1–999. Вернитесь в каталог и измените выбранное. Позиции не будут
             удалены автоматически.
           </p>
         )}
-        <section
-          aria-label="Обзор позиций"
-          aria-busy={details.status === 'loading'}
-        >
-          <h2>Выбранные товары и услуги</h2>
-          {details.status === 'loading' && (
-            <p role="status">Загружаем актуальные позиции…</p>
-          )}
-          {details.status === 'error' && (
-            <p role="alert">
-              Каталог недоступен. Отправка заблокирована.{' '}
-              <button
-                className="text-button"
-                onClick={refresh}
-                disabled={!editing}
-              >
-                Повторить загрузку каталога
-              </button>
-            </p>
-          )}
-          {details.status === 'success' && (
-            <ul className="request-items">
-              {selection.items.map((row) => {
-                const item = details.data.find(
-                  (v) => v.id === row.item_id,
-                )?.item
-                return (
-                  <li key={row.item_id}>
-                    {item ? (
-                      <>
-                        <h3>{item.name}</h3>
-                        <p>
-                          {item.sku} ·{' '}
-                          {item.kind === 'product' ? 'Товар' : 'Услуга'} ·{' '}
-                          {row.qty} {item.unit}
-                        </p>
-                        <p>
-                          {item.price === null
-                            ? 'Цена по запросу'
-                            : `${formatPrice(item.price)} RUB / ${item.unit}`}
-                        </p>
-                        <p>
-                          {item.requires_shipping
-                            ? 'Требуется доставка, стоимость уточняется'
-                            : 'Доставка не требуется'}
-                        </p>
-                        <CatalogChanges
-                          previous={
-                            previousReview.current?.find(
-                              (v) => v.id === row.item_id,
-                            )?.item
-                          }
-                          current={item}
-                        />
-                        {item.revision !== row.revision && (
-                          <div role="alert" className="revision-note">
-                            <p>
-                              Позиция изменилась: выбранная ревизия{' '}
-                              {row.revision}, текущая {item.revision}. Выше
-                              показаны актуальные название, цена и доставка.
-                              Проверьте их.
-                            </p>
-                            <button
-                              className="secondary-button"
-                              disabled={!editing}
-                              onClick={() => {
-                                selection.acceptRevision(
-                                  row.item_id,
-                                  row.revision,
-                                  item.revision,
-                                )
-                                setConfirmed(false)
-                              }}
-                            >
-                              Принять обновление {item.sku}
-                            </button>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <p role="alert">
-                        Позиция {row.item_id} недоступна. Её нельзя отправить;
-                        удалите её в каталоге.
-                      </p>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          {details.status === 'success' && (
-            <>
-              <p>
-                Известная часть стоимости:{' '}
-                <strong>{formatKopecks(subtotal)} RUB</strong>
+        {!isSupport && (
+          <section
+            aria-label="Обзор позиций"
+            aria-busy={details.status === 'loading'}
+          >
+            <h2>Выбранные товары и услуги</h2>
+            {details.status === 'loading' && (
+              <p role="status">Загружаем актуальные позиции…</p>
+            )}
+            {details.status === 'error' && (
+              <p role="alert">
+                Каталог недоступен. Отправка заблокирована.{' '}
+                <button
+                  className="text-button"
+                  onClick={refresh}
+                  disabled={!editing}
+                >
+                  Повторить загрузку каталога
+                </button>
               </p>
-              <p>
-                Позиций без известной цены: {unknown}.{' '}
-                {unknown > 0
-                  ? 'Полная стоимость позиций уточняется.'
-                  : 'Все цены позиций известны.'}
-              </p>
-              <p>
-                {shipping
-                  ? 'Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.'
-                  : 'Доставка не требуется; стоимость доставки 0,00 RUB.'}
-              </p>
-            </>
-          )}
-        </section>
+            )}
+            {details.status === 'success' && (
+              <ul className="request-items">
+                {selection.items.map((row) => {
+                  const item = details.data.find(
+                    (v) => v.id === row.item_id,
+                  )?.item
+                  return (
+                    <li key={row.item_id}>
+                      {item ? (
+                        <>
+                          <h3>{item.name}</h3>
+                          <p>
+                            {item.sku} ·{' '}
+                            {item.kind === 'product' ? 'Товар' : 'Услуга'} ·{' '}
+                            {row.qty} {item.unit}
+                          </p>
+                          <p>
+                            {item.price === null
+                              ? 'Цена по запросу'
+                              : `${formatPrice(item.price)} RUB / ${item.unit}`}
+                          </p>
+                          <p>
+                            {item.requires_shipping
+                              ? 'Требуется доставка, стоимость уточняется'
+                              : 'Доставка не требуется'}
+                          </p>
+                          <CatalogChanges
+                            previous={
+                              previousReview.current?.find(
+                                (v) => v.id === row.item_id,
+                              )?.item
+                            }
+                            current={item}
+                          />
+                          {item.revision !== row.revision && (
+                            <div role="alert" className="revision-note">
+                              <p>
+                                Позиция изменилась: выбранная ревизия{' '}
+                                {row.revision}, текущая {item.revision}. Выше
+                                показаны актуальные название, цена и доставка.
+                                Проверьте их.
+                              </p>
+                              <button
+                                className="secondary-button"
+                                disabled={!editing}
+                                onClick={() => {
+                                  selection.acceptRevision(
+                                    row.item_id,
+                                    row.revision,
+                                    item.revision,
+                                  )
+                                  setConfirmed(false)
+                                }}
+                              >
+                                Принять обновление {item.sku}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p role="alert">
+                          Позиция {row.item_id} недоступна. Её нельзя отправить;
+                          удалите её в каталоге.
+                        </p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {details.status === 'success' && (
+              <>
+                <p>
+                  Известная часть стоимости:{' '}
+                  <strong>{formatKopecks(subtotal)} RUB</strong>
+                </p>
+                <p>
+                  Позиций без известной цены: {unknown}.{' '}
+                  {unknown > 0
+                    ? 'Полная стоимость позиций уточняется.'
+                    : 'Все цены позиций известны.'}
+                </p>
+                <p>
+                  {shipping
+                    ? 'Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.'
+                    : 'Доставка не требуется; стоимость доставки 0,00 RUB.'}
+                </p>
+              </>
+            )}
+          </section>
+        )}
         <form noValidate onSubmit={submit}>
           <fieldset disabled={!editing} className="request-fields">
             <legend>Контактные данные</legend>
@@ -458,9 +536,11 @@ export function RequestPage({
                   phone: 'Телефон',
                   organization_name: 'Организация (необязательно)',
                   city: 'Город доставки (необязательно)',
-                  comment: 'Комментарий (необязательно)',
+                  comment: isSupport
+                    ? 'Описание проблемы *'
+                    : 'Комментарий (необязательно)',
                 }
-                const id = `request-${key}`
+                const id = `${isSupport ? 'support' : 'request'}-${key}`
                 const props = {
                   id,
                   value: values[key],
@@ -487,7 +567,7 @@ export function RequestPage({
                     {labels[key]}
                     {key === 'name' && ' *'}
                     {key === 'comment' ? (
-                      <textarea {...props} rows={4} />
+                      <textarea {...props} required={isSupport} rows={4} />
                     ) : (
                       <input
                         {...props}
@@ -577,6 +657,14 @@ export function RequestPage({
               <p role="alert">Необходимо явно принять действующее согласие.</p>
             )}
           </section>
+          {isSupport && (
+            <section aria-label="Окончательное описание">
+              <h2>Окончательное описание проблемы</h2>
+              <p className="consent-text">
+                {values.comment || 'Описание пока не заполнено.'}
+              </p>
+            </section>
+          )}
           <label className="check-label">
             <input
               type="checkbox"
@@ -584,8 +672,9 @@ export function RequestPage({
               checked={confirmed}
               onChange={(event) => setConfirmed(event.target.checked)}
             />
-            Подтверждаю показанные позиции, количества, предварительные суммы и
-            введённые данные
+            {isSupport
+              ? 'Подтверждаю окончательное описание проблемы, контакты и отправку обращения'
+              : 'Подтверждаю показанные позиции, количества, предварительные суммы и введённые данные'}
           </label>
           {touched && !confirmed && (
             <p role="alert">Подтвердите показанную заявку.</p>

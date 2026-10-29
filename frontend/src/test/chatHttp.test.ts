@@ -3,9 +3,57 @@ import {
   chatScenarios,
   httpChat,
   isChatInput,
+  isReply,
   sourceURL,
 } from '../api/httpChat'
 import { id, page, reply, result, source, stamp } from './chatFixtures'
+
+it.each([
+  null,
+  'Safe editable draft',
+  '<img src=x onerror=alert(1)>',
+  'x'.repeat(2000),
+])('accepts bounded support draft as plain text: %#', (draft) => {
+  expect(
+    isReply(
+      reply('diagnose', {
+        actions: [
+          {
+            type: 'contact_specialist',
+            payload: { kind: 'support', comment_draft: draft },
+          },
+        ],
+      }),
+    ),
+  ).toBe(true)
+  expect(
+    isReply(
+      reply('diagnose', {
+        actions: [
+          {
+            type: 'open_request_form',
+            payload: { kind: 'support', items: [], comment_draft: draft },
+          },
+        ],
+      }),
+    ),
+  ).toBe(true)
+})
+it.each(['', '  ', 'x'.repeat(2001), {}, 42])(
+  'rejects malformed support draft: %#',
+  (draft) => {
+    const value = {
+      ...reply(),
+      actions: [
+        {
+          type: 'contact_specialist',
+          payload: { kind: 'support', comment_draft: draft },
+        },
+      ],
+    }
+    expect(isReply(value)).toBe(false)
+  },
+)
 
 it('uses same-origin paths, no cookies, no cache, and the owner header only', async () => {
   const outputs = [

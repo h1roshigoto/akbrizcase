@@ -1,6 +1,7 @@
 import {
   secretToken,
   type ConsentText,
+  type ChatHeaders,
   type OrderCreate,
   type OrderHeaders,
   type OrderReceipt,
@@ -16,12 +17,17 @@ export type OrderResult =
         | 'idempotency_conflict'
         | 'not_found'
         | 'validation'
+        | 'chat_expired'
     }
   | { kind: 'uncertain' }
 
 export interface OrdersSource {
   getConsent(signal: AbortSignal): Promise<ConsentText>
-  submit(body: string, headers: OrderHeaders): Promise<OrderResult>
+  submit(
+    body: string,
+    headers: OrderHeaders,
+    chat?: ChatHeaders,
+  ): Promise<OrderResult>
 }
 
 const record = (v: unknown): v is Record<string, unknown> =>
@@ -103,7 +109,7 @@ export const httpOrders: OrdersSource = {
       checksum: v.checksum,
     } as ConsentText
   },
-  async submit(body, headers) {
+  async submit(body, headers, chat) {
     try {
       const response = await fetch('/api/v1/orders', {
         method: 'POST',
@@ -112,6 +118,7 @@ export const httpOrders: OrdersSource = {
         signal: AbortSignal.timeout(30000),
         headers: {
           ...headers,
+          ...chat,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
@@ -166,6 +173,8 @@ export const httpOrders: OrdersSource = {
       }
       if (response.status === 404 && code === 'NOT_FOUND')
         return { kind: 'not_found' }
+      if (response.status === 410 && code === 'SESSION_EXPIRED')
+        return { kind: 'chat_expired' }
       if (response.status === 422 && code === 'VALIDATION_ERROR')
         return { kind: 'validation' }
       return { kind: 'uncertain' }

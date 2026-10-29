@@ -18,7 +18,11 @@ afterEach(() => {
 })
 function mount(
   api = transport(),
-  options: { onItem?: (id: string) => void; onRequest?: () => void } = {},
+  options: {
+    onItem?: (id: string) => void
+    onRequest?: () => void
+    onSupport?: (...args: unknown[]) => void
+  } = {},
 ) {
   const controller = new ChatController(api)
   const catalog = { ...fixtureCatalog, getItem: vi.fn(fixtureCatalog.getItem) }
@@ -32,6 +36,7 @@ function mount(
         onBack={() => {}}
         onItem={options.onItem ?? (() => {})}
         onRequest={options.onRequest ?? (() => {})}
+        {...(options.onSupport ? { onSupport: options.onSupport } : {})}
       />
     )
   }
@@ -248,7 +253,8 @@ it.each(['contact_specialist', 'open_request_form'] as const)(
       ...(await api.create('diagnose')),
       reply: r,
     })
-    mount(api)
+    const onSupport = vi.fn()
+    mount(api, { onSupport })
     await userEvent.click(
       await screen.findByRole('button', {
         name:
@@ -257,7 +263,8 @@ it.each(['contact_specialist', 'open_request_form'] as const)(
             : 'Обращение в поддержку',
       }),
     )
-    await screen.findByText(/будет реализовано в MVP-036/)
+    expect(onSupport).toHaveBeenCalledTimes(1)
+    expect(onSupport.mock.calls[0]![1]).toMatchObject({ session_id: id(1) })
     expect(fetcher).not.toHaveBeenCalled()
     expect(api.send).not.toHaveBeenCalled()
   },

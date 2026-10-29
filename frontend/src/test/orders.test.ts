@@ -27,6 +27,32 @@ beforeEach(() => {
 })
 
 describe('exact logical submission lifecycle', () => {
+  it('keeps chat ownership and the immutable support body through uncertain retry, never allowing site fallback', async () => {
+    const source = makeSource({ kind: 'uncertain' })
+    const submission = new Submission(source)
+    const support: OrderCreate = {
+      ...fixtures.commercial_order,
+      kind: 'support',
+      items: [],
+      comment: 'Synthetic exact support',
+      source: 'chat',
+      chat_session_id: fixtures.catalog_item.id,
+    }
+    const chat = { 'X-Chat-Token': newOrderHeaders()['X-Request-Token'] }
+    await submission.confirm(support, chat)
+    const original = structuredClone(vi.mocked(source.submit).mock.calls[0]!)
+    expect(submission.review(true)).toBe(false)
+    chat['X-Chat-Token'] = newOrderHeaders()['X-Request-Token']
+    support.comment = 'Changed'
+    await submission.confirm({ ...support, source: 'site' } as OrderCreate)
+    expect(source.submit).toHaveBeenCalledTimes(1)
+    await submission.retry()
+    expect(vi.mocked(source.submit).mock.calls[1]).toEqual(original)
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toContain(
+      'Synthetic exact support',
+    )
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toContain('X-Chat-Token')
+  })
   it('locks rapid double clicks and keeps only independent crypto headers in session storage', async () => {
     let resolve!: (result: OrderResult) => void
     const source = makeSource()
@@ -147,12 +173,10 @@ describe('same-origin real orders adapter', () => {
   it.each([200, 201] as const)(
     'accepts %s original safe receipt, projecting extra fields out',
     async (status) => {
-      const fetcher = vi
-        .fn()
-        .mockResolvedValue({
-          status,
-          json: async () => ({ ...receipt, unexpected: 'do not render' }),
-        })
+      const fetcher = vi.fn().mockResolvedValue({
+        status,
+        json: async () => ({ ...receipt, unexpected: 'do not render' }),
+      })
       vi.stubGlobal('fetch', fetcher)
       const wire = JSON.stringify(body)
       expect(await httpOrders.submit(wire, headers())).toEqual({
@@ -177,6 +201,7 @@ describe('same-origin real orders adapter', () => {
     [409, 'CONSENT_CHANGED', 'consent_changed'],
     [409, 'IDEMPOTENCY_CONFLICT', 'idempotency_conflict'],
     [404, 'NOT_FOUND', 'not_found'],
+    [410, 'SESSION_EXPIRED', 'chat_expired'],
     [422, 'VALIDATION_ERROR', 'validation'],
     [503, 'UNAVAILABLE', 'uncertain'],
     [500, 'INTERNAL_ERROR', 'uncertain'],
@@ -186,19 +211,17 @@ describe('same-origin real orders adapter', () => {
     async (status, code, kind) => {
       vi.stubGlobal(
         'fetch',
-        vi
-          .fn()
-          .mockResolvedValue({
-            status,
-            json: async () => ({
-              error: {
-                code,
-                message: 'sensitive',
-                details: { input: 'sensitive' },
-              },
-              request_id: 'id',
-            }),
+        vi.fn().mockResolvedValue({
+          status,
+          json: async () => ({
+            error: {
+              code,
+              message: 'sensitive',
+              details: { input: 'sensitive' },
+            },
+            request_id: 'id',
           }),
+        }),
       )
       expect(await httpOrders.submit('{}', headers())).toEqual({ kind })
     },

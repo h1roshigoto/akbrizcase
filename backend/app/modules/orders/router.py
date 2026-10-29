@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
+from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.service import (
     OrderRejected,
@@ -17,7 +18,13 @@ from app.modules.orders.service import (
     effective_consent,
     replay_order,
 )
-from app.schemas.common import ErrorEnvelope, OrderHeaders, SecretToken, UUIDValue
+from app.schemas.common import (
+    ChatHeaders,
+    ErrorEnvelope,
+    OrderHeaders,
+    SecretToken,
+    UUIDValue,
+)
 from app.schemas.consent import ConsentText
 from app.schemas.orders import OrderCreate, OrderReceipt
 
@@ -47,7 +54,10 @@ def consent_text(request: Request) -> ConsentText | JSONResponse:
 
 
 def persist_order(
-    request: Request, body: OrderCreate, headers: OrderHeaders
+    request: Request,
+    body: OrderCreate,
+    headers: OrderHeaders,
+    chat_token: str | None = None,
 ) -> tuple[OrderReceipt, int]:
     security: OrderSecurity | None = request.app.state.order_security
     if security is None:
@@ -57,7 +67,7 @@ def persist_order(
             receipt = replay_order(session, body, headers, security)
             status = 200 if receipt is not None else 201
             if receipt is None:
-                receipt = create_order(session, body, headers, security)
+                receipt = create_order(session, body, headers, security, chat_token)
         return receipt, status  # Outer UoW committed, including late constraints.
     except IntegrityError as error:
         if (
@@ -82,6 +92,7 @@ def persist_order(
         200: {"model": OrderReceipt},
         404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
+        410: {"model": ErrorEnvelope},
     },
     openapi_extra={
         "requestBody": {
@@ -98,7 +109,8 @@ def persist_order(
             },
         }
     },
-    description="Create or replay with source=site. Maximum JSON body: 65536 bytes. "
+    description="Create or replay with source=site or owned source=chat. "
+    "Chat creation requires X-Chat-Token. Maximum JSON body: 65536 bytes. "
     "Authenticated replay is available for 24 hours unless the order is erased.",
 )
 async def orders(
@@ -106,6 +118,7 @@ async def orders(
     response: Response,
     idempotency_key: Annotated[UUIDValue, Header(alias="Idempotency-Key")],
     request_token: Annotated[SecretToken, Header(alias="X-Request-Token")],
+    chat_token: Annotated[SecretToken | None, Header(alias="X-Chat-Token")] = None,
 ) -> OrderReceipt | JSONResponse:
     raw = bytearray()
     try:
@@ -119,8 +132,15 @@ async def orders(
                 raise ValueError
             raw.extend(chunk)
         body = parse_order_json(bytes(raw).decode("utf-8"))
-        if body.source != "site":
+        if any(
+            len(request.headers.getlist(name)) != 1
+            for name in ("Idempotency-Key", "X-Request-Token")
+        ):
             raise ValueError
+        if body.source == "chat":
+            if len(request.headers.getlist("X-Chat-Token")) != 1:
+                raise ValueError
+            ChatHeaders.model_validate({"X-Chat-Token": chat_token})
     except (ValueError, UnicodeError, RecursionError):
         return error_response(
             request, 422, "VALIDATION_ERROR", "Invalid request parameters"
@@ -130,8 +150,12 @@ async def orders(
     )
     try:
         receipt, response.status_code = await run_in_threadpool(
-            persist_order, request, body, headers
+            persist_order, request, body, headers, chat_token
         )
         return receipt
     except OrderRejected as error:
         return error_response(request, error.status, error.code, error.message)
+    except ChatNotFound:
+        raise HTTPException(404) from None
+    except ChatExpired:
+        raise HTTPException(410) from None

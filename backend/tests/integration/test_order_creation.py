@@ -228,6 +228,7 @@ def test_complete_http_creation(
         assert private not in response.text + outbox_json + audit_json + caplog.text
 
 
+@pytest.mark.parametrize("chat", [False, True])
 @pytest.mark.parametrize(
     "state,code,status",
     [
@@ -246,8 +247,16 @@ def test_consent_fail_closed(
     state: str,
     code: str,
     status: int,
+    chat: bool,
 ) -> None:
     body = support_body()
+    headers = order_headers()
+    if chat:
+        own = creation_client.post(
+            "/api/v1/chat/sessions", json={"mode": "diagnose"}
+        ).json()
+        body |= {"source": "chat", "chat_session_id": own["session_id"]}
+        headers["X-Chat-Token"] = own["session_token"]
     submitted = "SYNTHETIC-SUBMITTED-" + uuid4().hex
     if state in {"changed", "missing", "future", "outdated"}:
         body["consent"] = {"version": submitted, "accepted": True}
@@ -270,9 +279,7 @@ def test_consent_fail_closed(
                     retired_at=utc_now() if state == "outdated" else None,
                 )
             )
-    response = creation_client.post(
-        "/api/v1/orders", json=body, headers=order_headers()
-    )
+    response = creation_client.post("/api/v1/orders", json=body, headers=headers)
     assert response.status_code == status
     assert response.json()["error"]["code"] == code
     assert counts(creation_db) == (0, 0, 0, 0, 0)
@@ -625,6 +632,7 @@ def erase_fixture(database: Database) -> None:
                 comment=None,
                 request_hash=None,
                 receipt_token_hash=None,
+                chat_session_id=None,
             )
         )
         session.execute(update(OrderStatusHistory).values(reason=None))
@@ -799,13 +807,21 @@ def test_transport_matrix(
     assert counts(creation_db) == before
 
 
+@pytest.mark.parametrize("chat", [False, True])
 @pytest.mark.parametrize("mode", ["identical", "changed", "different_tokens"])
 def test_unique_race_rolls_back_before_new_session_reads_winner(
     creation_client: TestClient,
     creation_db: Database,
     mode: str,
+    chat: bool,
 ) -> None:
     headers, body = order_headers(), commercial(creation_db, ("DEMO-S-001",))
+    if chat:
+        own = creation_client.post(
+            "/api/v1/chat/sessions", json={"mode": "diagnose"}
+        ).json()
+        body = support_body() | {"source": "chat", "chat_session_id": own["session_id"]}
+        headers["X-Chat-Token"] = own["session_token"]
     barrier = Barrier(4)
     traces: dict[int, list[tuple[str, int]]] = {}
 
@@ -860,7 +876,7 @@ def test_unique_race_rolls_back_before_new_session_reads_winner(
     for trace in loser_traces:
         assert [entry[0] for entry in trace[:3]] == ["lookup", "rollback", "lookup"]
         assert trace[0][1] == trace[1][1] and trace[0][1] != trace[2][1]
-    assert counts(creation_db) == (1, 1, 1, 1, 1)
+    assert counts(creation_db) == (1, 1, 0 if chat else 1, 1, 1)
     _, winning_body, winning_headers = next(row for row in results if row[0] == 201)
     assert (
         creation_client.post(

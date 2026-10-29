@@ -63,6 +63,7 @@ def main(
     status_changes: bool = False,
     catalog_admin: bool = False,
     notification_retry: bool = False,
+    support_handoff: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -197,6 +198,22 @@ with d.unit_of_work() as s:
 d.close()
 """,
             )
+            support_config = {}
+            if support_handoff:
+                support_config = json.loads(
+                    compose(
+                        "exec",
+                        "-T",
+                        "api",
+                        "python",
+                        "-c",
+                        Path("scripts/chat_browser_fixture.py").read_text(),
+                        "--existing-operator",
+                        input_text=json.dumps(
+                            {"login": "browser-admin", "password": passwords["admin"]}
+                        ),
+                    )
+                )
             tls = ssl.create_default_context(cafile=".certs/ca.crt")
             opener = build_opener(ProxyHandler({}), HTTPSHandler(context=tls))
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
@@ -218,7 +235,16 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if notification_retry:
+                if support_handoff:
+                    from support_browser_smoke import run_browser as run_support
+
+                    browser = run_support(
+                        browser_environment,
+                        {"origin": origin, "passwords": passwords, **support_config},
+                        compose,
+                        stack,
+                    )
+                elif notification_retry:
                     from notification_retry_browser_smoke import (
                         run_browser as run_retry,
                     )
@@ -271,7 +297,11 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
-            expected = 1 if request_form or catalog_admin or notification_retry else 2
+            expected = (
+                3
+                if support_handoff
+                else (1 if request_form or catalog_admin or notification_retry else 2)
+            )
             compose(
                 "exec",
                 "-T",
@@ -287,7 +317,7 @@ history=int(sys.argv[2])
 notification_status=sys.argv[3]
 d=Database(DatabaseSettings.from_environment())
 with d.unit_of_work() as s:
- for table,count in [('orders',expected),('consents',expected),('order_items',2),('order_status_history',history),('email_outbox',expected)]:
+ for table,count in [('orders',expected),('consents',expected),('order_items',int(sys.argv[4])),('order_status_history',history),('email_outbox',expected)]:
   assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
  assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status=:status"), {'status':notification_status})==expected
 d.close()
@@ -295,6 +325,7 @@ d.close()
                 str(expected),
                 str(3 if status_changes else expected),
                 "sent" if notification_retry else "pending",
+                "0" if support_handoff else "2",
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(

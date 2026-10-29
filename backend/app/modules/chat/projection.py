@@ -15,13 +15,14 @@ from app.modules.catalog.repository import CatalogRepository
 from app.modules.catalog.service import CatalogNotFound, CatalogService
 from app.modules.chat.actions import ActionRejected, ActionValidator
 from app.modules.chat.diagnosis import HANDOFF_TEXT, current_reply
+from app.modules.chat.handoff import support_handoff
 from app.modules.chat.message_state import (
     ResponseEnvelope,
     StoredStateUnavailable,
     decode_response,
     restore_state,
 )
-from app.modules.chat.mode_router import catalog_card, mode_buttons, specialist
+from app.modules.chat.mode_router import catalog_card, mode_buttons
 from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.kb.access import PUBLIC_VIEWER
 from app.modules.kb.read_service import KnowledgeReadService, SourceNotFound
@@ -59,7 +60,7 @@ def safe_reply(mode: ChatMode) -> ChatReply:
         buttons=[],
         sources=[],
         items=[],
-        actions=[specialist()],
+        actions=[support_handoff()],
         resolution="handoff",
     )
 
@@ -74,7 +75,7 @@ def initial_reply(mode: ChatMode) -> ChatReply:
         buttons=mode_buttons(),
         sources=[],
         items=[],
-        actions=[specialist()],
+        actions=[support_handoff()],
         resolution="no_match",
     )
 
@@ -230,7 +231,7 @@ class ChatReplyProjector:
             buttons=mode_buttons(),
             sources=[],
             items=cards,
-            actions=self._item_actions(selected, model_id) + [specialist()],
+            actions=self._item_actions(selected, model_id) + [support_handoff()],
             resolution="results",
         )
 
@@ -267,6 +268,6 @@ class ChatReplyProjector:
             items=cards,
             actions=self._document_actions(sources)
             + self._item_actions(selected, tree.model_id)
-            + [self.actions.validate(a) for a in rendered.actions],
+            + [support_handoff()],
             resolution=rendered.resolution,
         )

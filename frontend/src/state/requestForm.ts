@@ -17,6 +17,7 @@ export const emptyForm: FormValues = {
 const length = (value: string) => [...value].length
 export function validateForm(
   v: FormValues,
+  support = false,
 ): Partial<Record<keyof FormValues | 'channel', string>> {
   const errors: ReturnType<typeof validateForm> = {}
   if (!v.name.trim() || length(v.name) > 200)
@@ -44,5 +45,7 @@ export function validateForm(
       errors[key] = 'Введите от 1 до 200 символов или оставьте поле пустым.'
   if (length(v.comment) > 2000)
     errors.comment = 'Комментарий: не более 2000 символов.'
+  if (support && !v.comment.trim())
+    errors.comment = 'Опишите проблему: от 1 до 2000 символов.'
   return errors
 }

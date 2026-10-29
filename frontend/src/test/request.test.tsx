@@ -51,15 +51,18 @@ const saved = (items: CatalogItem[] = [product]) =>
 function Harness({
   api,
   catalog = source,
+  support,
 }: {
   api: OrdersSource
   catalog?: CatalogSource
+  support?: import('../pages/RequestPage').SupportContext
 }) {
   const selection = useSelection()
   const [submission] = useState(() => new Submission(api))
   return (
     <RequestPage
       source={catalog}
+      {...(support ? { support } : {})}
       orders={api}
       selection={selection}
       submission={submission}
@@ -83,7 +86,7 @@ async function fill() {
   fireEvent.change(screen.getByLabelText('Email'), {
     target: { value: 'buyer@example.invalid' },
   })
-  fireEvent.change(screen.getByLabelText(/Комментарий/), {
+  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
     target: { value: '  exact\ncomment  ' },
   })
 }
@@ -97,6 +100,114 @@ beforeEach(() => {
     randomUUID: vi.fn().mockReturnValue('00000000-0000-4000-8000-000000000001'),
     getRandomValues: vi.fn((b: Uint8Array) => b.fill(7)),
   })
+})
+
+it('requires a meaningful support comment, resets confirmation and sends exact site text without selection', async () => {
+  const api = orders()
+  render(<Harness api={api} support={{ draft: null, owner: null }} />)
+  await fill()
+  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
+    target: { value: '   ' },
+  })
+  fireEvent.click(accept())
+  const approval = screen.getByRole('checkbox', {
+    name: /Подтверждаю окончательное/,
+  })
+  fireEvent.click(approval)
+  fireEvent.click(send())
+  expect(api.submit).not.toHaveBeenCalled()
+  expect(screen.getByText(/Опишите проблему:/)).toBeTruthy()
+  const exact = '  <img src=x onerror=alert(1)>\nSYNTHETIC-036 edited  '
+  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
+    target: { value: exact },
+  })
+  expect((approval as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByLabelText('Окончательное описание').textContent).toContain(
+    exact,
+  )
+  expect(document.querySelector('[onerror]')).toBeNull()
+  fireEvent.click(approval)
+  fireEvent.click(send())
+  await screen.findByRole('heading', {
+    name: `Заявка №${fixtures.receipt.number}`,
+  })
+  const call = vi.mocked(api.submit).mock.calls[0]!
+  expect(JSON.parse(call[0])).toMatchObject({
+    kind: 'support',
+    items: [],
+    comment: exact,
+    source: 'site',
+  })
+  expect(JSON.parse(call[0])).not.toHaveProperty('chat_session_id')
+  expect(call[2]).toBeUndefined()
+  expect(localStorage.length).toBe(0)
+})
+
+it('keeps support edits after 410 and requires explicit site review with new secrets', async () => {
+  const api = orders()
+  vi.mocked(api.submit).mockResolvedValueOnce({ kind: 'chat_expired' })
+  vi.mocked(crypto.randomUUID)
+    .mockReturnValueOnce('00000000-0000-4000-8000-000000000010')
+    .mockReturnValueOnce('00000000-0000-4000-8000-000000000011')
+  vi.mocked(crypto.getRandomValues).mockImplementationOnce(
+    (bytes) => { new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength).fill(8); return bytes },
+  )
+  render(
+    <Harness
+      api={api}
+      support={{
+        draft: 'Safe proposed draft',
+        owner: { session_id: product.id, session_token: 'a'.repeat(64) },
+      }}
+    />,
+  )
+  expect(
+    (screen.getByLabelText(/Комментарий|Описание проблемы/) as HTMLTextAreaElement).value,
+  ).toBe('Safe proposed draft')
+  await fill()
+  fireEvent.click(accept())
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /Подтверждаю окончательное/ }),
+  )
+  fireEvent.click(send())
+  await screen.findByText(/Срок вашей сессии истёк/)
+  const first = vi.mocked(api.submit).mock.calls[0]!
+  expect(JSON.parse(first[0])).toMatchObject({
+    source: 'chat',
+    chat_session_id: product.id,
+    comment: '  exact\ncomment  ',
+  })
+  expect(first[2]).toEqual({ 'X-Chat-Token': 'a'.repeat(64) })
+  expect(api.submit).toHaveBeenCalledTimes(1)
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Оформить независимо от чата' }),
+  )
+  await waitFor(() =>
+    expect((send() as HTMLButtonElement).disabled).toBe(false),
+  )
+  expect(
+    (screen.getByLabelText(/Комментарий|Описание проблемы/) as HTMLTextAreaElement).value,
+  ).toBe('  exact\ncomment  ')
+  expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
+    'buyer@example.invalid',
+  )
+  expect(api.submit).toHaveBeenCalledTimes(1)
+  fireEvent.click(send())
+  expect(api.submit).toHaveBeenCalledTimes(1)
+  fireEvent.click(accept())
+  fireEvent.click(
+    screen.getByRole('checkbox', { name: /Подтверждаю окончательное/ }),
+  )
+  fireEvent.click(send())
+  await screen.findByRole('heading', {
+    name: `Заявка №${fixtures.receipt.number}`,
+  })
+  const second = vi.mocked(api.submit).mock.calls[1]!
+  expect(JSON.parse(second[0]).source).toBe('site')
+  expect(JSON.parse(second[0])).not.toHaveProperty('chat_session_id')
+  expect(second[2]).toBeUndefined()
+  expect(second[1]['Idempotency-Key']).not.toBe(first[1]['Idempotency-Key'])
+  expect(second[1]['X-Request-Token']).not.toBe(first[1]['X-Request-Token'])
 })
 it.each([
   { items: [product] },

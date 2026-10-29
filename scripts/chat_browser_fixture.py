@@ -9,6 +9,7 @@ import io
 import json
 import os
 import secrets
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,10 +41,11 @@ class SyntheticClamAV(ClamAV):
         return "mvp035-synthetic-only", epoch
 
 
-def main():
+def main(*, operator_login=None, operator_password=None):
     assert os.environ.get("APP_ENV") == "demo"
     database = Database(DatabaseSettings.from_environment())
-    password = secrets.token_urlsafe(32)
+    login = operator_login or "synthetic035"
+    password = operator_password or secrets.token_urlsafe(32)
     with tempfile.TemporaryDirectory(prefix="synthetic035-") as directory:
         root = Path(directory)
         signatures = root / "signatures"
@@ -74,8 +76,9 @@ def main():
                 filename="synthetic.txt",
                 mime="text/plain",
             )
-            assert bootstrap_admin(session, login="synthetic035", password=password).ok
-            actor = authenticate_operator(session, "synthetic035", password)
+            if operator_login is None:
+                assert bootstrap_admin(session, login=login, password=password).ok
+            actor = authenticate_operator(session, login, password)
             assert actor
             service = CatalogWriteService(session, actor)
             model = service.create_model(
@@ -126,7 +129,7 @@ def main():
             def lifecycle(action, **extra):
                 report = run_lifecycle(
                     session,
-                    login="synthetic035",
+                    login=login,
                     password=password,
                     operation=action,
                     document_id=version.document_id,
@@ -213,7 +216,7 @@ def main():
             )
             imported = run_tree(
                 session,
-                login="synthetic035",
+                login=login,
                 password=password,
                 operation="import",
                 path=tree_path,
@@ -222,7 +225,7 @@ def main():
             assert imported.ok and imported.tree_id
             preview = run_tree_lifecycle(
                 session,
-                login="synthetic035",
+                login=login,
                 password=password,
                 operation="preview",
                 tree_id=imported.tree_id,
@@ -246,7 +249,7 @@ def main():
             proof.chmod(0o600)
             published = run_tree_lifecycle(
                 session,
-                login="synthetic035",
+                login=login,
                 password=password,
                 operation="publish",
                 tree_id=imported.tree_id,
@@ -295,4 +298,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--existing-operator"]:
+        credentials = json.load(sys.stdin)
+        main(
+            operator_login=credentials["login"],
+            operator_password=credentials["password"],
+        )
+    else:
+        assert not sys.argv[1:]
+        main()
