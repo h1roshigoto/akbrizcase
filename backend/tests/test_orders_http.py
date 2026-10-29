@@ -247,8 +247,22 @@ def test_openapi_documents_strict_body_and_headers(client: TestClient) -> None:
         "confirmed",
     }
     for parameter in operation["parameters"]:
-        assert parameter["required"] is True
+        assert parameter["required"] is (parameter["name"] != "X-Chat-Token")
     assert {row["name"] for row in operation["parameters"]} == {
         "Idempotency-Key",
         "X-Request-Token",
+        "X-Chat-Token",
     }
+
+
+@pytest.mark.parametrize("tokens", [[], ["a" * 63], ["a" * 64, "b" * 64]])
+def test_chat_requires_unambiguous_transport_token(
+    client: TestClient, tokens: list[str]
+) -> None:
+    response = client.post(
+        "/api/v1/orders",
+        json=support_body() | {"source": "chat", "chat_session_id": str(uuid4())},
+        headers=[*order_headers().items(), *[("X-Chat-Token", t) for t in tokens]],
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["details"] == {}

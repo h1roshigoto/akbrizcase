@@ -50,6 +50,26 @@ export class ChatController {
   private initialized = false
   private refreshWhenIdle = false
   private pages = 1
+  /** Only current validated actions can transfer this controller's owner. */
+  supportContext(action: ChatReply['actions'][number]) {
+    if (
+      !this.owner ||
+      !this.state.ready ||
+      this.state.busy ||
+      this.state.pending ||
+      !this.state.reply?.actions.includes(action) ||
+      !(
+        action.type === 'contact_specialist' ||
+        (action.type === 'open_request_form' &&
+          action.payload.kind === 'support')
+      )
+    )
+      return null
+    return {
+      session_id: this.owner.session_id,
+      session_token: this.owner.session_token,
+    }
+  }
   constructor(private source: ChatSource) {}
   snapshot = () => this.state
   subscribe = (listener: () => void) => {

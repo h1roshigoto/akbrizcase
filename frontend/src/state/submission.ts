@@ -4,7 +4,12 @@ import {
   type OrderResult,
   type OrdersSource,
 } from '../api/httpOrders'
-import type { OrderCreate, OrderHeaders, OrderReceipt } from '../api/types'
+import type {
+  ChatHeaders,
+  OrderCreate,
+  OrderHeaders,
+  OrderReceipt,
+} from '../api/types'
 
 export const PENDING_KEY = 'akbrizcase.pending-order'
 type Rejection = Exclude<OrderResult['kind'], 'success' | 'uncertain'>
@@ -17,7 +22,12 @@ export type SubmissionState =
 /** Lives above the catalog/form view switch. No POST from effects or mount. */
 export class Submission {
   private state: SubmissionState
-  private pending: { body: string; headers: OrderHeaders } | null = null
+  private submittedKind: OrderCreate['kind'] | null = null
+  private pending: {
+    body: string
+    headers: OrderHeaders
+    chat?: ChatHeaders
+  } | null = null
   private listeners = new Set<() => void>()
   constructor(private source: OrdersSource) {
     try {
@@ -40,12 +50,35 @@ export class Submission {
     this.state = state
     this.listeners.forEach((listener) => listener())
   }
-  async confirm(body: OrderCreate) {
+  succeededFor(kind: OrderCreate['kind']) {
+    return this.state.kind === 'success' && this.submittedKind === kind
+  }
+  /** Explicit user action only. Unknown outcomes can never release this gate. */
+  beginNew() {
+    if (this.state.kind !== 'success') return false
+    try {
+      sessionStorage.removeItem(PENDING_KEY)
+    } catch {
+      this.set({ kind: 'storage_error' })
+      return false
+    }
+    this.pending = null
+    this.submittedKind = null
+    this.set({ kind: 'editing' })
+    return true
+  }
+  async confirm(body: OrderCreate, chat?: ChatHeaders) {
     if (this.state.kind !== 'editing') return
     // Lock synchronously before generation/storage/fetch, including rapid clicks.
     this.set({ kind: 'sending' })
+    this.submittedKind = body.kind
     try {
-      const pending = { body: orderSnapshot(body), headers: newOrderHeaders() }
+      if (body.source === 'chat' && !chat) throw new Error('Missing owner')
+      const pending = {
+        body: orderSnapshot(body),
+        headers: newOrderHeaders(),
+        ...(body.source === 'chat' && chat ? { chat: { ...chat } } : {}),
+      }
       sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending.headers))
       this.pending = pending
     } catch {
@@ -63,7 +96,11 @@ export class Submission {
     if (!this.pending) return
     let result: OrderResult
     try {
-      result = await this.source.submit(this.pending.body, this.pending.headers)
+      result = await this.source.submit(
+        this.pending.body,
+        this.pending.headers,
+        this.pending.chat,
+      )
     } catch {
       result = { kind: 'uncertain' }
     }
@@ -78,12 +115,15 @@ export class Submission {
     } else if (result.kind === 'uncertain') this.set({ kind: 'uncertain' })
     else this.set({ kind: 'rejected', reason: result.kind })
   }
-  review() {
+  review(expiredFallback = false) {
     if (
       this.state.kind !== 'rejected' ||
-      !['validation', 'catalog_changed', 'consent_changed'].includes(
-        this.state.reason,
-      )
+      ![
+        'validation',
+        'catalog_changed',
+        'consent_changed',
+        ...(expiredFallback ? ['chat_expired'] : []),
+      ].includes(this.state.reason)
     )
       return false
     try {

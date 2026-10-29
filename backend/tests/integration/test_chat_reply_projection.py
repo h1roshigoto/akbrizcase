@@ -28,6 +28,7 @@ from app.core.csrf import SESSION_COOKIE
 from app.core.db import Database
 from app.modules.catalog.models import CatalogItem, CatalogItemModel
 from app.modules.chat.diagnosis import DiagnosisState
+from app.modules.chat.handoff import GENERAL_SUPPORT_DRAFT
 from app.modules.chat.message_state import ResponseEnvelope, StateAfter, decode_response
 from app.modules.chat.mode_router import ModeRouter
 from app.modules.chat.models import ChatMessage
@@ -69,6 +70,7 @@ def hidden(response: Any) -> None:
     value = reply(response, "handoff")
     assert value["sources"] == value["items"] == value["buttons"] == []
     assert [a["type"] for a in value["actions"]] == ["contact_specialist"]
+    assert value["actions"][0]["payload"]["comment_draft"] == GENERAL_SUPPORT_DRAFT
 
 
 def change_response(database: Database, own: dict[str, Any], value: Any) -> None:

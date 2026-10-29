@@ -74,6 +74,11 @@ function isSource(v: unknown): v is SourceRef {
     sourceURL(v as SourceRef) !== null
   )
 }
+const isDraft = (v: unknown) =>
+  v === undefined ||
+  v === null ||
+  (typeof v === 'string' && v.trim().length > 0 && [...v].length <= 2000)
+
 function isAction(v: unknown): boolean {
   if (!record(v) || !record(v.payload)) return false
   const p = v.payload
@@ -83,17 +88,11 @@ function isAction(v: unknown): boolean {
     case 'open_document':
       return isSource(p)
     case 'contact_specialist':
-      return (
-        p.kind === 'support' &&
-        (p.comment_draft === undefined || p.comment_draft === null)
-      )
+      return p.kind === 'support' && isDraft(p.comment_draft)
     case 'open_request_form':
       if (!Array.isArray(p.items)) return false
       if (p.kind === 'support')
-        return (
-          p.items.length === 0 &&
-          (p.comment_draft === undefined || p.comment_draft === null)
-        )
+        return p.items.length === 0 && isDraft(p.comment_draft)
       return (
         p.kind === 'commercial' &&
         p.items.length >= 1 &&

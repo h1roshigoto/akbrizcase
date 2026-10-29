@@ -143,3 +143,7 @@ files-smoke: acceptance-guards
 .PHONY: chat-browser-smoke
 chat-browser-smoke: acceptance-guards
 	python3 scripts/chat_browser_smoke.py
+
+.PHONY: support-browser-smoke
+support-browser-smoke: acceptance-guards
+	python3 scripts/support_browser_smoke.py

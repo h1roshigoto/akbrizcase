@@ -64,8 +64,8 @@ class ActionValidator:
                     elif action.payload.comment_draft is not None:
                         raise ActionRejected("ACTION_UNAVAILABLE")
                 elif isinstance(action, ContactSpecialistAction):
-                    # Draft generation/validation belongs to MVP-036. Never
-                    # turn caller-provided text into an approved support draft.
+                    # Only the projector's handoff factory generates drafts.
+                    # Caller/stored text never becomes an approved proposal.
                     if action.payload.comment_draft is not None:
                         raise ActionRejected("ACTION_UNAVAILABLE")
             return action

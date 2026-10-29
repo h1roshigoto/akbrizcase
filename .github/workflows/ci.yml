@@ -151,6 +151,8 @@ jobs:
         run: |
           make local-tls
           python3 scripts/ci_suites.py compose:https-auth -- make https-smoke
+      - name: Independent support handoff, session deletion and expiry replay
+        run: python3 scripts/ci_suites.py compose:support-browser -- make support-browser-smoke
       - name: MVP-014 browser E2E, PostgreSQL invariants and Compose persistence
         run: python3 scripts/ci_suites.py compose:vertical -- make vertical-smoke
       - name: MVP-015 manager status, conflict, immutable snapshots and original replay

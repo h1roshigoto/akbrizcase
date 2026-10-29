@@ -27,6 +27,33 @@ beforeEach(() => {
 })
 
 describe('exact logical submission lifecycle', () => {
+  it('keeps chat ownership and the immutable support body through uncertain retry, never allowing site fallback', async () => {
+    const source = makeSource({ kind: 'uncertain' })
+    const submission = new Submission(source)
+    const support: OrderCreate = {
+      ...fixtures.commercial_order,
+      kind: 'support',
+      items: [],
+      comment: 'Synthetic exact support',
+      source: 'chat',
+      chat_session_id: fixtures.catalog_item.id,
+    }
+    const chat = { 'X-Chat-Token': newOrderHeaders()['X-Request-Token'] }
+    await submission.confirm(support, chat)
+    const original = structuredClone(vi.mocked(source.submit).mock.calls[0]!)
+    expect(submission.review(true)).toBe(false)
+    expect(submission.beginNew()).toBe(false)
+    chat['X-Chat-Token'] = newOrderHeaders()['X-Request-Token']
+    support.comment = 'Changed'
+    await submission.confirm({ ...support, source: 'site' } as OrderCreate)
+    expect(source.submit).toHaveBeenCalledTimes(1)
+    await submission.retry()
+    expect(vi.mocked(source.submit).mock.calls[1]).toEqual(original)
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toContain(
+      'Synthetic exact support',
+    )
+    expect(sessionStorage.getItem(PENDING_KEY)).not.toContain('X-Chat-Token')
+  })
   it('locks rapid double clicks and keeps only independent crypto headers in session storage', async () => {
     let resolve!: (result: OrderResult) => void
     const source = makeSource()
@@ -37,6 +64,7 @@ describe('exact logical submission lifecycle', () => {
     )
     const submission = new Submission(source)
     const sending = submission.confirm(body)
+    expect(submission.beginNew()).toBe(false)
     await submission.confirm(body)
     expect(source.submit).toHaveBeenCalledTimes(1)
     expect(crypto.randomUUID).toHaveBeenCalledTimes(1)
@@ -79,6 +107,7 @@ describe('exact logical submission lifecycle', () => {
     const source = makeSource()
     const submission = new Submission(source)
     expect(submission.snapshot().kind).toBe('recovered')
+    expect(submission.beginNew()).toBe(false)
     await submission.confirm(body)
     await submission.retry()
     expect(submission.review()).toBe(false)
@@ -92,6 +121,7 @@ describe('exact logical submission lifecycle', () => {
       const submission = new Submission(source)
       await submission.confirm(body)
       expect(submission.review()).toBe(false)
+      expect(submission.beginNew()).toBe(false)
       await submission.confirm(body)
       expect(source.submit).toHaveBeenCalledTimes(1)
       expect(sessionStorage.getItem(PENDING_KEY)).not.toBeNull()
@@ -122,6 +152,33 @@ describe('exact logical submission lifecycle', () => {
     await submission.confirm(body)
     expect(source.submit).not.toHaveBeenCalled()
     expect(submission.snapshot().kind).toBe('storage_error')
+    expect(submission.beginNew()).toBe(false)
+    spy.mockRestore()
+  })
+  it('releases only a proven success and creates no headers or POST on beginNew', async () => {
+    const source = makeSource()
+    const submission = new Submission(source)
+    expect(submission.beginNew()).toBe(false)
+    await submission.confirm(body)
+    expect(submission.succeededFor('commercial')).toBe(true)
+    expect(submission.succeededFor('support')).toBe(false)
+    expect(submission.beginNew()).toBe(true)
+    expect(submission.snapshot()).toEqual({ kind: 'editing' })
+    expect(submission.succeededFor('commercial')).toBe(false)
+    expect(source.submit).toHaveBeenCalledTimes(1)
+    expect(crypto.randomUUID).toHaveBeenCalledTimes(1)
+    expect(submission.beginNew()).toBe(false)
+  })
+  it('blocks beginNew if completed-marker cleanup fails', async () => {
+    const submission = new Submission(makeSource())
+    await submission.confirm(body)
+    const spy = vi
+      .spyOn(Storage.prototype, 'removeItem')
+      .mockImplementation(() => {
+        throw new Error('blocked')
+      })
+    expect(submission.beginNew()).toBe(false)
+    expect(submission.snapshot().kind).toBe('storage_error')
     spy.mockRestore()
   })
 })
@@ -147,12 +204,10 @@ describe('same-origin real orders adapter', () => {
   it.each([200, 201] as const)(
     'accepts %s original safe receipt, projecting extra fields out',
     async (status) => {
-      const fetcher = vi
-        .fn()
-        .mockResolvedValue({
-          status,
-          json: async () => ({ ...receipt, unexpected: 'do not render' }),
-        })
+      const fetcher = vi.fn().mockResolvedValue({
+        status,
+        json: async () => ({ ...receipt, unexpected: 'do not render' }),
+      })
       vi.stubGlobal('fetch', fetcher)
       const wire = JSON.stringify(body)
       expect(await httpOrders.submit(wire, headers())).toEqual({
@@ -177,6 +232,7 @@ describe('same-origin real orders adapter', () => {
     [409, 'CONSENT_CHANGED', 'consent_changed'],
     [409, 'IDEMPOTENCY_CONFLICT', 'idempotency_conflict'],
     [404, 'NOT_FOUND', 'not_found'],
+    [410, 'SESSION_EXPIRED', 'chat_expired'],
     [422, 'VALIDATION_ERROR', 'validation'],
     [503, 'UNAVAILABLE', 'uncertain'],
     [500, 'INTERNAL_ERROR', 'uncertain'],
@@ -186,19 +242,17 @@ describe('same-origin real orders adapter', () => {
     async (status, code, kind) => {
       vi.stubGlobal(
         'fetch',
-        vi
-          .fn()
-          .mockResolvedValue({
-            status,
-            json: async () => ({
-              error: {
-                code,
-                message: 'sensitive',
-                details: { input: 'sensitive' },
-              },
-              request_id: 'id',
-            }),
+        vi.fn().mockResolvedValue({
+          status,
+          json: async () => ({
+            error: {
+              code,
+              message: 'sensitive',
+              details: { input: 'sensitive' },
+            },
+            request_id: 'id',
           }),
+        }),
       )
       expect(await httpOrders.submit('{}', headers())).toEqual({ kind })
     },
@@ -256,6 +310,20 @@ describe('browser field constraints preserve exact input', () => {
     name: '  Synthetic Name  ',
     email: 'buyer@example.invalid',
   }
+  it('uses Unicode character bounds for support without trimming the final text', () => {
+    expect(
+      validateForm({ ...valid, comment: '🙂'.repeat(2000) }, true),
+    ).toEqual({})
+    expect(
+      validateForm({ ...valid, comment: '🙂'.repeat(2001) }, true),
+    ).toHaveProperty('comment')
+    expect(
+      validateForm({ ...valid, comment: ' ' + 'x'.repeat(2000) }, true),
+    ).toHaveProperty('comment')
+    expect(validateForm({ ...valid, comment: ' \n\t' }, true)).toHaveProperty(
+      'comment',
+    )
+  })
   it('requires a channel and nonblank name', () => {
     expect(validateForm(emptyForm)).toHaveProperty('name')
     expect(validateForm(emptyForm)).toHaveProperty('channel')
