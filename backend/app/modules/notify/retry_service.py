@@ -37,6 +37,7 @@ def retry_failed_notification(
                 409, "STATE_CONFLICT", "Notification changed; reload current order"
             )
         row.status = "pending"
+        row.failed_at = None
         row.attempts = 0
         row.next_attempt_at = database_now(session)
         row.lease_token = None

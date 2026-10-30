@@ -156,7 +156,8 @@ def test_generated_values_and_runtime_crud(
         first.status = "in_progress"
     with orders_database.unit_of_work() as session:
         assert session.get(Order, first.id).status == "in_progress"  # type: ignore[union-attr]
-        session.execute(delete(Order).where(Order.id == first.id))
+        with pytest.raises(DBAPIError), session.begin_nested():
+            session.execute(delete(Order).where(Order.id == first.id))
 
 
 @pytest.mark.parametrize(
@@ -634,7 +635,7 @@ def test_restrict_references_and_approved_order_deletion(
         with pytest.raises(IntegrityError):
             with databases[1].unit_of_work() as session:
                 session.execute(statement)
-    with orders_database.unit_of_work() as session:
+    with databases[1].unit_of_work() as session:
         session.execute(delete(Order).where(Order.id == identifier))
         for child in (OrderItem, OrderStatusHistory, EmailOutbox):
             assert session.scalar(select(func.count()).select_from(child)) == 0
@@ -952,6 +953,15 @@ def test_cascade_deletion_and_late_fk_failure_rollback(
         order_id, consent_id = order_bundle(session)
         retained_id, _ = order_bundle(session)
     database = databases[role]
+    if role == 0:
+        for parent, target in ((Order, order_id), (Consent, consent_id)):
+            with pytest.raises(DBAPIError):
+                with database.unit_of_work() as session:
+                    session.execute(delete(parent).where(parent.id == target))
+        with database.unit_of_work() as session:
+            assert session.get(Order, order_id) is not None
+            assert session.get(Consent, consent_id) is not None
+        return
     with pytest.raises(IntegrityError, match="fk_orders_consent_id_consents"):
         with database.unit_of_work() as session:
             session.execute(delete(Consent).where(Consent.id == consent_id))
@@ -1053,7 +1063,7 @@ def test_order_identity_and_consent_cannot_be_replaced(
         ) == original
         assert session.get(Consent, alternate_consent) is not None
     with pytest.raises(IntegrityError, match="fk_orders_consent_id_consents"):
-        with orders_database.unit_of_work() as session:
+        with databases[1].unit_of_work() as session:
             session.execute(delete(Consent).where(Consent.id == original[3]))
 
 

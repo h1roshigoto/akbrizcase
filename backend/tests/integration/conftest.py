@@ -17,7 +17,6 @@ from app.core.db_types import utc_now
 from app.core.staff import bootstrap_admin, create_staff
 from app.core.staff_models import StaffSession
 from app.modules.catalog.seed import seed_catalog
-from app.modules.notify.models import EmailOutbox
 from app.modules.orders.models import (
     Consent,
     ConsentText,
@@ -180,7 +179,10 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     catalog_revision_snapshot=7,
                 )
             )
-            session.add(EmailOutbox(order_id=order_id))
+            session.execute(
+                text("INSERT INTO app.email_outbox(id,order_id) VALUES (:id,:order)"),
+                {"id": uuid4(), "order": order_id},
+            )
             session.add(OrderStatusHistory(order_id=order_id, to_status="new"))
             support_consent = Consent(text_version="SYNTHETIC-MVP019-UPGRADE")
             session.add(support_consent)
@@ -197,7 +199,10 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 ),
                 {"id": support_id, "consent": support_consent.id, "key": uuid4()},
             )
-            session.add(EmailOutbox(order_id=support_id))
+            session.execute(
+                text("INSERT INTO app.email_outbox(id,order_id) VALUES (:id,:order)"),
+                {"id": uuid4(), "order": support_id},
+            )
             session.add(OrderStatusHistory(order_id=support_id, to_status="new"))
         with runtime.engine.connect() as connection:
             preserved_orders = {
@@ -301,8 +306,77 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 "AND NOT tgisinternal ORDER BY tgname"
             )
             tree_triggers = connection.execute(triggers_sql).all()
+        command.upgrade(config, "0008_mvp037_privacy")
+        # Genuine predecessor rows: known closed/cancelled, missing history and
+        # conflicting history. No reset/downgrade or guessed updated_at.
+        probes = []
+        with migrator.engine.begin() as connection:
+            for status, histories in (
+                ("closed", 1),
+                ("cancelled", 1),
+                ("cancelled", 0),
+                ("cancelled", 2),
+            ):
+                identifier, consent_id = uuid4(), uuid4()
+                connection.execute(
+                    text(
+                        "INSERT INTO app.consents(id,text_version) VALUES "
+                        "(:id,'SYNTHETIC-MVP019-UPGRADE')"
+                    ),
+                    {"id": consent_id},
+                )
+                at = connection.scalar(text("SELECT now()-interval '1 day'"))
+                connection.execute(
+                    text(
+                        "INSERT INTO app.orders(id,kind,consent_id,idempotency_key,"
+                        "contact_name,email,comment,request_hash,receipt_token_hash,"
+                        "known_subtotal,delivery_status,delivery_cost,status,"
+                        "created_at,closed_at) "
+                        "VALUES (:id,'support',:consent,:key,'Synthetic upgrade',"
+                        "'upgrade@example.invalid','Synthetic upgrade',"
+                        "'synthetic','synthetic',"
+                        "0,'not_required',0,:status,now()-interval '2 days',:closed)"
+                    ),
+                    {
+                        "id": identifier,
+                        "consent": consent_id,
+                        "key": uuid4(),
+                        "status": status,
+                        "closed": at if status == "closed" else None,
+                    },
+                )
+                for _ in range(histories):
+                    connection.execute(
+                        text(
+                            "INSERT INTO app.order_status_history(id,order_id,"
+                            "from_status,to_status,at) VALUES "
+                            "(:id,:order,'in_progress',:status,:at)"
+                        ),
+                        {
+                            "id": uuid4(),
+                            "order": identifier,
+                            "status": status,
+                            "at": at,
+                        },
+                    )
+                probes.append((identifier, consent_id, at if histories == 1 else None))
         command.upgrade(config, "head")
         command.upgrade(config, "head")
+        with migrator.engine.begin() as connection:
+            for identifier, consent_id, expected in probes:
+                assert (
+                    connection.scalar(
+                        text("SELECT terminal_at FROM app.orders WHERE id=:id"),
+                        {"id": identifier},
+                    )
+                    == expected
+                )
+                connection.execute(
+                    text("DELETE FROM app.orders WHERE id=:id"), {"id": identifier}
+                )
+                connection.execute(
+                    text("DELETE FROM app.consents WHERE id=:id"), {"id": consent_id}
+                )
         with runtime.engine.connect() as connection:
             after_0007 = connection.execute(schema_sql).all()
             old_names_0007 = {row[1] for row in before_0007}
@@ -316,6 +390,9 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 for row in connection.execute(tree_objects_sql).all()
                 if "app.protect_consent_publication()" not in row[0]
                 and "app.seed_demo_consent(" not in row[0]
+                and "app.protect_deletion_entry()" not in row[0]
+                and "app.check_erased_reasons()" not in row[0]
+                and "app.protect_retention_identity()" not in row[0]
             ] == tree_functions
             assert connection.execute(triggers_sql).all() == tree_triggers
             assert (
@@ -337,8 +414,10 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "('documents','document_versions','document_sections',"
                     "'catalog_item_models','diag_trees',"
                     "'diag_tree_sources','diag_tree_items',"
-                    "'chat_sessions','chat_messages','consent_publications') "
-                    "AND column_name NOT IN ('manual_document_id','chat_session_id') "
+                    "'chat_sessions','chat_messages','consent_publications',"
+                    "'deletion_journal','cleanup_cursors') "
+                    "AND column_name NOT IN ('manual_document_id','chat_session_id',"
+                    "'terminal_at','failed_at') "
                     "ORDER BY table_name,ordinal_position"
                 )
             ).all()
@@ -355,6 +434,14 @@ def databases() -> Iterator[tuple[Database, Database]]:
             assert all(
                 name.startswith(
                     (
+                        "pk_deletion_",
+                        "fk_deletion_",
+                        "uq_deletion_",
+                        "ck_deletion_",
+                        "pk_cleanup_",
+                        "ix_orders_terminal_at",
+                        "ck_orders_erased_fields",
+                        "ck_email_outbox_failed_at",
                         "pk_consent_publications",
                         "fk_consent_publications",
                         "ck_consent_publications",
@@ -382,8 +469,9 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     )
                 )
                 or name == "fk_equipment_models_manual_document_id_documents"
+                or name == "erased_reasons"
                 for name in added_names
-            )
+            ), sorted(added_names)
             assert (
                 connection.scalar(
                     text(
