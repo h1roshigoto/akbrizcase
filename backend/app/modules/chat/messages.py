@@ -20,6 +20,8 @@ from app.modules.chat.message_state import (
 from app.modules.chat.mode_router import ModeRouter
 from app.modules.chat.models import ChatMessage
 from app.modules.chat.projection import ChatReplyProjector
+from app.modules.orders.privacy_service import lock_privacy
+from app.modules.orders.service import collection_gate
 from app.schemas.chat import ChatMessageCreate, ChatMessageResult, ChatMode
 
 
@@ -52,6 +54,9 @@ def create_message(
     session: Session, body: ChatMessageCreate, token: str | None
 ) -> UUID:
     started = monotonic_ns()
+    # Match orders' privacy -> chat lock order. Retirement may serialize first,
+    # but neither configuration nor active consent is needed to authenticate replay.
+    lock_privacy(session, shared=True)
     row = require_owner(session, body.session_id, token, exclusive=True)
     digest = request_hash(body)
     previous = session.scalar(
@@ -63,6 +68,9 @@ def create_message(
         if not hmac.compare_digest(previous.request_hash, digest):
             raise MessageConflict("IDEMPOTENCY_CONFLICT")
         return previous.id
+    # Owner/expiry and immutable request identity take precedence. This gate is
+    # reached only for a new exchange, before routing, state changes or INSERT.
+    collection_gate(session)
     if body.expected_version != row.state_version:
         raise MessageConflict("STATE_CONFLICT")
 

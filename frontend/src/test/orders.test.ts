@@ -1,3 +1,4 @@
+import { policyFixture } from './privacyFixture'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixtures } from '../api/fixtures'
 import {
@@ -16,6 +17,7 @@ const receipt = fixtures.receipt
 const makeSource = (
   result: OrderResult = { kind: 'success', status: 201, receipt },
 ): OrdersSource => ({
+  getPolicy: vi.fn().mockResolvedValue(policyFixture),
   getConsent: vi.fn(),
   submit: vi.fn().mockResolvedValue(result),
 })

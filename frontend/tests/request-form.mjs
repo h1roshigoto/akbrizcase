@@ -63,6 +63,17 @@ try {
     await page.evaluate(() => isSecureContext),
     'Real secure context is required for Web Crypto',
   )
+  // Public policy must be readable before the request form and without a POST.
+  const policyLink = page.getByRole('link', { name: 'Политика обработки ПДн', exact: true })
+  safe(await policyLink.getAttribute('href') === '/privacy-policy', 'Same-origin policy navigation')
+  const policyTabPromise = context.waitForEvent('page')
+  await policyLink.click()
+  const policyTab = await policyTabPromise
+  await policyTab.getByText('SYNTHETIC DEMO/TEST POLICY ONLY.', { exact: false }).waitFor()
+  await policyTab.getByRole('heading', { name: 'Отзыв согласия и запрос удаления' }).waitFor()
+  safe(posts === 0, 'Opening policy must never submit an order')
+  await policyTab.close()
+  progress.push('MVP-037 separate synthetic policy and withdrawal instructions over trusted HTTPS before intake')
   const result = page.getByRole('region', { name: 'Результаты каталога' })
   for (const sku of ['DEMO-P-001', 'DEMO-S-001']) {
     const card = result.getByRole('article').filter({ hasText: sku })

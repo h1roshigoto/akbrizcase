@@ -4,3 +4,6 @@
 .secrets/
 __pycache__/
 .certs/
+
+# Approved release packets and private approval references stay outside Git.
+.privacy/

@@ -29,7 +29,7 @@ from app.schemas.chat import (
     ChatSessionRead,
 )
 from app.schemas.common import MONEY_PATTERN, ChatHeaders, ErrorEnvelope, OrderHeaders
-from app.schemas.consent import ConsentText
+from app.schemas.consent import ConsentText, PrivacyPolicy
 from app.schemas.orders import OrderCreate, OrderReceipt
 from app.schemas.sources import KnowledgePage, KnowledgeQuery
 
@@ -43,6 +43,7 @@ MODELS: tuple[type[BaseModel], ...] = (
     EquipmentModel,
     EquipmentModelsPage,
     ConsentText,
+    PrivacyPolicy,
     OrderCreate,
     OrderReceipt,
     ErrorEnvelope,

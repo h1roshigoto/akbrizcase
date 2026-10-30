@@ -8,26 +8,31 @@ type Resource<T> =
 export function useResource<T>(
   load: (signal: AbortSignal) => Promise<T>,
 ): Resource<T> {
-  const [resource, setResource] = useState<Resource<T>>({
+  const [resource, setResource] = useState<
+    Resource<T> & { loader: typeof load }
+  >({
+    loader: load,
     status: 'loading',
     data: null,
   })
   useEffect(() => {
     const controller = new AbortController()
-    setResource({ status: 'loading', data: null })
+    setResource({ loader: load, status: 'loading', data: null })
     void Promise.resolve()
       .then(() => load(controller.signal))
       .then(
         (data) => {
           if (!controller.signal.aborted)
-            setResource({ status: 'success', data })
+            setResource({ loader: load, status: 'success', data })
         },
         () => {
           if (!controller.signal.aborted)
-            setResource({ status: 'error', data: null })
+            setResource({ loader: load, status: 'error', data: null })
         },
       )
     return () => controller.abort()
   }, [load])
-  return resource
+  // A changed request invalidates old data during render. Waiting for the
+  // effect would briefly enable approval with the previous document/resource.
+  return resource.loader === load ? resource : { status: 'loading', data: null }
 }

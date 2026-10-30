@@ -31,6 +31,7 @@ from test_kb_lifecycle import (
 
 from app.core.csrf import SESSION_COOKIE
 from app.core.db import Database
+from app.core.privacy import PrivacyBundle
 from app.core.staff import authenticate_operator, disable_staff
 from app.core.staff_models import AuditEvent, StaffSession
 from app.core.staff_sessions import StaffIdentity, token_hash
@@ -50,7 +51,9 @@ from app.modules.kb.files import FilePipeline
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 from app.modules.kb.read_service import source_ref
 from app.modules.orders.models import ConsentText
+from app.modules.orders.privacy_models import ConsentPublication
 from app.modules.orders.security import OrderSecurity
+from app.modules.orders.seed import demo_bundle
 from app.modules.orders.service import OrderRejected, create_order, replay_order
 from app.schemas.catalog import CatalogQuery
 from app.schemas.common import OrderHeaders
@@ -1117,6 +1120,23 @@ def test_invalidation_preserves_orders_and_detects_stale_revision(
                 active_from=datetime(2025, 1, 1, tzinfo=UTC),
             )
         )
+        session.flush()
+        data = demo_bundle().model_dump(mode="json")
+        data["consent"] = {
+            "version": consent_version,
+            "purpose": "SYNTHETIC ONLY",
+            "text": "SYNTHETIC CONSENT",
+            "checksum": hashlib.sha256(b"SYNTHETIC CONSENT").hexdigest(),
+        }
+        bundle = PrivacyBundle.model_validate(data)
+        session.add(
+            ConsentPublication(
+                consent_version=consent_version,
+                bundle=bundle.model_dump(mode="json"),
+                bundle_checksum=bundle.checksum(),
+                published_at=datetime.now(UTC),
+            )
+        )
     request = OrderCreate.model_validate(
         {
             "kind": "commercial",
@@ -1140,6 +1160,7 @@ def test_invalidation_preserves_orders_and_detects_stale_revision(
         "order_items",
         "consents",
         "consent_texts",
+        "consent_publications",
         "order_status_history",
         "email_outbox",
     )

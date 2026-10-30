@@ -302,6 +302,16 @@ export type OrderStatusResult = {
   "version": number
 }
 
+export type PrivacyPolicy = {
+  "version": string
+  "text": string
+  "checksum": string
+  "withdrawal_instructions": string
+  "consent_version": string
+  "synthetic": boolean
+  "collection_enabled": boolean
+}
+
 export type SelectModeInput = {
   "type": "select_mode"
   "mode": "diagnose" | "knowledge" | "commerce"

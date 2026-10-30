@@ -1,3 +1,4 @@
+import { policyFixture } from './privacyFixture'
 import {
   act,
   fireEvent,
@@ -32,6 +33,7 @@ const route = (hash: string) =>
 function api() {
   let number = 0
   return {
+    getPolicy: vi.fn().mockResolvedValue(policyFixture),
     getConsent: vi.fn().mockResolvedValue(fixtures.consent_text),
     submit: vi.fn<OrdersSource['submit']>().mockImplementation(async () => ({
       kind: 'success',
@@ -70,9 +72,20 @@ async function edit(text: string) {
   })
 }
 async function submit() {
-  fireEvent.click(active().getByRole('checkbox', { name: /Я прочитал/ }))
-  fireEvent.click(active().getByRole('checkbox', { name: /Подтверждаю/ }))
-  fireEvent.click(send())
+  await userEvent.click(active().getByRole('checkbox', { name: /Я прочитал/ }))
+  expect(
+    (active().getByRole('checkbox', { name: /Я прочитал/ }) as HTMLInputElement)
+      .checked,
+  ).toBe(true)
+  await userEvent.click(active().getByRole('checkbox', { name: /Подтверждаю/ }))
+  expect(
+    (
+      active().getByRole('checkbox', {
+        name: /Подтверждаю/,
+      }) as HTMLInputElement
+    ).checked,
+  ).toBe(true)
+  await userEvent.click(send())
 }
 function chatSource() {
   const chat = transport()

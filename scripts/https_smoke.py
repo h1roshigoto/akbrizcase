@@ -64,6 +64,7 @@ def main(
     catalog_admin: bool = False,
     notification_retry: bool = False,
     support_handoff: bool = False,
+    privacy_lifecycle: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -112,6 +113,22 @@ def main(
                 }
             }
             labels.write_text(json.dumps(override))
+        if privacy_lifecycle:
+            # Exercise production gates only on this owner's disposable synthetic
+            # stack. The artificial approval packet never leaves the fixture.
+            directory = Path(temporary) / "privacy"
+            directory.mkdir(mode=0o755)
+            directory.chmod(
+                0o755
+            )  # Mounted UID 10001 must traverse it under any umask.
+            override = json.loads(labels.read_text())
+            override["services"] = {
+                "api": {
+                    "environment": {"APP_ENV": "production"},
+                    "volumes": [str(directory) + ":/run/privacy:ro"],
+                }
+            }
+            labels.write_text(json.dumps(override))
         prefix = [
             "docker",
             "compose",
@@ -156,6 +173,12 @@ def main(
             assert stack.sql("SELECT count(*) FROM app.orders") == "0"
             stack.sql(f"COMMENT ON DATABASE akbrizcase IS '{MARKER}'")
             stack.verify_database()
+            # This owner-marked disposable database was migrated while unmarked;
+            # explicitly enable its synthetic fixtures, never production privileges.
+            stack.sql(
+                "GRANT INSERT, UPDATE, DELETE ON app.consent_texts TO akbrizcase_runtime; "
+                "GRANT INSERT ON app.consent_publications TO akbrizcase_runtime"
+            )
             # Explicit fixture creation in this disposable project only. The
             # application never auto-creates accounts or accepts piped CLI auth.
             setup = """
@@ -182,6 +205,8 @@ db.close()
             compose(
                 "exec",
                 "-T",
+                "-e",
+                "APP_ENV=demo",
                 "api",
                 "python",
                 "-c",
@@ -214,6 +239,10 @@ d.close()
                         ),
                     )
                 )
+            if privacy_lifecycle:
+                from privacy_browser_smoke import prepare
+
+                prepare(compose, stack, Path(temporary) / "privacy", passwords)
             tls = ssl.create_default_context(cafile=".certs/ca.crt")
             opener = build_opener(ProxyHandler({}), HTTPSHandler(context=tls))
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
@@ -235,7 +264,18 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if support_handoff:
+                if privacy_lifecycle:
+                    from privacy_browser_smoke import run_browser as run_privacy
+
+                    browser = run_privacy(
+                        browser_environment,
+                        {"origin": origin},
+                        compose,
+                        stack,
+                        Path(temporary) / "privacy",
+                        passwords,
+                    )
+                elif support_handoff:
                     from support_browser_smoke import run_browser as run_support
 
                     browser = run_support(
@@ -298,9 +338,15 @@ d.close()
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
             expected = (
-                5
-                if support_handoff
-                else (1 if request_form or catalog_admin or notification_retry else 2)
+                0
+                if privacy_lifecycle
+                else (
+                    5
+                    if support_handoff
+                    else (
+                        1 if request_form or catalog_admin or notification_retry else 2
+                    )
+                )
             )
             compose(
                 "exec",
@@ -325,7 +371,7 @@ d.close()
                 str(expected),
                 str(3 if status_changes else expected),
                 "sent" if notification_retry else "pending",
-                "1" if support_handoff else "2",
+                "0" if privacy_lifecycle else "1" if support_handoff else "2",
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(

@@ -147,3 +147,7 @@ chat-browser-smoke: acceptance-guards
 .PHONY: support-browser-smoke
 support-browser-smoke: acceptance-guards
 	python3 scripts/support_browser_smoke.py
+
+.PHONY: privacy-browser-smoke
+privacy-browser-smoke: acceptance-guards
+	python3 scripts/privacy_browser_smoke.py
