@@ -58,7 +58,7 @@ def run_browser(environment: dict, config: dict, compose, stack):
         # Compare every immutable field, including verification material, privately.
         return sql("""
           SELECT jsonb_build_array(
-            (SELECT jsonb_agg(to_jsonb(o) - ARRAY['status','version','updated_at','closed_at'] ORDER BY id) FROM app.orders o),
+            (SELECT jsonb_agg(to_jsonb(o) - ARRAY['status','version','updated_at','closed_at','terminal_at'] ORDER BY id) FROM app.orders o),
             (SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM app.consents c),
             (SELECT jsonb_agg(to_jsonb(i) ORDER BY id) FROM app.order_items i),
             (SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM app.order_status_history h WHERE from_status IS NULL),
@@ -79,6 +79,8 @@ def run_browser(environment: dict, config: dict, compose, stack):
               JOIN app.audit_events a ON a.entity_id=o.id AND a.actor_id=u.id
               WHERE h.order_id=o.id AND u.login='browser-manager'
                 AND h.to_status='{target}' AND h.at=o.updated_at AND a.at=h.at
+                AND (CASE WHEN {version}=3 THEN o.terminal_at=h.at AND o.closed_at=h.at
+                     ELSE o.terminal_at IS NULL END)
                 AND a.action='order.status.change' AND a.entity_type='order' AND a.result='success'
                 AND a.metadata=jsonb_build_object('from_status',h.from_status,'to_status',h.to_status,
                   'from_version',{version - 1},'to_version',{version}))
