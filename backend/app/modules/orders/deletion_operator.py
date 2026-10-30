@@ -11,7 +11,7 @@ from app.core.staff import authenticate_operator
 from app.core.staff_models import AuditEvent
 from app.modules.orders.cleanup_service import (
     database_now,
-    order_policy,
+    policy_for,
     prepare_entry,
     try_lock,
 )
@@ -63,6 +63,7 @@ def prepare_deletion(
     order_id: UUID,
     expected_version: int,
     decision_id: UUID,
+    journal_policy_version: str,
     now: datetime | None = None,
 ) -> tuple[str, DeletionCommand | None]:
     code = authorize(session, login, password)
@@ -81,7 +82,10 @@ def prepare_deletion(
     if row.version != expected_version:
         return "STATE_CONFLICT", None
     at = database_now(session, now)
-    bundle = order_policy(session, row, at)
+    # A verified manual decision authorizes deletion independently of the
+    # historical collection policy. This explicit packet governs the journal
+    # horizon only; it is never assigned to the legacy consent or order.
+    bundle = policy_for(session, journal_policy_version, at)
     entry = prepare_entry(
         session,
         "order_delete",
@@ -91,6 +95,9 @@ def prepare_deletion(
         consent_id=row.consent_id,
         decision_id=decision_id,
     )
-    if entry.decision_id != decision_id:
+    if (
+        entry.decision_id != decision_id
+        or command_for(entry).journal_version != journal_policy_version
+    ):
         return "DECISION_CONFLICT", None
     return "PREPARED", command_for(entry)

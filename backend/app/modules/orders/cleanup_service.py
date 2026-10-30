@@ -94,11 +94,7 @@ def order_policy(session: Session, order: Order, now: datetime) -> PrivacyBundle
     bundle = policy_for(session, consent.text_version, now)
     publication = session.get(ConsentPublication, consent.text_version)
     assert publication is not None
-    if (
-        publication.published_at > consent.granted_at
-        or publication.published_at > order.created_at
-        or consent.granted_at > now
-    ):
+    if publication.published_at > consent.granted_at or consent.granted_at > now:
         raise PrivacyUnavailable("Retention chronology requires review")
     return bundle
 
@@ -222,9 +218,13 @@ def prepare_entry(
     session.execute(
         insert(DeletionEntry)
         .values(
+            format=2,
             operation=operation,
             object_id=object_id,
-            policy_version=bundle.consent.version,
+            policy_version=None
+            if operation == "order_delete"
+            else bundle.consent.version,
+            journal_policy_version=bundle.consent.version,
             created_at=now,
             retain_until=now + timedelta(days=bundle.retention.deletion_journal_days),
             consent_id=consent_id,
@@ -381,7 +381,9 @@ def apply_command(
     )
     if entry is None or command_for(entry) != command or entry.applied_at is not None:
         return False
-    policy_for(session, entry.policy_version, now)
+    journal_bundle = policy_for(session, command.journal_version, now)
+    if command.retention_days != journal_bundle.retention.deletion_journal_days:
+        raise JournalUnavailable("Journal retention approval mismatch")
     if now < entry.created_at:
         raise JournalUnavailable("Journal clock requires review")
     if command.operation == "order_delete":

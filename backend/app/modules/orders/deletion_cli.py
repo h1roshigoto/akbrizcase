@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description=__doc__)
     parser.add_argument("order_id", type=UUID)
     parser.add_argument(
+        "--journal-policy-version",
+        required=True,
+        help="Explicit approved publication governing journal retention only",
+    )
+    parser.add_argument(
         "--decision-id",
         type=UUID,
         required=True,
@@ -66,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
                 order_id=args.order_id,
                 expected_version=version,
                 decision_id=args.decision_id,
+                journal_policy_version=args.journal_policy_version,
             )
         if command is None:
             print(code)

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.csrf import StaffSecurity
 from app.modules.orders.security import OrderSecurity
 
-SCHEMA_REVISION = "0009_mvp038_cleanup"
+SCHEMA_REVISION = "0010_mvp038_journal_basis"
 
 
 class DatabaseConfigurationError(ValueError):

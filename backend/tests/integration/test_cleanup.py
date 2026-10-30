@@ -382,6 +382,7 @@ def test_manual_full_delete_graph_consent_restrict_and_repeat(
             order_id=identifier,
             expected_version=version,
             decision_id=uuid4(),
+            journal_policy_version=DEMO_VERSION,
         )
         assert code == "PREPARED" and command is not None
     proof = witness(tmp_path, command)

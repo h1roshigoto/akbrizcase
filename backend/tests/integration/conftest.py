@@ -393,6 +393,7 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 and "app.protect_deletion_entry()" not in row[0]
                 and "app.check_erased_reasons()" not in row[0]
                 and "app.protect_retention_identity()" not in row[0]
+                and "app.protect_deletion_basis()" not in row[0]
             ] == tree_functions
             assert connection.execute(triggers_sql).all() == tree_triggers
             assert (
