@@ -782,6 +782,7 @@ def test_outbox_indexes_permissions_and_no_payload(orders_database: Database) ->
             "last_error_code",
             "created_at",
             "sent_at",
+            "failed_at",
         }
         assert connection.execute(
             text(

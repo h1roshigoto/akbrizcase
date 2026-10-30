@@ -175,7 +175,7 @@ def test_successful_paths_and_full_invariants(
         }
         clean = deepcopy(after)
         clean["order_status_history"] = original["order_status_history"]
-        for key in ("status", "version", "updated_at", "closed_at"):
+        for key in ("status", "version", "updated_at", "closed_at", "terminal_at"):
             clean["orders"][0][key] = original["orders"][0][key]
         assert clean == original, (
             "Immutable order, consent, snapshots or outbox changed"
