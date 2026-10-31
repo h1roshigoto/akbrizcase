@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event, select, text, update
 from sqlalchemy.engine import Connection
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 from test_cleanup import create, terminal, witness
 from test_cleanup import isolated_cleanup as isolated_cleanup
@@ -28,6 +28,7 @@ from test_privacy import privacy_db as privacy_db
 
 from app.core.db import Database
 from app.core.db_types import utc_now
+from app.core.staff import disable_staff
 from app.core.staff_models import AuditEvent, StaffUser
 from app.modules.chat.models import ChatSession
 from app.modules.notify.models import EmailOutbox
@@ -604,6 +605,28 @@ def test_operator_authority_does_not_survive_transaction_commit(
             assert has_audit_authority(session)
         with session.begin():
             assert not has_audit_authority(session)
+
+
+def test_review_snapshot_cannot_reauthorize_an_already_disabled_admin(
+    privacy_db: tuple[Database, Database],
+) -> None:
+    migrator = privacy_db[1]
+    with pytest.raises(OperationalError), migrator.unit_of_work() as stale:
+        stale.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+        identifier = stale.scalar(
+            select(StaffUser.id).where(StaffUser.login == "privacy-admin")
+        )
+        assert identifier is not None
+        with migrator.unit_of_work() as writer:
+            assert disable_staff(
+                writer,
+                admin_login="privacy-admin",
+                admin_password=PASSWORD,
+                user_id=identifier,
+            ).ok
+        authorize_maintenance(
+            stale, "privacy-admin", PASSWORD, action="privacy.retention_review"
+        )
 
 
 def test_shutdown_after_export_leaves_exact_pending_command_for_retry(

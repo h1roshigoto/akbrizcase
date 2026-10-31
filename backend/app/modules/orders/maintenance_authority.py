@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import has_role
 from app.core.staff import authenticate_operator
-from app.core.staff_models import AuditEvent
+from app.core.staff_models import AuditEvent, StaffUser
 from app.modules.orders.privacy_service import synthetic_database
 
 _AUTHORITY_KEY = object()
@@ -27,6 +27,16 @@ def authorize_maintenance(
 ) -> str:
     session.info.pop(_AUTHORITY_KEY, None)
     actor = authenticate_operator(session, login, password)
+    if actor is not None:
+        # Review can use REPEATABLE READ. Its snapshot may precede a disable
+        # committed before we acquired the staff lock. A locking read raises a
+        # serialization failure instead of authenticating that stale identity.
+        session.scalar(
+            select(StaffUser)
+            .where(StaffUser.id == actor.user.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     if actor is None:
         code = "AUTHENTICATION_DENIED"
     elif not has_role(actor.user, "admin"):
