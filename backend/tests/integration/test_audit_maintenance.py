@@ -201,7 +201,7 @@ def test_synthetic_runner_pipeline_with_fixture_service_binding(
                     action=action, entity_type="test", result="success", at=row.at
                 )
             )
-        for action, result in (
+        for action, result_code in (
             ("staff.login", "authentication_denied"),
             ("staff.csrf", "csrf_denied"),
             ("staff.access", "forbidden"),
@@ -210,7 +210,7 @@ def test_synthetic_runner_pipeline_with_fixture_service_binding(
                 AuditEvent(
                     action=action,
                     entity_type="staff_user",
-                    result=result,
+                    result=result_code,
                     at=row.at,
                 )
             )
