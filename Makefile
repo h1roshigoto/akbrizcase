@@ -151,3 +151,7 @@ support-browser-smoke: acceptance-guards
 .PHONY: privacy-browser-smoke
 privacy-browser-smoke: acceptance-guards
 	python3 scripts/privacy_browser_smoke.py
+
+.PHONY: http-security-smoke
+http-security-smoke: acceptance-guards
+	python3 scripts/http_security_smoke.py

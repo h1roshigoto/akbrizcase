@@ -2,7 +2,10 @@
 
 from alembic import context
 
-from app.core import staff_models  # noqa: F401 -- register staff metadata
+from app.core import (
+    rate_limits,  # noqa: F401 -- register counter metadata
+    staff_models,  # noqa: F401 -- register staff metadata
+)
 from app.core.db import DatabaseSettings, create_database_engine
 from app.core.db_types import Base
 from app.modules.catalog import models  # noqa: F401 -- register domain metadata

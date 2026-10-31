@@ -8,6 +8,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.api_errors import error_response
 from app.core.db import Database
+from app.core.http_security import ip_subjects
+from app.core.rate_limits import check_limit
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.chat.message_request import parse_message_json
 from app.modules.chat.message_state import StoredStateUnavailable
@@ -39,6 +41,7 @@ router = APIRouter(
         409: {"model": ErrorEnvelope},
         410: {"model": ErrorEnvelope},
         422: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope},
         503: {"model": ErrorEnvelope},
     },
 )
@@ -71,6 +74,7 @@ def create(request: Request, body: ChatSessionCreate) -> ChatSessionCreated:
     try:
         with database_for(request).unit_of_work() as session:
             collection_gate(session)
+            check_limit(session, "session", ip_subjects(request, "session", session))
             result = create_session(session, body)
     except OrderRejected:
         raise HTTPException(503) from None

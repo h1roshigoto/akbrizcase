@@ -85,7 +85,7 @@ def creation_db(databases: tuple[Database, Database]) -> Iterator[Database]:
 
 @pytest.fixture
 def creation_client(creation_db: Database) -> Iterator[TestClient]:
-    with TestClient(app) as client:
+    with TestClient(app, client=("192.0.2.1", 50000)) as client:
         app.state.database = creation_db
         app.state.order_security = OrderSecurity(b"synthetic-integration-key" * 2)
         yield client

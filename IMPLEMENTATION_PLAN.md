@@ -467,6 +467,11 @@
 
 #### MVP-039 — HTTP-защита, лимиты и секреты
 
+**Работа 2026-10-31:** отдельно разрешена владельцем поверх Draft MVP-038 (stacked PR,
+base `mvp-038-privacy-cleanup`), без закрытия release gates MVP-037/038.
+[Семантика квот, уточнение AQ-01 при полной квоте и границы доверия](docs/MVP-039-http-security.md).
+Статус: Draft, независимое ревью и подтверждение DoD обязательны.
+
 - **Приоритет:** P1. **Цель/результат:** все включённые публичные/admin endpoints защищены по §10.1/10.2.
 - **Объём:** rate_limit_buckets/atomic counters: chat 30/мин/session, session creation 10/час/IP, новые orders 5/час/IP; Nginx API 120/мин/IP, login 5/мин; доверенный proxy и HMAC IP с ротацией/TTL≤24 ч, replay не расходует new-order quota. Same-origin/CORS, CSP без сторонних scripts, экранирование, no-store чувствительных ответов, секреты runtime, минимальные DB-права и процедура ротации HMAC с учётом 24 ч повторов.
 - **Файлы/модули:** core limiter/security, migration buckets, Nginx/Compose config, frontend headers tests.

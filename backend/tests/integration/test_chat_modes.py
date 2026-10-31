@@ -136,7 +136,7 @@ def test_knowledge_fts_five_exact_quotes_and_staff_cookie(session: Session) -> N
     )
     state = DiagnosisState(mode="knowledge")
     replies = []
-    with TestClient(app) as browser:
+    with TestClient(app, client=("192.0.2.1", 50000)) as browser:
         for cookie in (None, token):
             browser.cookies.clear()
             if cookie:

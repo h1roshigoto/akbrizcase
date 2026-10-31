@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.core.db import Database
+from app.core.rate_limits import cleanup_buckets
 from app.modules.orders.cleanup_service import (
     CATEGORIES,
     pending_commands,
@@ -72,3 +73,11 @@ def cleanup_tick(
                 logging.error("CLEANUP_APPLY_FAILED errors=1")
     except Exception:
         logging.error("CLEANUP_JOURNAL_FAILED errors=1")
+
+
+def cleanup_rate_limits(database: Database) -> None:
+    try:
+        with database.unit_of_work() as session:
+            cleanup_buckets(session)
+    except Exception:
+        logging.error("RATE_LIMIT_CLEANUP_FAILED")

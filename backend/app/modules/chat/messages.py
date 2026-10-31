@@ -1,5 +1,6 @@
 """Atomic message exchange. The outer HTTP UoW alone commits or rolls back."""
 
+import hashlib
 import hmac
 from dataclasses import asdict
 from time import monotonic_ns
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db_types import utc_now
+from app.core.rate_limits import check_limit
 from app.modules.chat.access import ChatExpired, ChatNotFound, require_owner
 from app.modules.chat.message_request import minimized_input, request_hash
 from app.modules.chat.message_state import (
@@ -51,7 +53,9 @@ def read_message_result(
 
 
 def create_message(
-    session: Session, body: ChatMessageCreate, token: str | None
+    session: Session,
+    body: ChatMessageCreate,
+    token: str | None,
 ) -> UUID:
     started = monotonic_ns()
     # Match orders' privacy -> chat lock order. Retirement may serialize first,
@@ -74,6 +78,7 @@ def create_message(
     if body.expected_version != row.state_version:
         raise MessageConflict("STATE_CONFLICT")
 
+    check_limit(session, "message", (hashlib.sha256(row.id.bytes).hexdigest(),))
     state = restore_state(session, row)
     result = ModeRouter(session).route(state, body.input)
     version = row.state_version + 1

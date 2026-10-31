@@ -68,7 +68,9 @@ def read_client(
             role="manager",
         ).ok
     try:
-        with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
+        with TestClient(
+            app, client=("192.0.2.1", 50000), base_url=ORIGIN, follow_redirects=False
+        ) as client:
             app.state.database = runtime
             app.state.staff_security = StaffSecurity(
                 frozenset({ORIGIN}), secrets.token_hex(32)

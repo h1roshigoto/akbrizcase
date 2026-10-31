@@ -80,6 +80,7 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "chat_messages",
             "deletion_journal",
             "cleanup_cursors",
+            "rate_limit_buckets",
         }
 
 
@@ -158,7 +159,7 @@ def test_runtime_permissions(database: Database) -> None:
 
 
 def test_ready_and_live(database: Database) -> None:
-    with TestClient(app) as client:
+    with TestClient(app, client=("192.0.2.1", 50000)) as client:
         assert client.get("/healthz").json() == {"status": "ok"}
         response = client.get("/readyz")
         assert response.status_code == 200
@@ -171,7 +172,7 @@ def test_unreachable_database(
 ) -> None:
     monkeypatch.setenv("DB_HOST", "127.0.0.1")
     monkeypatch.setenv("DB_PORT", "1")
-    with TestClient(app) as client:
+    with TestClient(app, client=("192.0.2.1", 50000)) as client:
         assert client.get("/healthz").status_code == 200
         response = client.get("/readyz")
         assert response.status_code == 503
@@ -201,7 +202,7 @@ def test_incompatible_or_missing_revision(
             )
     try:
         assert not runtime.ready()
-        with TestClient(app) as client:
+        with TestClient(app, client=("192.0.2.1", 50000)) as client:
             assert client.get("/healthz").status_code == 200
             response = client.get("/readyz")
             assert response.status_code == 503
@@ -221,6 +222,7 @@ def test_single_linear_migration_history() -> None:
     scripts = ScriptDirectory.from_config(config)
     assert scripts.get_heads() == [SCHEMA_REVISION]
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "0011_mvp039_http_security",
         "0010_mvp038_journal_basis",
         "0009_mvp038_cleanup",
         "0008_mvp037_privacy",

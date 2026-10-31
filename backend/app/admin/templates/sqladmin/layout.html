@@ -13,7 +13,7 @@
 </main>
 {% endblock %}
 {% block tail %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 // Apply to existing and later SQLAdmin forms, including multipart uploads.
 const staffCsrf = {{ staff_csrf(request)|tojson }};
 document.addEventListener('submit', function (event) {

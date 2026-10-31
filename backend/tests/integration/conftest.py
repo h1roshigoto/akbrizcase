@@ -1,6 +1,7 @@
 """Destructive fixtures are restricted to the dedicated test container stack."""
 
 import os
+import secrets
 from collections.abc import Iterator
 from datetime import timedelta
 from decimal import Decimal
@@ -10,6 +11,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from pytest import MonkeyPatch
 from sqlalchemy import text
 
 from app.core.db import Database, DatabaseSettings
@@ -416,7 +418,7 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "'catalog_item_models','diag_trees',"
                     "'diag_tree_sources','diag_tree_items',"
                     "'chat_sessions','chat_messages','consent_publications',"
-                    "'deletion_journal','cleanup_cursors') "
+                    "'deletion_journal','cleanup_cursors','rate_limit_buckets') "
                     "AND column_name NOT IN ('manual_document_id','chat_session_id',"
                     "'terminal_at','failed_at') "
                     "ORDER BY table_name,ordinal_position"
@@ -440,6 +442,9 @@ def databases() -> Iterator[tuple[Database, Database]]:
                         "uq_deletion_",
                         "ck_deletion_",
                         "pk_cleanup_",
+                        "pk_rate_limit_",
+                        "ck_rate_limit_",
+                        "ix_rate_limit_",
                         "ix_orders_terminal_at",
                         "ck_orders_erased_fields",
                         "ck_email_outbox_failed_at",
@@ -554,3 +559,12 @@ def staff_database(databases: tuple[Database, Database]) -> Iterator[Database]:
             connection.execute(text("DELETE FROM app.audit_events"))
             connection.execute(text("DELETE FROM app.staff_sessions"))
             connection.execute(text("DELETE FROM app.staff_users"))
+
+
+@pytest.fixture(autouse=True)
+def synthetic_ip_secret(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    # Each test models an independent IP population, with a real runtime file.
+    path = tmp_path / "ip-key"
+    path.write_text(secrets.token_hex(32))
+    path.chmod(0o600)
+    monkeypatch.setenv("IP_HMAC_SECRET_FILE", str(path))
