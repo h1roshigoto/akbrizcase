@@ -80,6 +80,7 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "chat_messages",
             "deletion_journal",
             "cleanup_cursors",
+            "rate_limit_buckets",
         }
 
 
