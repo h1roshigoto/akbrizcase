@@ -12,13 +12,15 @@ from enum import StrEnum
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.db import Database
+from app.core.staff_models import AuditEvent
 from app.modules.orders.cleanup_service import (
     MODELS,
     apply_command,
     database_now,
+    eligibility,
     policy_for,
     try_lock,
 )
@@ -33,6 +35,7 @@ from app.modules.orders.deletion_journal import (
 )
 from app.modules.orders.deletion_models import DeletionEntry
 from app.modules.orders.erasure_service import pii_erasure_complete
+from app.modules.orders.maintenance_authority import has_audit_authority
 from app.modules.orders.models import Consent, Order
 from app.modules.orders.privacy_service import PrivacyUnavailable, synthetic_database
 
@@ -151,6 +154,7 @@ def reconcile_command(
     restore_missing: bool = False,
     now: datetime | None = None,
     authorize_manual: Callable[[Session], bool] | None = None,
+    authorize_audit: Callable[[Session], bool] | None = None,
 ) -> Reconciliation:
     """Inspect/retry a known command, including an unknown commit outcome.
 
@@ -162,7 +166,56 @@ def reconcile_command(
     """
     try:
         with database.unit_of_work() as session:
+            if (
+                execute
+                and command.operation == "audit_delete"
+                and (
+                    authorize_audit is None
+                    or not authorize_audit(session)
+                    or not has_audit_authority(session)
+                )
+            ):
+                return Reconciliation(JournalState.REVIEW_REQUIRED)
             state = local_state(session, command)
+            if (
+                execute
+                and command.operation == "audit_delete"
+                and state
+                in {
+                    JournalState.PREPARED,
+                    JournalState.LOCAL_MISSING,
+                }
+            ):
+                # Old PREPARED/witnesses are not proof of service applicability.
+                # Check before irrevocable export, then again under apply locks.
+                if not try_lock(session):
+                    return Reconciliation(JournalState.REVIEW_REQUIRED)
+                at = database_now(session, now)
+                journal_policy = policy_for(session, command.journal_version, at)
+                if (
+                    command.retention_days
+                    != journal_policy.retention.deletion_journal_days
+                    or at < command.created_at
+                ):
+                    return Reconciliation(JournalState.REVIEW_REQUIRED)
+                row = session.scalar(
+                    select(AuditEvent)
+                    .options(
+                        load_only(
+                            AuditEvent.id,
+                            AuditEvent.action,
+                            AuditEvent.at,
+                            AuditEvent.result,
+                            AuditEvent.entity_type,
+                        )
+                    )
+                    .where(AuditEvent.id == command.object_id)
+                    .with_for_update()
+                )
+                if row is not None:
+                    bundle, due, _ = eligibility(session, command.operation, row, at)
+                    if not due or bundle.consent.version != command.policy_version:
+                        return Reconciliation(JournalState.REVIEW_REQUIRED)
         if state == JournalState.CONFLICT:
             return Reconciliation(state)
         try:
@@ -184,6 +237,12 @@ def reconcile_command(
             if not (execute and restore_missing):
                 return Reconciliation(state)
             with database.unit_of_work() as session:
+                if command.operation == "audit_delete" and (
+                    authorize_audit is None
+                    or not authorize_audit(session)
+                    or not has_audit_authority(session)
+                ):
+                    return Reconciliation(JournalState.REVIEW_REQUIRED)
                 if command.operation == "order_delete" and (
                     authorize_manual is None or not authorize_manual(session)
                 ):
@@ -198,12 +257,23 @@ def reconcile_command(
         try:
             with database.unit_of_work() as session:
                 manual = False
+                if command.operation == "audit_delete":
+                    if (
+                        authorize_audit is None
+                        or not authorize_audit(session)
+                        or not has_audit_authority(session)
+                    ):
+                        return Reconciliation(JournalState.REVIEW_REQUIRED)
                 if command.operation == "order_delete":
                     if authorize_manual is None or not authorize_manual(session):
                         return Reconciliation(JournalState.REVIEW_REQUIRED)
                     manual = True
                 apply_command(
-                    session, command, proof, now=now, manual_authorized=manual
+                    session,
+                    command,
+                    proof,
+                    now=now,
+                    manual_authorized=manual,
                 )
         except (SQLAlchemyError, OSError):
             # Rollback may itself fail, or the server may have committed already.

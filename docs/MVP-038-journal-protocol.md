@@ -136,3 +136,20 @@ reset/downgrade/stamp/volume deletion не применяются. Это table-
 
 PR #51 остаётся Draft / RELEASE BLOCKED. Полный DoD MVP-038 не заявляется выполненным.
 Merge, deploy, production cleanup и MVP-039 не входят в эту итерацию.
+
+
+## Privileged audit и будущие exceptions/holds
+
+Audit execution теперь требует transaction-scoped authority: authenticate active
+admin, проверить migrator и marker demo/test, записать отдельный audit. Проверка
+повторяется до irrevocable export и в apply/restore UoW; одного callback=True
+или migrator connection недостаточно. Worker исключает audit из pending commands.
+Выполнение старого PREPARED/witness не доказывает service applicability. Пока
+versioned binding отсутствует, существующие service records остаются REVIEW_REQUIRED.
+Synthetic positive tests подставляют fixture evidence в shared_policy; это не
+реализованный или утверждённый binding и не разрешение очистить исторические данные.
+
+[Матрица PREPARED/export/apply/restore гонок и необходимые решения владельца](MVP-038-maintenance-review.md#exceptions--holds-proposed).
+Экспортированный witness не отменяется, не переписывается и не получает фиктивное
+решение. Если future hold нельзя совместить с irrevocable replay, gate остаётся
+закрытым для production; нельзя автоматически выбрать приоритет или продлить TTL.

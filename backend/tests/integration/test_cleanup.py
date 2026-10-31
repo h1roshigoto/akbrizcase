@@ -513,6 +513,12 @@ def test_outbox_boundaries_and_preserved_unfinished(
             else demo_bundle().retention.outbox_failed_days
         )
         for offset in (-1, 0, 1):
+            if status == "legacy_failed":
+                with pytest.raises(
+                    PrivacyUnavailable, match="OUTBOX_TERMINAL_EVIDENCE"
+                ):
+                    eligibility(session, "outbox_delete", row, now)
+                continue
             bundle, due, review = eligibility(
                 session, "outbox_delete", row, now + timedelta(seconds=offset)
             )
@@ -569,23 +575,18 @@ def test_sessions_and_audit_allowlist(
             audit.id,
             protected.id,
         )
-        assert (
-            eligibility(
-                session, "staff_session_delete", expired, at - timedelta(seconds=1)
-            )[1]
-            is False
-        )
-        assert eligibility(session, "staff_session_delete", expired, at)[1] is True
-        assert (
-            eligibility(session, "audit_delete", audit, at - timedelta(seconds=1))[1]
-            is False
-        )
-        assert eligibility(session, "audit_delete", audit, at)[1] is True
+        # A sole publication is not historical service-record applicability.
+        for operation, record in (
+            ("staff_session_delete", expired),
+            ("audit_delete", audit),
+        ):
+            with pytest.raises(PrivacyUnavailable, match="SERVICE_BINDING_UNKNOWN"):
+                eligibility(session, operation, record, at)
     cleanup_tick(migrator, now=at, journal=SyntheticJournal(tmp_path))
     with database.unit_of_work() as session:
-        assert session.get(StaffSession, expired_id) is None
+        assert session.get(StaffSession, expired_id) is not None
         assert session.get(StaffSession, live_id) is not None
-        assert session.get(AuditEvent, audit_id) is None
+        assert session.get(AuditEvent, audit_id) is not None
         assert session.get(AuditEvent, protected_id) is not None
 
 

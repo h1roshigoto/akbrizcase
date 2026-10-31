@@ -28,6 +28,7 @@ from app.modules.orders.erasure_service import (
     erase_order_pii,
     pii_erasure_complete,
 )
+from app.modules.orders.maintenance_authority import has_audit_authority
 from app.modules.orders.models import Consent, Order, OrderItem
 from app.modules.orders.privacy_models import ConsentPublication
 from app.modules.orders.privacy_service import (
@@ -45,9 +46,9 @@ CATEGORIES = (
     "staff_session_delete",
     "audit_delete",
 )
-TECHNICAL_AUDIT = frozenset(
-    {"staff.login", "staff.logout", "staff.access", "staff.csrf"}
-)
+# Candidate routine successes only. Denials, CSRF/security signals, review,
+# publication/privacy evidence and unknown actions must never use the general TTL.
+TECHNICAL_AUDIT = frozenset({"staff.login", "staff.logout"})
 CleanupRow = Order | ChatSession | EmailOutbox | StaffSession | AuditEvent
 MODELS: dict[str, type[CleanupRow]] = {
     "order_pii": Order,
@@ -64,6 +65,14 @@ class CleanupCounts:
     skipped: int = 0
     errors: int = 0
     manual_review: int = 0
+
+
+class RetentionReview(PrivacyUnavailable):
+    """Fixed diagnostic code; never carries record contents or policy text."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 def database_now(session: Session, now: datetime | None = None) -> datetime:
@@ -84,33 +93,44 @@ def try_lock(session: Session) -> bool:
 
 def policy_for(session: Session, version: str | None, now: datetime) -> PrivacyBundle:
     if version is None:
-        raise PrivacyUnavailable("Retention policy unbound")
+        raise RetentionReview("POLICY_UNBOUND")
     publication = session.get(ConsentPublication, version)
     if publication is None:
-        raise PrivacyUnavailable("Retention policy missing")
+        raise RetentionReview("POLICY_MISSING")
     # Retirement and runtime file loss close collection, not prior obligations.
-    return validated_publication(session, publication, now)[0]
+    try:
+        return validated_publication(session, publication, now)[0]
+    except PrivacyUnavailable:
+        raise RetentionReview("POLICY_INVALID") from None
 
 
 def order_policy(session: Session, order: Order, now: datetime) -> PrivacyBundle:
     consent = session.get(Consent, order.consent_id)
     if consent is None:
-        raise PrivacyUnavailable("Retention policy missing")
+        raise RetentionReview("POLICY_MISSING")
     bundle = policy_for(session, consent.text_version, now)
     publication = session.get(ConsentPublication, consent.text_version)
     assert publication is not None
     if publication.published_at > consent.granted_at or consent.granted_at > now:
-        raise PrivacyUnavailable("Retention chronology requires review")
+        raise RetentionReview("POLICY_CHRONOLOGY")
     return bundle
 
 
 def shared_policy(session: Session, now: datetime) -> PrivacyBundle:
+    """A publication is not a versioned service-record applicability binding.
+
+    There is no approved binding schema for staff/audit yet. Even one intact,
+    older publication cannot authorize deletion of these unbound records.
+    """
     versions = list(
         session.scalars(select(ConsentPublication.consent_version).limit(2))
     )
+    if not versions:
+        raise RetentionReview("POLICY_MISSING")
     if len(versions) != 1:
-        raise PrivacyUnavailable("Unbound service retention requires review")
-    return policy_for(session, versions[0], now)
+        raise RetentionReview("POLICY_AMBIGUOUS")
+    policy_for(session, versions[0], now)
+    raise RetentionReview("SERVICE_BINDING_UNKNOWN")
 
 
 def eligibility(
@@ -161,8 +181,8 @@ def eligibility(
         bundle = policy_for(session, row.retention_version, now)
         publication = session.get(ConsentPublication, row.retention_version)
         assert publication is not None
-        if publication.published_at > row.created_at:
-            raise PrivacyUnavailable("Chat retention chronology requires review")
+        if publication.published_at > row.created_at or row.created_at > now:
+            raise RetentionReview("POLICY_CHRONOLOGY")
         return (
             bundle,
             row.created_at + timedelta(days=bundle.retention.chat_storage_days) <= now,
@@ -174,6 +194,8 @@ def eligibility(
             raise PrivacyUnavailable("Outbox order missing")
         bundle = order_policy(session, order, now)
         if row.status == "sent":
+            if row.sent_at is None or not row.created_at <= row.sent_at <= now:
+                raise RetentionReview("OUTBOX_TERMINAL_EVIDENCE")
             return (
                 bundle,
                 row.sent_at is not None
@@ -182,6 +204,8 @@ def eligibility(
                 row.sent_at is None,
             )
         if row.status == "failed":
+            if row.failed_at is None or not row.created_at <= row.failed_at <= now:
+                raise RetentionReview("OUTBOX_TERMINAL_EVIDENCE")
             return (
                 bundle,
                 row.failed_at is not None
@@ -197,6 +221,12 @@ def eligibility(
             and row.lease_until <= now
         )
         return bundle, False, review
+    if isinstance(row, AuditEvent) and (
+        row.action not in TECHNICAL_AUDIT
+        or row.result != "success"
+        or row.entity_type != "staff_user"
+    ):
+        raise RetentionReview("AUDIT_ACTION_PRESERVED")
     bundle = shared_policy(session, now)
     if isinstance(row, StaffSession):
         return (
@@ -205,8 +235,6 @@ def eligibility(
             or (row.revoked_at is not None and row.revoked_at <= now),
             False,
         )
-    if row.action not in TECHNICAL_AUDIT:
-        return bundle, False, False
     return bundle, row.at + timedelta(days=bundle.retention.audit_days) <= now, False
 
 
@@ -253,6 +281,12 @@ def prepare_batch(
 ) -> CleanupCounts:
     if category not in CATEGORIES or not 1 <= limit <= BATCH_SIZE:
         raise ValueError("Invalid cleanup batch")
+    if category == "audit_delete" and (
+        not has_audit_authority(session)
+        or session.scalar(select(func.current_user())) != "akbrizcase_migrator"
+        or not synthetic_database(session)
+    ):
+        raise JournalUnavailable("Protected audit operator authorization required")
     counts = CleanupCounts()
     deadline = monotonic() + 1.0
     if not try_lock(session):
@@ -289,7 +323,14 @@ def prepare_batch(
         )
     elif model is AuditEvent:
         query = query.options(
-            load_only(AuditEvent.id, AuditEvent.action, AuditEvent.at, raiseload=True)
+            load_only(
+                AuditEvent.id,
+                AuditEvent.action,
+                AuditEvent.at,
+                AuditEvent.result,
+                AuditEvent.entity_type,
+                raiseload=True,
+            )
         )
     if cursor.after_id is not None:
         query = query.where(model.id > cursor.after_id)
@@ -298,10 +339,6 @@ def prepare_batch(
     # Mutation reacquires its individual FOR UPDATE SKIP LOCKED later.
     rows = cast(list[CleanupRow], list(session.scalars(query)))
     inspected = 0
-    audit_privileged = (
-        category != "audit_delete"
-        or session.scalar(select(func.current_user())) == "akbrizcase_migrator"
-    )
     for row in rows:
         if inspected and monotonic() >= deadline:
             break
@@ -310,11 +347,8 @@ def prepare_batch(
             if review:
                 counts.manual_review += 1
             if due:
-                if audit_privileged:
-                    prepare_entry(session, category, row.id, bundle, now)
-                    counts.processed += 1
-                else:
-                    counts.manual_review += 1
+                prepare_entry(session, category, row.id, bundle, now)
+                counts.processed += 1
             else:
                 counts.skipped += 1
         except PrivacyUnavailable:
@@ -329,7 +363,7 @@ def prepare_batch(
 
 
 def pending_commands(
-    session: Session, *, limit: int = BATCH_SIZE
+    session: Session, *, limit: int = BATCH_SIZE, audit_only: bool = False
 ) -> tuple[list[DeletionCommand], bool]:
     if not 1 <= limit <= BATCH_SIZE:
         raise ValueError("Invalid journal batch")
@@ -338,12 +372,12 @@ def pending_commands(
     now = database_now(session)
     session.execute(
         insert(CleanupCursor)
-        .values(category="journal", next_run_at=now)
+        .values(category="audit_journal" if audit_only else "journal", next_run_at=now)
         .on_conflict_do_nothing()
     )
     cursor = session.scalars(
         select(CleanupCursor)
-        .where(CleanupCursor.category == "journal")
+        .where(CleanupCursor.category == ("audit_journal" if audit_only else "journal"))
         .with_for_update()
     ).one()
     query = (
@@ -351,6 +385,9 @@ def pending_commands(
         .where(
             DeletionEntry.applied_at.is_(None),
             DeletionEntry.operation != "order_delete",
+            DeletionEntry.operation == "audit_delete"
+            if audit_only
+            else DeletionEntry.operation != "audit_delete",
         )
         .order_by(DeletionEntry.id)
         .limit(limit)
@@ -376,6 +413,11 @@ def apply_command(
         or not synthetic_database(session)
     ):
         raise JournalUnavailable("Independent journal storage required")
+    if command.operation == "audit_delete" and (
+        not has_audit_authority(session)
+        or session.scalar(select(func.current_user())) != "akbrizcase_migrator"
+    ):
+        raise JournalUnavailable("Protected audit operator authorization required")
     # Staff authority is always first in the global lock order. A session
     # resolver cannot race session cleanup/revocation and reacquire authority.
     if command.operation == "staff_session_delete":

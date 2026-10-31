@@ -261,6 +261,63 @@ def test_reconciliation_rejects_local_conflict_and_production(
         assert row is not None and row.pii_erased_at is None
 
 
+@contextmanager
+def synthetic_archive(database: Database, archive: str) -> Iterator[dict[str, int]]:
+    """Own only this random schema/copy; preserve the original journal OID.
+
+    Catalog checks cover rollback and lost commit acknowledgement at every setup
+    boundary. Cleanup DDL is atomic: failure leaves the original available for
+    operator recovery; it never drops the original or uses CASCADE.
+    """
+    owned: dict[str, int] = {}
+    with database.unit_of_work() as session:
+        original = session.scalar(text("SELECT 'app.deletion_journal'::regclass::oid"))
+        assert (
+            session.scalar(text("SELECT to_regnamespace(:schema)"), {"schema": archive})
+            is None
+        )
+    try:
+        yield owned
+    finally:
+        with database.unit_of_work() as session:
+            exists = session.scalar(
+                text("SELECT to_regnamespace(:schema)"), {"schema": archive}
+            )
+            if exists is not None:
+                archived = session.scalar(
+                    text("SELECT to_regclass(:name)::oid"),
+                    {"name": archive + ".deletion_journal"},
+                )
+                current = session.scalar(
+                    text("SELECT to_regclass('app.deletion_journal')::oid")
+                )
+                if archived is not None:
+                    assert archived == original and current == owned.get("copy")
+                    session.execute(
+                        text(
+                            "ALTER TABLE app.deletion_journal "
+                            "RENAME TO reapplied_journal"
+                        )
+                    )
+                    session.execute(
+                        text(f"ALTER TABLE app.reapplied_journal SET SCHEMA {archive}")
+                    )
+                    session.execute(
+                        text(f"ALTER TABLE {archive}.deletion_journal SET SCHEMA app")
+                    )
+                    session.execute(text(f"DROP TABLE {archive}.reapplied_journal"))
+                else:
+                    assert current == original
+                    older = session.scalar(
+                        text("SELECT to_regclass(:name)::oid"),
+                        {"name": archive + ".older_journal"},
+                    )
+                    if older is not None:
+                        assert older == owned.get("copy")
+                        session.execute(text(f"DROP TABLE {archive}.older_journal"))
+                session.execute(text(f"DROP SCHEMA {archive}"))
+
+
 @pytest.mark.parametrize("format", [1, 2])
 @pytest.mark.parametrize("local_present", [False, True])
 @pytest.mark.parametrize("kind", ["support", "commercial", "mixed", "service"])
@@ -284,125 +341,135 @@ def test_reapply_older_graph_and_journal_snapshot_without_reset(
     tmp_path.chmod(0o700)
     sink = SyntheticJournal(tmp_path)
     archive = "synthetic_restore_" + uuid4().hex
-    with migrator.unit_of_work() as session:
-        assert (
-            session.scalar(
-                text(
-                    "SELECT shobj_description(oid,'pg_database') FROM pg_database "
-                    "WHERE datname=current_database()"
+    with synthetic_archive(migrator, archive) as owned:
+        with migrator.unit_of_work() as session:
+            assert (
+                session.scalar(
+                    text(
+                        "SELECT shobj_description(oid,'pg_database') FROM pg_database "
+                        "WHERE datname=current_database()"
+                    )
+                )
+                == "akbrizcase:synthetic-seed:test"
+            )
+            session.execute(text(f"CREATE SCHEMA {archive}"))
+            row = session.get(Order, identifier)
+            assert row is not None
+            consent_id = row.consent_id
+            before = graph(session)
+            snapshots = {
+                name: [
+                    dict(row)
+                    for row in session.execute(
+                        select(Base.metadata.tables["app." + name])
+                    ).mappings()
+                ]
+                for name in GRAPH_TABLES
+            }
+            if not local_present:
+                session.execute(
+                    text(
+                        f"CREATE TABLE {archive}.older_journal "
+                        "(LIKE app.deletion_journal INCLUDING ALL)"
+                    )
+                )
+            if format == 1:
+                at = utc_now()
+                entry = DeletionEntry(
+                    format=1,
+                    operation="order_delete",
+                    object_id=identifier,
+                    policy_version=demo_bundle().consent.version,
+                    created_at=at,
+                    retain_until=at
+                    + timedelta(days=demo_bundle().retention.deletion_journal_days),
+                    consent_id=consent_id,
+                    decision_id=uuid4(),
+                )
+                session.add(entry)
+                session.flush()
+            else:
+                entry = prepare_entry(
+                    session,
+                    "order_delete",
+                    identifier,
+                    demo_bundle(),
+                    utc_now(),
+                    consent_id=consent_id,
+                    decision_id=uuid4(),
+                )
+            command = command_for(entry)
+            if local_present:
+                session.execute(
+                    text(
+                        f"CREATE TABLE {archive}.older_journal "
+                        "(LIKE app.deletion_journal INCLUDING ALL)"
+                    )
+                )
+                session.execute(
+                    text(
+                        f"INSERT INTO {archive}.older_journal "
+                        "SELECT * FROM app.deletion_journal"
+                    )
+                )
+            owned["copy"] = session.scalar(
+                text(f"SELECT '{archive}.older_journal'::regclass::oid")
+            )
+            foreign_keys = list(
+                session.scalars(
+                    text(
+                        "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                        "WHERE conrelid='app.deletion_journal'::regclass "
+                        "AND contype='f'"
+                    )
                 )
             )
-            == "akbrizcase:synthetic-seed:test"
-        )
-        session.execute(text(f"CREATE SCHEMA {archive}"))
-        row = session.get(Order, identifier)
-        assert row is not None
-        consent_id = row.consent_id
-        before = graph(session)
-        snapshots = {
-            name: [
-                dict(row)
-                for row in session.execute(
-                    select(Base.metadata.tables["app." + name])
-                ).mappings()
-            ]
-            for name in GRAPH_TABLES
-        }
-        if not local_present:
+            triggers = list(
+                session.scalars(
+                    text(
+                        "SELECT pg_get_triggerdef(oid) FROM pg_trigger "
+                        "WHERE tgrelid='app.deletion_journal'::regclass "
+                        "AND NOT tgisinternal"
+                    )
+                )
+            )
+        assert reconcile_command(
+            migrator,
+            command,
+            sink,
+            execute=True,
+            authorize_manual=lambda s: (
+                authorize(s, "privacy-admin", PASSWORD) == "SUCCESS"
+            ),
+        ).commit_confirmed
+        # Exact graph rows are now absent; INSERT restores the old synthetic snapshot.
+        with migrator.unit_of_work() as session:
+            assert session.get(Order, identifier) is None
             session.execute(
-                text(
-                    f"CREATE TABLE {archive}.older_journal "
-                    "(LIKE app.deletion_journal INCLUDING ALL)"
-                )
+                text(f"ALTER TABLE app.deletion_journal SET SCHEMA {archive}")
             )
-        if format == 1:
-            at = utc_now()
-            entry = DeletionEntry(
-                format=1,
-                operation="order_delete",
-                object_id=identifier,
-                policy_version=demo_bundle().consent.version,
-                created_at=at,
-                retain_until=at
-                + timedelta(days=demo_bundle().retention.deletion_journal_days),
-                consent_id=consent_id,
-                decision_id=uuid4(),
-            )
-            session.add(entry)
-            session.flush()
-        else:
-            entry = prepare_entry(
-                session,
-                "order_delete",
-                identifier,
-                demo_bundle(),
-                utc_now(),
-                consent_id=consent_id,
-                decision_id=uuid4(),
-            )
-        command = command_for(entry)
-        if local_present:
+            session.execute(text(f"ALTER TABLE {archive}.older_journal SET SCHEMA app"))
             session.execute(
-                text(
-                    f"CREATE TABLE {archive}.older_journal "
-                    "(LIKE app.deletion_journal INCLUDING ALL)"
-                )
+                text("ALTER TABLE app.older_journal RENAME TO deletion_journal")
             )
-            session.execute(
-                text(
-                    f"INSERT INTO {archive}.older_journal "
-                    "SELECT * FROM app.deletion_journal"
+            for definition in foreign_keys:
+                session.execute(
+                    text("ALTER TABLE app.deletion_journal ADD " + definition)
                 )
-            )
-        foreign_keys = list(
-            session.scalars(
-                text(
-                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-                    "WHERE conrelid='app.deletion_journal'::regclass AND contype='f'"
-                )
-            )
-        )
-        triggers = list(
-            session.scalars(
-                text(
-                    "SELECT pg_get_triggerdef(oid) FROM pg_trigger "
-                    "WHERE tgrelid='app.deletion_journal'::regclass "
-                    "AND NOT tgisinternal"
-                )
-            )
-        )
-    assert reconcile_command(
-        migrator,
-        command,
-        sink,
-        execute=True,
-        authorize_manual=lambda s: authorize(s, "privacy-admin", PASSWORD) == "SUCCESS",
-    ).commit_confirmed
-    # Exact graph rows are now absent; INSERT restores the old synthetic snapshot.
-    with migrator.unit_of_work() as session:
-        assert session.get(Order, identifier) is None
-        session.execute(text(f"ALTER TABLE app.deletion_journal SET SCHEMA {archive}"))
-        session.execute(text(f"ALTER TABLE {archive}.older_journal SET SCHEMA app"))
-        session.execute(
-            text("ALTER TABLE app.older_journal RENAME TO deletion_journal")
-        )
-        for definition in foreign_keys:
-            session.execute(text("ALTER TABLE app.deletion_journal ADD " + definition))
-        for definition in triggers:
-            session.execute(text(definition))
-        for name in (
-            "consents",
-            "orders",
-            "order_items",
-            "order_status_history",
-            "email_outbox",
-        ):
-            table = Base.metadata.tables["app." + name]
-            for values in snapshots[name]:
-                if values.get("id") not in set(session.scalars(select(table.c.id))):
-                    session.execute(insert(table).values(values))
-        assert graph(session) == before
-    try:
+            for definition in triggers:
+                session.execute(text(definition))
+            for name in (
+                "consents",
+                "orders",
+                "order_items",
+                "order_status_history",
+                "email_outbox",
+            ):
+                table = Base.metadata.tables["app." + name]
+                for values in snapshots[name]:
+                    if values.get("id") not in set(session.scalars(select(table.c.id))):
+                        session.execute(insert(table).values(values))
+            assert graph(session) == before
         result = reconcile_command(migrator, command, sink)
         assert result.state == (
             JournalState.WITNESSED if local_present else JournalState.LOCAL_MISSING
@@ -431,18 +498,72 @@ def test_reapply_older_graph_and_journal_snapshot_without_reset(
                 and command_for(restored_entry).canonical() == command.canonical()
             )
         assert sink.read(command.id, synthetic=True) == command.canonical()
-    finally:
-        # Put the unchanged newer original back. Dispose only this test's table
-        # copy so later Alembic/model checks do not see synthetic archive objects.
-        with migrator.unit_of_work() as session:
-            session.execute(
-                text("ALTER TABLE app.deletion_journal RENAME TO reapplied_journal")
+
+
+@pytest.mark.parametrize(
+    "stage",
+    ["schema", "copy", "swap_rollback", "restore_rollback", "restore_committed"],
+)
+def test_archive_cleanup_covers_setup_and_restore_failures(
+    privacy_db: tuple[Database, Database],
+    stage: str,
+) -> None:
+    migrator = privacy_db[1]
+    archive = "synthetic_restore_" + uuid4().hex
+    with migrator.unit_of_work() as session:
+        original = session.scalar(text("SELECT 'app.deletion_journal'::regclass::oid"))
+        before = list(
+            session.execute(text("SELECT * FROM app.deletion_journal ORDER BY id"))
+        )
+    with pytest.raises(RuntimeError, match="synthetic injected"):
+        with synthetic_archive(migrator, archive) as owned:
+            with migrator.unit_of_work() as session:
+                session.execute(text(f"CREATE SCHEMA {archive}"))
+            if stage == "schema":
+                raise RuntimeError("synthetic injected schema setup failure")
+            with migrator.unit_of_work() as session:
+                session.execute(
+                    text(
+                        f"CREATE TABLE {archive}.older_journal "
+                        "(LIKE app.deletion_journal INCLUDING ALL)"
+                    )
+                )
+                owned["copy"] = session.scalar(
+                    text(f"SELECT '{archive}.older_journal'::regclass::oid")
+                )
+            if stage == "copy":
+                raise RuntimeError("synthetic injected copy setup failure")
+            with migrator.unit_of_work() as session:
+                session.execute(
+                    text(f"ALTER TABLE app.deletion_journal SET SCHEMA {archive}")
+                )
+                session.execute(
+                    text(f"ALTER TABLE {archive}.older_journal SET SCHEMA app")
+                )
+                session.execute(
+                    text("ALTER TABLE app.older_journal RENAME TO deletion_journal")
+                )
+                if stage == "swap_rollback":
+                    raise RuntimeError("synthetic injected swap failure")
+            # The graph-restore transaction in the main test can fail while
+            # the original journal is already safely archived.
+            with migrator.unit_of_work() as session:
+                session.execute(text("SELECT 1"))
+                if stage == "restore_rollback":
+                    raise RuntimeError("synthetic injected restore failure")
+            raise RuntimeError("synthetic injected post-restore failure")
+    with migrator.unit_of_work() as session:
+        assert (
+            session.scalar(text("SELECT 'app.deletion_journal'::regclass::oid"))
+            == original
+        )
+        assert (
+            list(
+                session.execute(text("SELECT * FROM app.deletion_journal ORDER BY id"))
             )
-            session.execute(
-                text(f"ALTER TABLE app.reapplied_journal SET SCHEMA {archive}")
-            )
-            session.execute(
-                text(f"ALTER TABLE {archive}.deletion_journal SET SCHEMA app")
-            )
-            session.execute(text(f"DROP TABLE {archive}.reapplied_journal"))
-            session.execute(text(f"DROP SCHEMA {archive}"))
+            == before
+        )
+        assert (
+            session.scalar(text("SELECT to_regnamespace(:schema)"), {"schema": archive})
+            is None
+        )

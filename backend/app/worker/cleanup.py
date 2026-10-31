@@ -24,6 +24,9 @@ def cleanup_tick(
     stopped: Callable[[], bool] = lambda: False,
 ) -> None:
     for category in CATEGORIES:
+        if category == "audit_delete":
+            # Only the protected maintenance process owns the audit scan/cursor.
+            continue
         if stopped():
             return
         try:
