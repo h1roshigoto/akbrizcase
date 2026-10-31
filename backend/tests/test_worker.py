@@ -91,20 +91,24 @@ with (
     patch('app.worker.__main__.DatabaseSettings.from_environment'),
     patch('app.worker.__main__.Database', return_value=database) as factory,
     patch('app.worker.__main__.tick', side_effect=tick) as poll,
+    patch('app.worker.__main__.cleanup_tick') as cleanup,
     patch('time.sleep', side_effect=request_stop),
     # Event.wait calls Condition.wait with its non-reentrant lock held. This
     # delivers a real signal in the old deadlock window deterministically.
     patch('threading.Condition.wait', side_effect=request_stop),
 ):
     main()
-    if boundary.startswith('tick-') or boundary == 'wait-polling':
+    if not boundary.startswith('config-'):
         factory.assert_called_once()
         poll.assert_called_once()
+        cleanup.assert_called_once()
+        assert cleanup.call_args.args == (database,)
         database.close.assert_called_once()
-        assert completed == ([] if boundary == 'wait-polling' else ['tick completed'])
+        assert completed == (['tick completed'] if boundary.startswith('tick-') else [])
     else:
         factory.assert_not_called()
         poll.assert_not_called()
+        cleanup.assert_not_called()
         database.close.assert_not_called()
 """
     process = subprocess.run(

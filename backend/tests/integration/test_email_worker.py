@@ -283,6 +283,7 @@ def test_stale_token_cas_and_erasure(
     creation_client: TestClient,
     creation_db: Database,
     success: bool,
+    databases: tuple[Database, Database],
 ) -> None:
     create(creation_client, creation_db)
     first = claim(creation_db)
@@ -309,7 +310,7 @@ def test_stale_token_cas_and_erasure(
             else finish_failure(session, second, "SMTP_TIMEOUT")
         )
     assert row(creation_db).status == ("sent" if success else "pending")
-    with creation_db.unit_of_work() as session:
+    with databases[1].unit_of_work() as session:
         session.execute(
             text("DELETE FROM app.orders WHERE id=:id"), {"id": second.order_id}
         )

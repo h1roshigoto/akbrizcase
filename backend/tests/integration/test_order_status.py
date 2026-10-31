@@ -149,6 +149,9 @@ def test_successful_paths_and_full_invariants(
         assert order["updated_at"] == last["at"]
         assert start <= datetime.fromisoformat(last["at"]) <= utc_now()
         assert order["closed_at"] == (last["at"] if target == "closed" else None)
+        assert order["terminal_at"] == (
+            last["at"] if target in {"closed", "cancelled"} else None
+        )
         event_rows = audits(staff_database)
         assert len(event_rows) == version - 1
         audit = event_rows[-1]
@@ -172,7 +175,7 @@ def test_successful_paths_and_full_invariants(
         }
         clean = deepcopy(after)
         clean["order_status_history"] = original["order_status_history"]
-        for key in ("status", "version", "updated_at", "closed_at"):
+        for key in ("status", "version", "updated_at", "closed_at", "terminal_at"):
             clean["orders"][0][key] = original["orders"][0][key]
         assert clean == original, (
             "Immutable order, consent, snapshots or outbox changed"

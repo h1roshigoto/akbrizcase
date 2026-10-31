@@ -766,6 +766,12 @@ it.each([false, true])(
     await screen.findByRole('button', { name: 'Пересмотреть заявку' })
     expect(api.submit).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Пересмотреть заявку' }))
+    // The refresh preserves old resource data until the new publication loads.
+    // Wait for that version before approving it; a transient enabled button
+    // does not prove the asynchronous consent reset has finished.
+    await within(
+      screen.getByRole('region', { name: 'Согласие на обработку данных' }),
+    ).findByText(/next-approved/)
     await waitFor(() =>
       expect((send() as HTMLButtonElement).disabled).toBe(false),
     )

@@ -454,12 +454,15 @@
 
 #### MVP-038 — Пакетная очистка и защищённая процедура удаления
 
+**Уточнение направления, 2026-10-31:** владелец выбрал вариант А — полное удаление графа после утверждённого основания, без отдельного аналитического хранилища. [ADR-038-A (PROPOSED)](docs/decisions/ADR-038-A.md): сроки и исключения не утверждены; прежние числа ниже остаются предложениями. Срок полного удаления не выводится из PII/linked/commercial TTL. Нужны отдельное решение по policy schema/legacy/hold и journal basis для automation; текущая защищённая manual-процедура проверяется только в synthetic demo/test. MVP-038 остаётся PARTIAL / RELEASE BLOCKED; MVP-039 не запускается.
+
 - **Приоритет:** P1. **Цель/результат:** данные удаляются во всех предусмотренных местах без нарушения CHECK/FK.
 - **Объём:** ежедневный worker cleanup §10.3: чат 30 дней (доступ 24 ч), ПДн заявки 180 дней после terminal, снимки 1 год, логи/аудит 14/90 дней с исключением действующих review; outbox sent/failed 30 дней, staff sessions/rate buckets; открытые старые заявки на пересмотр ответственному. Стирание контактов/comment/organization/city/reason/chat link/hash/token + pii_erased_at атомарно; consent до конечной строки, полное удаление orders→children→consent при правовом основании. Отдельный технический журнал удалений ≥14 дней для восстановления; защищённая ручная операция после проверки личности.
 - **Файлы/модули:** worker cleanup, orders privacy-service, core protected CLI/deletion journal, tests.
 - **Зависимости:** MVP-015, MVP-017, MVP-029, MVP-036, MVP-037. **DoD:** batch повторяем, аудит только количества/технических ID; описание support живёт независимо от чата, но удаляется со своими ПДн; доказательства экспертного согласования не исчезают по общему 90-дневному правилу.
 - **Тесты:** границы сроков, repeat batches, CHECK support, consent RESTRICT/full erase, общая 404 после стирания по принятому AQ-01 (PR #21) (без post-erasure 410), worker crash/rollback, preservation review, отсутствие ПДн в журнале.
 - **Проверка:** fake-clock integration на полном наборе сущностей; повторная очистка после restore — MVP-042.
+- **Техническое уточнение:** [synthetic journal protocol/reconciliation](docs/MVP-038-journal-protocol.md) проверяет durable read-back, неизвестный commit и table-level old-state reapply; production sink/terminal ack/horizon и полный restore остаются открытыми. ADR-038-A — PROPOSED; полный DoD не закрыт.
 - **Не входит:** безусловное удаление по непроверенному запросу и бессрочное хранение ради аналитики.
 
 #### MVP-039 — HTTP-защита, лимиты и секреты

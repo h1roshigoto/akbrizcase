@@ -27,6 +27,7 @@ from app.main import app
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 from app.modules.catalog.seed import seed_catalog
 from app.modules.notify.models import EmailOutbox
+from app.modules.orders.erasure_service import erase_order_pii
 from app.modules.orders.models import (
     Consent,
     ConsentText,
@@ -619,23 +620,10 @@ def test_service_unknown_without_shipping(
 
 
 def erase_fixture(database: Database) -> None:
-    """Synthetic atomic erasure only; the production worker remains MVP-038."""
+    """Exercise MVP-038's mutation in the isolated synthetic AQ-01 suite."""
     with database.unit_of_work() as session:
-        session.execute(
-            update(Order).values(
-                pii_erased_at=utc_now(),
-                organization_name=None,
-                contact_name=None,
-                email=None,
-                phone=None,
-                city=None,
-                comment=None,
-                request_hash=None,
-                receipt_token_hash=None,
-                chat_session_id=None,
-            )
-        )
-        session.execute(update(OrderStatusHistory).values(reason=None))
+        for identifier in session.scalars(select(Order.id)):
+            erase_order_pii(session, identifier, utc_now())
 
 
 @pytest.mark.parametrize("skus", [(), ("DEMO-S-001",), ("DEMO-P-001", "DEMO-P-002")])
@@ -1085,6 +1073,7 @@ def test_timing_review_and_no_hmac_for_hidden_paths(
 def test_erased_concurrent_matrix_and_deleted_row_boundary(
     creation_client: TestClient,
     creation_db: Database,
+    databases: tuple[Database, Database],
 ) -> None:
     body, headers = support_body(), order_headers()
     first = creation_client.post("/api/v1/orders", json=body, headers=headers)
@@ -1108,8 +1097,8 @@ def test_erased_concurrent_matrix_and_deleted_row_boundary(
     with ThreadPoolExecutor(max_workers=6) as pool:
         assert list(pool.map(retry, range(6))) == [404] * 6
     assert counts(creation_db) == before
-    with creation_db.unit_of_work() as session:
-        # Normal runtime deletion uses existing CASCADEs; no privileged hook.
+    with databases[1].unit_of_work() as session:
+        # Full deletion requires the protected database boundary.
         session.execute(delete(Order))
         session.execute(delete(Consent))
     after = creation_client.post("/api/v1/orders", json=body, headers=headers)
