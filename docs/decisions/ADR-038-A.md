@@ -105,6 +105,12 @@ policy к старым версиям. `journal_policy_version` задаёт с�
 
 ## Journal v1/v2, witness и backup/restore
 
+Техническая synthetic реализация уточнена в
+[MVP-038 journal protocol](../MVP-038-journal-protocol.md): sink abstraction,
+durable read-back, reconciliation после неизвестного commit и изолированная
+симуляция старого local state. Это не принятие ADR или production wire contract;
+независимый production sink, terminal acknowledgement и полный restore gate открыты.
+
 Существующие v1 manual order_delete совместимы с вариантом А: целевой граф уже
 удаляется CASCADE. Их UUID, canonical bytes и policy references сохраняются точно.
 V2 — **техническое предложение**, не утверждённый production wire contract:

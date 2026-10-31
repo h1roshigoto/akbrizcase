@@ -9,9 +9,11 @@ is deliberately no production sink until independent storage is approved.
 import json
 import os
 import stat
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -27,6 +29,10 @@ from app.modules.orders.deletion_models import DeletionEntry
 
 
 class JournalUnavailable(ValueError):
+    pass
+
+
+class JournalConflict(JournalUnavailable):
     pass
 
 
@@ -187,6 +193,85 @@ def command_for(entry: DeletionEntry) -> DeletionCommand:
     return DeletionCommand.model_validate(values)
 
 
+@dataclass(frozen=True)
+class DurableAcknowledgement:
+    """Sink receipt, not proof of execution or a production wire format."""
+
+    operation_id: UUID
+    sha256: str
+
+
+class JournalSink(Protocol):
+    """Trusted adapter outside the DB rollback/restore domain.
+
+    Export is create-if-absent by UUID, exact-byte retry, and returns only after
+    durable storage. Read must establish durability, not return a buffered write.
+    A receipt alone never authorizes mutation. No delete/prune capability exists.
+    Production durability, authentication and discovery remain an ADR decision.
+    """
+
+    def export(
+        self, command: DeletionCommand, *, synthetic: bool
+    ) -> DurableAcknowledgement: ...
+
+    def read(self, operation_id: UUID, *, synthetic: bool) -> bytes | None: ...
+
+
+_VERIFIED = object()
+
+
+@dataclass(frozen=True)
+class VerifiedWitness:
+    """Process-local capability from a sink read, never caller-supplied bytes.
+
+    Verify immediately before a fresh mutation UoW. The trusted sink must retain
+    witnesses indefinitely until a separately approved terminal/horizon protocol.
+    This is an internal trust boundary, not protection against hostile Python code.
+    """
+
+    canonical: bytes
+    acknowledgement: DurableAcknowledgement
+    _verification: object
+
+    def matches(self, command: DeletionCommand) -> bool:
+        return self._verification is _VERIFIED and self.canonical == command.canonical()
+
+
+def verify_witness(
+    sink: JournalSink,
+    command: DeletionCommand,
+    acknowledgement: DurableAcknowledgement,
+    *,
+    synthetic: bool,
+) -> VerifiedWitness:
+    payload = command.canonical()
+    if acknowledgement != DurableAcknowledgement(
+        command.id, sha256(payload).hexdigest()
+    ):
+        raise JournalConflict("Journal acknowledgement conflict")
+    stored = sink.read(command.id, synthetic=synthetic)
+    if stored is None:
+        raise JournalUnavailable("Durable witness missing")
+    if stored != payload:
+        raise JournalConflict("Journal command conflict")
+    return VerifiedWitness(payload, acknowledgement, _VERIFIED)
+
+
+def read_witness(
+    sink: JournalSink, command: DeletionCommand, *, synthetic: bool
+) -> VerifiedWitness | None:
+    payload = sink.read(command.id, synthetic=synthetic)
+    if payload is None:
+        return None
+    if payload != command.canonical():
+        raise JournalConflict("Journal command conflict")
+    return VerifiedWitness(
+        payload,
+        DurableAcknowledgement(command.id, sha256(payload).hexdigest()),
+        _VERIFIED,
+    )
+
+
 class SyntheticJournal:
     """Private directory, atomic install, file+directory fsync, exact retry.
 
@@ -198,17 +283,53 @@ class SyntheticJournal:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
 
-    def witness(self, command: DeletionCommand, *, synthetic: bool) -> bytes:
+    def _directory(self, synthetic: bool) -> int:
         if not synthetic:
             raise JournalUnavailable("Independent journal storage required")
         descriptor = os.open(
             self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         )
+        info = os.fstat(descriptor)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            os.close(descriptor)
+            raise JournalUnavailable("Private synthetic journal required")
+        return descriptor
+
+    def read(self, operation_id: UUID, *, synthetic: bool) -> bytes | None:
+        descriptor = self._directory(synthetic)
+        try:
+            try:
+                file = os.open(
+                    str(operation_id) + ".json",
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=descriptor,
+                )
+            except FileNotFoundError:
+                return None
+            with os.fdopen(file, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.getuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_size > 16384
+                ):
+                    raise JournalUnavailable("Invalid synthetic witness")
+                payload = stream.read(16385)
+                # A crash after link but before directory fsync is not durable
+                # evidence until recovery successfully syncs both again.
+                os.fsync(stream.fileno())
+            os.fsync(descriptor)
+            return payload
+        finally:
+            os.close(descriptor)
+
+    def export(
+        self, command: DeletionCommand, *, synthetic: bool
+    ) -> DurableAcknowledgement:
+        descriptor = self._directory(synthetic)
         temporary = "." + uuid4().hex
         try:
-            info = os.fstat(descriptor)
-            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-                raise JournalUnavailable("Private synthetic journal required")
             payload = command.canonical()
             filename = str(command.id) + ".json"
             file = os.open(
@@ -230,20 +351,24 @@ class SyntheticJournal:
                     follow_symlinks=False,
                 )
             except FileExistsError:
-                existing = os.open(
-                    filename, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=descriptor
-                )
-                with os.fdopen(existing, "rb") as stream:
-                    if stream.read(len(payload) + 1) != payload:
-                        raise JournalUnavailable("Journal command conflict") from None
+                if self.read(command.id, synthetic=synthetic) != payload:
+                    raise JournalConflict("Journal command conflict") from None
             os.fsync(descriptor)
-            return payload
+            return DurableAcknowledgement(command.id, sha256(payload).hexdigest())
         finally:
             try:
                 os.unlink(temporary, dir_fd=descriptor)
             except FileNotFoundError:
                 pass
             os.close(descriptor)
+
+    def witness(self, command: DeletionCommand, *, synthetic: bool) -> VerifiedWitness:
+        return verify_witness(
+            self,
+            command,
+            self.export(command, synthetic=synthetic),
+            synthetic=synthetic,
+        )
 
 
 def next_midnight(now: datetime) -> datetime:

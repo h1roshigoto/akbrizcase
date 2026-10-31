@@ -21,6 +21,23 @@ PII_FIELDS = (
 )
 
 
+def pii_erasure_complete(session: Session, order_id: UUID) -> bool:
+    row = session.get(Order, order_id)
+    return row is None or (
+        row.pii_erased_at is not None
+        and all(getattr(row, field) is None for field in PII_FIELDS)
+        and session.scalar(
+            select(OrderStatusHistory.id)
+            .where(
+                OrderStatusHistory.order_id == row.id,
+                OrderStatusHistory.reason.is_not(None),
+            )
+            .limit(1)
+        )
+        is None
+    )
+
+
 def erase_order_pii(session: Session, order_id: UUID, now: datetime) -> bool:
     """Caller verifies policy and write-ahead witness before entering here."""
     with session.begin_nested():

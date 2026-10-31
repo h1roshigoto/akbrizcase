@@ -9,18 +9,18 @@ from pathlib import Path
 from app.core.db import Database
 from app.modules.orders.cleanup_service import (
     CATEGORIES,
-    apply_command,
     pending_commands,
     prepare_batch,
 )
-from app.modules.orders.deletion_journal import SyntheticJournal
+from app.modules.orders.deletion_journal import JournalSink, SyntheticJournal
+from app.modules.orders.deletion_reconciliation import JournalState, reconcile_command
 
 
 def cleanup_tick(
     database: Database,
     *,
     now: datetime | None = None,
-    journal: SyntheticJournal | None = None,
+    journal: JournalSink | None = None,
     stopped: Callable[[], bool] = lambda: False,
 ) -> None:
     for category in CATEGORIES:
@@ -58,11 +58,13 @@ def cleanup_tick(
             if stopped():
                 return
             try:
-                witness = journal.witness(command, synthetic=synthetic)
-                with database.unit_of_work() as session:
-                    changed = apply_command(session, command, witness, now=now)
-                if changed:
+                result = reconcile_command(
+                    database, command, journal, execute=True, now=now
+                )
+                if result.state == JournalState.APPLIED and result.commit_confirmed:
                     logging.info("CLEANUP_APPLIED processed=1")
+                else:
+                    logging.info("CLEANUP_RECONCILIATION state=%s", result.state)
             except Exception:
                 logging.error("CLEANUP_APPLY_FAILED errors=1")
     except Exception:

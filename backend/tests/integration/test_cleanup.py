@@ -40,10 +40,12 @@ from app.modules.orders.deletion_journal import (
     DeletionCommand,
     JournalUnavailable,
     SyntheticJournal,
+    VerifiedWitness,
     command_for,
 )
 from app.modules.orders.deletion_models import DeletionEntry
 from app.modules.orders.deletion_operator import preflight, prepare_deletion
+from app.modules.orders.deletion_reconciliation import JournalState, reconcile_command
 from app.modules.orders.erasure_service import PII_FIELDS, erase_order_pii
 from app.modules.orders.models import (
     Consent,
@@ -111,7 +113,7 @@ def prepare(database: Database, identifier: UUID, now: datetime) -> DeletionComm
         return command_for(prepare_entry(session, "order_pii", identifier, bundle, now))
 
 
-def witness(tmp_path: Path, command: DeletionCommand) -> bytes:
+def witness(tmp_path: Path, command: DeletionCommand) -> VerifiedWitness:
     tmp_path.chmod(0o700)
     return SyntheticJournal(tmp_path).witness(command, synthetic=True)
 
@@ -223,7 +225,7 @@ def test_crash_boundaries_restore_or_retain_atomic_effect(
         assert (row.pii_erased_at is not None) == (failure == "after-commit")
         assert (entry.applied_at is not None) == (failure == "after-commit")
         assert (row.contact_name is None) == (failure == "after-commit")
-    assert (tmp_path / (str(command.id) + ".json")).read_bytes() == proof
+    assert (tmp_path / (str(command.id) + ".json")).read_bytes() == proof.canonical
     with database.unit_of_work() as session:
         assert apply_command(session, command, proof, now=now) == (
             failure != "after-commit"
@@ -243,7 +245,7 @@ def test_missing_witness_bad_packet_and_production_deny(
     with pytest.raises(JournalUnavailable):
         with database.unit_of_work() as session:
             apply_command(session, command, b"", now=now)
-    with patch.object(SyntheticJournal, "witness", side_effect=OSError("synthetic")):
+    with patch.object(SyntheticJournal, "export", side_effect=OSError("synthetic")):
         cleanup_tick(database, now=now, journal=SyntheticJournal(tmp_path))
     with database.unit_of_work() as session:
         row = session.get(Order, identifier)
@@ -776,8 +778,10 @@ def test_chat_messages_are_removed_in_bounded_chunks(
             prepare_entry(session, "chat_delete", row.id, bundle, now)
         )
     proof = witness(tmp_path, command)
-    with database.unit_of_work() as session:
-        assert apply_command(session, command, proof, now=now)
+    result = reconcile_command(
+        database, command, SyntheticJournal(tmp_path), execute=True, now=now
+    )
+    assert result.state == JournalState.WITNESSED and not result.commit_confirmed
     with database.unit_of_work() as session:
         assert session.get(ChatSession, chat_id) is not None
         assert session.scalar(select(func.count()).select_from(ChatMessage)) == 1

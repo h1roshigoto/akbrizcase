@@ -12,7 +12,12 @@ from sqlalchemy import text
 
 from app.core.db import SCHEMA_REVISION, Database, DatabaseSettings
 from app.core.db_types import Base, utc_now
-from app.modules.orders.deletion_journal import DeletionCommand, command_for
+from app.modules.orders.deletion_journal import (
+    DeletionCommand,
+    SyntheticJournal,
+    command_for,
+    verify_witness,
+)
 from app.modules.orders.deletion_models import DeletionEntry
 from app.modules.orders.seed import DEMO_VERSION, seed_consent
 
@@ -25,7 +30,7 @@ pytestmark = [
 ]
 
 
-def test_empty_postgresql_full_upgrade() -> None:
+def test_empty_postgresql_full_upgrade(tmp_path: Path) -> None:
     assert os.environ.get("DB_INTEGRATION_ISOLATED") == "1"
     assert os.environ.get("DB_HOST") == "postgres-test"
     assert os.environ.get("DB_NAME", "akbrizcase") == "akbrizcase"
@@ -88,6 +93,10 @@ def test_empty_postgresql_full_upgrade() -> None:
                     )
                 },
             )
+        tmp_path.chmod(0o700)
+        sink = SyntheticJournal(tmp_path)
+        receipt = sink.export(legacy, synthetic=True)
+        preserved = (tmp_path / (str(legacy.id) + ".json")).read_bytes()
         command.upgrade(config, "head")
         command.upgrade(config, "head")
         assert runtime.ready()
@@ -99,6 +108,12 @@ def test_empty_postgresql_full_upgrade() -> None:
                 and entry.journal_policy_version is None
             )
             assert command_for(entry).canonical() == legacy.canonical()
+            assert (
+                verify_witness(
+                    sink, command_for(entry), receipt, synthetic=True
+                ).canonical
+                == preserved
+            )
         with runtime.engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM app.alembic_version"))

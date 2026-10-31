@@ -18,11 +18,16 @@ from app.modules.notify.models import EmailOutbox
 from app.modules.orders.deletion_journal import (
     DeletionCommand,
     JournalUnavailable,
+    VerifiedWitness,
     command_for,
     next_midnight,
 )
 from app.modules.orders.deletion_models import CleanupCursor, DeletionEntry
-from app.modules.orders.erasure_service import delete_order_graph, erase_order_pii
+from app.modules.orders.erasure_service import (
+    delete_order_graph,
+    erase_order_pii,
+    pii_erasure_complete,
+)
 from app.modules.orders.models import Consent, Order, OrderItem
 from app.modules.orders.privacy_models import ConsentPublication
 from app.modules.orders.privacy_service import (
@@ -360,12 +365,16 @@ def pending_commands(
 def apply_command(
     session: Session,
     command: DeletionCommand,
-    witness: bytes,
+    witness: VerifiedWitness | bytes,
     *,
     now: datetime | None = None,
     manual_authorized: bool = False,
 ) -> bool:
-    if witness != command.canonical() or not synthetic_database(session):
+    if (
+        not isinstance(witness, VerifiedWitness)
+        or not witness.matches(command)
+        or not synthetic_database(session)
+    ):
         raise JournalUnavailable("Independent journal storage required")
     # Staff authority is always first in the global lock order. A session
     # resolver cannot race session cleanup/revocation and reacquire authority.
@@ -394,6 +403,8 @@ def apply_command(
         ):
             raise JournalUnavailable("Protected operator authorization required")
         changed = delete_order_graph(session, command.object_id, command.consent_id)
+        if not changed and session.get(Consent, command.consent_id) is not None:
+            raise JournalUnavailable("Deletion postcondition requires review")
     else:
         model = MODELS[command.operation]
         row = cast(
@@ -415,6 +426,17 @@ def apply_command(
                 session.flush()
             return False
         current, due, review = eligibility(session, command.operation, row, now)
+        if (
+            isinstance(row, Order)
+            and row.pii_erased_at is not None
+            and current.consent.version == entry.policy_version
+        ):
+            # An exact restore/retry can find an already erased target without
+            # this command's local applied_at. Verify the complete postcondition.
+            if pii_erasure_complete(session, command.object_id):
+                entry.applied_at = now
+                session.flush()
+            return False
         if not due or current.consent.version != entry.policy_version:
             return False
         if command.operation == "order_pii":

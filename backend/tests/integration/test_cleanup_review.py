@@ -509,7 +509,7 @@ def test_retry_new_failure_does_not_expire_old_pending_witness(
         assert session.get(EmailOutbox, row_id) is not None
         entry = session.get(DeletionEntry, command.id)
         assert entry is not None and entry.applied_at is None
-        assert command_for(entry).canonical() == proof
+        assert command_for(entry).canonical() == proof.canonical
         assert command.earliest_prune_at(None) is None
         assert apply_command(session, command, proof, now=deadline)
     with runtime.unit_of_work() as session:

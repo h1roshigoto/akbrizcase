@@ -462,6 +462,7 @@
 - **Зависимости:** MVP-015, MVP-017, MVP-029, MVP-036, MVP-037. **DoD:** batch повторяем, аудит только количества/технических ID; описание support живёт независимо от чата, но удаляется со своими ПДн; доказательства экспертного согласования не исчезают по общему 90-дневному правилу.
 - **Тесты:** границы сроков, repeat batches, CHECK support, consent RESTRICT/full erase, общая 404 после стирания по принятому AQ-01 (PR #21) (без post-erasure 410), worker crash/rollback, preservation review, отсутствие ПДн в журнале.
 - **Проверка:** fake-clock integration на полном наборе сущностей; повторная очистка после restore — MVP-042.
+- **Техническое уточнение:** [synthetic journal protocol/reconciliation](docs/MVP-038-journal-protocol.md) проверяет durable read-back, неизвестный commit и table-level old-state reapply; production sink/terminal ack/horizon и полный restore остаются открытыми. ADR-038-A — PROPOSED; полный DoD не закрыт.
 - **Не входит:** безусловное удаление по непроверенному запросу и бессрочное хранение ради аналитики.
 
 #### MVP-039 — HTTP-защита, лимиты и секреты

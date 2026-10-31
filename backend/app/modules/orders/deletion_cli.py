@@ -8,12 +8,14 @@ from uuid import UUID
 
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.core.cli import SafeParser, hidden
 from app.core.db import SCHEMA_REVISION, Database, DatabaseSettings
-from app.modules.orders.cleanup_service import apply_command
-from app.modules.orders.deletion_journal import SyntheticJournal
+from app.modules.orders.deletion_journal import SyntheticJournal, command_for
+from app.modules.orders.deletion_models import DeletionEntry
 from app.modules.orders.deletion_operator import authorize, preflight, prepare_deletion
+from app.modules.orders.deletion_reconciliation import JournalState, reconcile_command
 from app.modules.orders.models import Order
 from app.modules.orders.privacy_service import synthetic_database
 
@@ -49,55 +51,70 @@ def main(argv: list[str] | None = None) -> int:
                 session, login=login, password=password, order_id=args.order_id
             )
             synthetic = synthetic_database(session)
-        if code != "READY" or version is None:
+            previous = None
+            if code == "ABSENT":
+                entry = session.scalar(
+                    select(DeletionEntry).where(
+                        DeletionEntry.operation == "order_delete",
+                        DeletionEntry.object_id == args.order_id,
+                        DeletionEntry.decision_id == args.decision_id,
+                    )
+                )
+                if entry is not None and (
+                    command_for(entry).journal_version == args.journal_policy_version
+                ):
+                    previous = command_for(entry)
+        if code != "READY" and previous is None:
             print(code)
             return 0 if code == "ABSENT" else 1
         directory = os.environ.get("SYNTHETIC_DELETION_JOURNAL_DIR")
         if not synthetic or not directory:
             print("INDEPENDENT_JOURNAL_REQUIRED")
             return 1
-        confirmation = hidden(
-            "After identity verification and approval, enter DELETE "
-            "followed by target UUID: "
-        )
-        if confirmation != f"DELETE {args.order_id}":
-            print("CANCELLED")
-            return 1
-        with database.unit_of_work() as session:
-            code, command = prepare_deletion(
-                session,
-                login=login,
-                password=password,
-                order_id=args.order_id,
-                expected_version=version,
-                decision_id=args.decision_id,
-                journal_policy_version=args.journal_policy_version,
+        command = previous
+        if command is None:
+            confirmation = hidden(
+                "After identity verification and approval, enter DELETE "
+                "followed by target UUID: "
             )
+            if confirmation != f"DELETE {args.order_id}":
+                print("CANCELLED")
+                return 1
+            assert version is not None
+            with database.unit_of_work() as session:
+                code, command = prepare_deletion(
+                    session,
+                    login=login,
+                    password=password,
+                    order_id=args.order_id,
+                    expected_version=version,
+                    decision_id=args.decision_id,
+                    journal_policy_version=args.journal_policy_version,
+                )
         if command is None:
             print(code)
             return 0 if code == "ABSENT" else 1
-        # Immutable authorization is installed before deletion, outside the UoW.
-        witness = SyntheticJournal(Path(directory)).witness(
-            command, synthetic=synthetic
-        )
-        with database.unit_of_work() as session:
+
+        def reauthorize(session: Session) -> bool:
             code = authorize(session, login, password)
             if code != "SUCCESS":
-                print(code)
-                return 1
+                return False
             row = session.scalar(
                 select(Order).where(Order.id == args.order_id).with_for_update()
             )
-            if row is not None and row.version != version:
-                print("STATE_CONFLICT")
-                return 1
-            changed = apply_command(session, command, witness, manual_authorized=True)
-            pending = (
-                session.scalar(select(Order.id).where(Order.id == args.order_id))
-                is not None
-            )
-        print("PENDING" if pending else "APPLIED" if changed else "ABSENT")
-        return 1 if pending else 0
+            return row is None or row.version == version
+
+        result = reconcile_command(
+            database,
+            command,
+            SyntheticJournal(Path(directory)),
+            execute=True,
+            authorize_manual=reauthorize,
+        )
+        print(result.state)
+        return (
+            0 if result.state == JournalState.APPLIED and result.commit_confirmed else 1
+        )
     except (
         GetPassWarning,
         EOFError,

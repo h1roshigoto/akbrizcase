@@ -197,7 +197,7 @@ def test_protected_full_graph_delete_rollback_retry_and_independent_chat(
         )
     # Simulate lost post-commit acknowledgement: same external command, no
     # second mutation, no new evidence/children and no surviving graph fragment.
-    assert (tmp_path / (str(command.id) + ".json")).read_bytes() == proof
+    assert (tmp_path / (str(command.id) + ".json")).read_bytes() == proof.canonical
     with migrator.unit_of_work() as session:
         assert not apply_command(session, command, proof, manual_authorized=True)
         after = graph(session)
@@ -295,7 +295,7 @@ def test_existing_manual_journal_formats_delete_same_graph(
         assert all(not rows for rows in graph(session).values())
         persisted = session.get(DeletionEntry, command.id)
         assert persisted is not None and persisted.applied_at is not None
-        assert command_for(persisted).canonical() == proof
+        assert command_for(persisted).canonical() == proof.canonical
         assert not apply_command(session, command, proof, manual_authorized=True)
 
 
