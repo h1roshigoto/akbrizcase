@@ -40,8 +40,8 @@ def chat_db(staff_database: Database) -> Iterator[Database]:
 @pytest.fixture
 def browsers(chat_db: Database) -> Iterator[tuple[TestClient, TestClient]]:
     with (
-        TestClient(app, base_url=ORIGIN) as one,
-        TestClient(app, base_url=ORIGIN) as two,
+        TestClient(app, client=("192.0.2.1", 50000), base_url=ORIGIN) as one,
+        TestClient(app, client=("192.0.2.1", 50000), base_url=ORIGIN) as two,
     ):
         app.state.database = chat_db
         app.state.staff_security = StaffSecurity(

@@ -27,9 +27,11 @@ class OrderSecurity:
             raise ValueError("Order security configuration unavailable")
 
     @classmethod
-    def from_environment(cls) -> "OrderSecurity | None":
+    def from_environment(
+        cls, variable: str = "ORDER_HMAC_SECRET_FILE"
+    ) -> "OrderSecurity | None":
         try:
-            with Path(os.environ["ORDER_HMAC_SECRET_FILE"]).open("rb") as stream:
+            with Path(os.environ[variable]).open("rb") as stream:
                 raw = stream.read(4097)
             if len(raw) > 4096:
                 raise ValueError

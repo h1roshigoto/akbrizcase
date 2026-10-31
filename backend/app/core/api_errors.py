@@ -1,5 +1,6 @@
 """Sanitized HTTP errors and server-generated canonical request identifiers."""
 
+import secrets
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,8 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.core.http_security import TrustedProxy
+from app.core.rate_limits import RateLimited
 from app.schemas.common import ErrorDetail, ErrorEnvelope
 
 
@@ -37,10 +40,45 @@ def install_api_errors(app: FastAPI) -> None:
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         request.state.request_id = uuid4()
-        response = await call_next(request)
+        request.state.csp_nonce = secrets.token_hex(24)
+        origins = request.headers.getlist("origin")
+        public_api = request.url.path.startswith(
+            "/api/v1/"
+        ) and not administrative_request(request)
+        proxy: TrustedProxy = request.app.state.trusted_proxy
+        denied = False
+        if public_api and origins:
+            try:
+                denied = len(origins) != 1 or origins[0] != proxy.external_origin(
+                    request
+                )
+            except HTTPException:
+                denied = True
+        if public_api and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            denied |= request.headers.get("sec-fetch-site") == "cross-site"
+        response = (
+            error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
+            if denied
+            else await call_next(request)
+        )
         response.headers["X-Request-ID"] = str(request.state.request_id)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'nonce-"
+            + request.state.csp_nonce
+            + "'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "font-src 'self'; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        )
         if request.url.path.startswith("/api/v1/") or administrative_request(request):
             response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(RateLimited)
+    async def rate_limited(request: Request, error: RateLimited) -> JSONResponse:
+        response = error_response(request, 429, "RATE_LIMITED", "Too many requests")
+        response.headers["Retry-After"] = str(error.retry_after)
         return response
 
     @app.exception_handler(HTTPException)

@@ -22,6 +22,7 @@ from synthetic_stack import SyntheticStack, isolated_environment
 
 LABEL = "com.akbrizcase.db-integration"
 SUITES = {
+    "http-security": ["tests/integration/test_http_limits.py"],
     "clean-upgrade": ["tests/integration/test_kb_clean_upgrade.py"],
     "images": [
         "tests/integration/test_catalog_image_binding.py",

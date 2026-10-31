@@ -5,11 +5,14 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
+from app.core.http_security import ip_subjects
+from app.core.rate_limits import check_limit
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.orders.privacy_service import PrivacyUnavailable, public_policy
 from app.modules.orders.security import OrderSecurity
@@ -71,6 +74,25 @@ def privacy_policy(request: Request) -> PrivacyPolicy | JSONResponse:
         raise HTTPException(503) from None
 
 
+def quota_safe_replay(
+    session: Session,
+    request: Request,
+    body: OrderCreate,
+    headers: OrderHeaders,
+    security: OrderSecurity,
+) -> OrderReceipt | None:
+    try:
+        return replay_order(session, body, headers, security)
+    except OrderRejected as error:
+        if error.status == 404:
+            # Occupied but unauthenticated/erased/expired keys must not be
+            # distinguished from unused keys by an exhausted caller's quota.
+            check_limit(
+                session, "order", ip_subjects(request, "order", session), consume=False
+            )
+        raise
+
+
 def persist_order(
     request: Request,
     body: OrderCreate,
@@ -82,10 +104,13 @@ def persist_order(
         raise HTTPException(503)
     try:
         with database_for(request).unit_of_work() as session:
-            receipt = replay_order(session, body, headers, security)
+            subjects = ip_subjects(request, "order", session)
+            receipt = quota_safe_replay(session, request, body, headers, security)
             status = 200 if receipt is not None else 201
             if receipt is None:
+                check_limit(session, "order", subjects, consume=False)
                 receipt = create_order(session, body, headers, security, chat_token)
+                check_limit(session, "order", subjects)
         return receipt, status  # Outer UoW committed, including late constraints.
     except IntegrityError as error:
         if (
@@ -96,7 +121,7 @@ def persist_order(
             raise
     # The failed UoW has fully rolled back and closed before this new Session.
     with database_for(request).unit_of_work() as session:
-        receipt = replay_order(session, body, headers, security)
+        receipt = quota_safe_replay(session, request, body, headers, security)
         if receipt is None:  # Winner was deleted; never recreate in this attempt.
             raise OrderRejected(404, "NOT_FOUND", "Object not found")
     return receipt, 200

@@ -126,7 +126,7 @@ def main():
             assert before == (stack.sql(snapshot_query), stack.sql(schema_query))
             assert (
                 stack.sql("SELECT version_num FROM app.alembic_version")
-                == "0010_mvp038_journal_basis"
+                == "0011_mvp039_http_security"
             )
             assert stack.sql("SELECT count(*) FROM app.document_versions") == "0"
             api, nginx = detail("api"), detail("nginx")

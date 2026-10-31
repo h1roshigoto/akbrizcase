@@ -2,7 +2,7 @@ name: Skeleton CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, mvp-038-privacy-cleanup]
   push:
     branches: [main]
 
@@ -163,6 +163,8 @@ jobs:
         run: python3 scripts/ci_suites.py compose:catalog-admin -- make catalog-admin-browser-smoke
       - name: MVP-018 failed notification, protected browser retry and real SMTP
         run: python3 scripts/ci_suites.py compose:notification-retry -- make notification-retry-browser-smoke
+      - name: HTTP security, proxy spoofing and limits over trusted HTTPS
+        run: python3 scripts/ci_suites.py compose:http-security -- make http-security-smoke
       - name: Remove temporary secret
         if: always()
         run: rm -rf -- .secrets .certs .env
