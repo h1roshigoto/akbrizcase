@@ -432,7 +432,8 @@ def test_reapply_older_graph_and_journal_snapshot_without_reset(
             )
         assert sink.read(command.id, synthetic=True) == command.canonical()
     finally:
-        # Preserve both histories; put the newer original table back for fixtures.
+        # Put the unchanged newer original back. Dispose only this test's table
+        # copy so later Alembic/model checks do not see synthetic archive objects.
         with migrator.unit_of_work() as session:
             session.execute(
                 text("ALTER TABLE app.deletion_journal RENAME TO reapplied_journal")
@@ -443,3 +444,5 @@ def test_reapply_older_graph_and_journal_snapshot_without_reset(
             session.execute(
                 text(f"ALTER TABLE {archive}.deletion_journal SET SCHEMA app")
             )
+            session.execute(text(f"DROP TABLE {archive}.reapplied_journal"))
+            session.execute(text(f"DROP SCHEMA {archive}"))

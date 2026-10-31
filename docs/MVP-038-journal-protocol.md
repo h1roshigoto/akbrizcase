@@ -112,6 +112,8 @@ synthetic schema, возвращает его более раннюю копию
 mixed/service, с PREPARED и без local записи. Новая история не сбрасывается;
 reset/downgrade/stamp/volume deletion не применяются. Это table-level simulation,
 не pg_dump/PITR, не проверка независимого production sink и не полный restore drill.
+После возврата исходной таблицы временная schema с копией удаляется; это teardown
+тестового артефакта, чтобы последующие Alembic/model checks не видели чужих таблиц.
 
 Фактические количества/результаты локальных прогонов и четырёх Actions jobs на
 точном SHA фиксируются в PR #51; добавление теста не означает его успешный запуск.
