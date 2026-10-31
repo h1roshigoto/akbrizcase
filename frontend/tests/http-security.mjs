@@ -130,6 +130,10 @@ try {
     const responses = await Promise.all(Array.from({ length: 5 }, () => context.request.get(origin + '/api/v1/catalog/items')));
     assert(responses.some(r => r.status() === 429));
   }
+  const mutations = await Promise.all(Array.from({ length: 5 }, () => context.request.post(
+    config.origin + '/admin/statics/js/jquery.min.js', { data: {} },
+  )));
+  assert(mutations.some(r => r.status() === 429), 'Static exemption must never cover mutations');
   await context.close();
   process.stdout.write(JSON.stringify({ secrets, result: 'PASS: MVP-039 trusted HTTPS CSP/XSS, HTTP+HTTPS same-origin/CORS, 10 sessions/hour, 5 new orders/hour, free AQ-01 replay/full-quota masking, 30 messages/minute, 120/minute Nginx API and 5/minute login, spoofed headers, 429/Retry-After/no-store, private storage denied' }));
 } finally { await browser.close(); }

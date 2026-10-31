@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
@@ -40,18 +41,21 @@ def install_api_errors(app: FastAPI) -> None:
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         request.state.request_id = uuid4()
-        request.state.csp_nonce = secrets.token_hex(24)
+        request.state.csp_nonce = secrets.token_urlsafe(24)
         origins = request.headers.getlist("origin")
         public_api = request.url.path.startswith(
             "/api/v1/"
         ) and not administrative_request(request)
-        proxy: TrustedProxy = request.app.state.trusted_proxy
         denied = False
         if public_api and origins:
+            proxy: TrustedProxy = getattr(
+                request.app.state, "trusted_proxy", TrustedProxy()
+            )
             try:
-                denied = len(origins) != 1 or origins[0] != proxy.external_origin(
-                    request
+                expected_origin = await run_in_threadpool(
+                    proxy.external_origin, request
                 )
+                denied = len(origins) != 1 or origins[0] != expected_origin
             except HTTPException:
                 denied = True
         if public_api and request.method not in {"GET", "HEAD", "OPTIONS"}:

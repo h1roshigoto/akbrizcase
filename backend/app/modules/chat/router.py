@@ -41,6 +41,7 @@ router = APIRouter(
         409: {"model": ErrorEnvelope},
         410: {"model": ErrorEnvelope},
         422: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope},
         503: {"model": ErrorEnvelope},
     },
 )

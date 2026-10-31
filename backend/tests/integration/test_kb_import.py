@@ -212,7 +212,7 @@ def test_real_import_check_noop(
     key, part_id = version.file_key, parts[0].id
     assert run(session, user, paths, pipeline).code == "NO_OP"
     assert version.file_key == key and parts[0].id == part_id
-    with TestClient(app) as browser:
+    with TestClient(app, client=("192.0.2.1", 50000)) as browser:
         for path in (
             f"/api/v1/documents/{version.id}/file",
             "/api/v1/documents/search?q=Synthetic",

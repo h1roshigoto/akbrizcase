@@ -29,7 +29,10 @@ quota. No in-memory counters or Redis.
 
 A non-locking new-order quota precheck avoids unnecessary creation work when the
 quota is already full. It grants no reservation: the authoritative locked check
-runs after the whole creation write set, before commit. PostgreSQL UNIQUE still
+runs after the whole creation write set, before commit. If a concurrent last-slot
+winner commits after the first unused-key lookup, a full precheck re-reads that
+winner before denying the request; its authenticated replay still returns 200.
+PostgreSQL UNIQUE still
 arbitrates same-key races; the loser rolls back and reads the winner in a new UoW.
 Replay still precedes current catalog/consent validation.
 
@@ -69,7 +72,12 @@ The shipped HTTP and HTTPS configurations share `api_limit` at **120r/m** and
 This is not a calendar-minute window or an in-flight concurrency limit. Login
 attempts count even if authentication, Origin or CSRF subsequently fails. HTTPS
 `/admin/auth/login` uses both zones. HTTP staff paths remain closed. API limiting
-covers `/api/`; HTTPS administrative paths also use the general zone. No public
+covers `/api/`; HTTPS administrative paths also use the general zone.
+Only GET/HEAD of normalized `/admin/statics/` assets are excluded: their repeated
+no-store loads are static resources, not API calls. SQLAdmin StaticFiles confines
+these public software assets to its package directory, with no DB authorization,
+lookup or audit work; no user volumes or template/session values are served.
+Other methods and all dynamic routes retain the complete limit and staff gate. No public
 headers select the Nginx key: it is always `$binary_remote_addr`.
 
 Nginx 429 responses use a fixed safe JSON envelope and formatted random request
@@ -116,9 +124,12 @@ Compose config, image environment secrets or credentials into CI artifacts.
 
 Order rotation: keep every previous key for at least **24 hours after the last
 old-key writer stops**, covering the full eligible original replay window.
-Deploy the new active + all overlapping previous keys to every process before
-retiring an old key. At most four keys are accepted: rotation cadence must fit
-this bound. Never drop an eligible key to make a configuration fit. Token/body
+Use two phases: first deploy the **old active** with the future key included
+among verification keys on every reader; only after that completes, roll out
+**new active** with the old key retained. Thus old readers can also verify new
+writers' hashes during rollout. Then drain old writers and start the 24-hour
+retirement clock. At most four keys are accepted, including the staged future
+key: cadence must fit this bound. Never drop an eligible key to make a ring fit. Token/body
 hash erasure remains atomic and takes precedence over any rotation.
 
 IP rotation: use the independent IP ring, carry old keys on every process during
@@ -161,7 +172,8 @@ all relevant rollback/429/envelope cases, quota-saturation replay, spoofed heade
 30 messages across two processes, expiry and overlapping keys. Existing AQ-01
 rotation/race/erasure regressions remain. The long diagnostic-transition test
 explicitly advances its synthetic bucket window at exchange 30: it still checks
-all 33 transitions rather than bypassing the configured production quota.
+all 33 transitions rather than bypassing the configured production quota. The
+55-message pagination regression likewise spans two explicit synthetic windows.
 
 `make http-security-smoke` adds trusted HTTPS Chromium, HTTP+HTTPS proxy behavior,
 CSP/HTML, CORS/Origin, quotas, free replay, login/API Nginx 429s, no-store and

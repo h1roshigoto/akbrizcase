@@ -188,3 +188,51 @@ def test_hourly_ip_aliases_overlap_once_and_cannot_link_indefinitely() -> None:
     third = set(security.subjects("order", "192.0.2.1", 102))
     assert len(first & second) == 1
     assert not first & third
+
+
+def test_csp_entropy_does_not_reuse_the_session_issuance_seam(
+    browser: TestClient,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    issued = "a" * 64
+    monkeypatch.setattr(
+        "app.modules.chat.service.secrets.token_hex", lambda count: issued
+    )
+    response = browser.get("/api/v1/not-found")
+    assert issued not in response.text + str(response.headers)
+
+
+def test_duplicate_origin_and_cross_site_mutation_are_denied(
+    browser: TestClient,
+) -> None:
+    duplicated = browser.post(
+        "/api/v1/chat/sessions",
+        json={"mode": "knowledge"},
+        headers=[
+            ("Origin", "https://example.test"),
+            ("Origin", "https://foreign.test"),
+        ],
+    )
+    assert duplicated.status_code == 403
+    assert "access-control-allow-origin" not in duplicated.headers
+    cross_site = browser.post(
+        "/api/v1/chat/sessions",
+        json={"mode": "knowledge"},
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    assert cross_site.status_code == 403
+
+
+def test_vendor_static_reads_need_no_db_but_cannot_mutate_or_escape(
+    browser: TestClient,
+) -> None:
+    response = browser.get("/admin/statics/js/jquery.min.js")
+    assert response.status_code == 200
+    assert "set-cookie" not in response.headers
+    assert browser.get("/admin/statics/js/not-found.js").status_code == 404
+    assert (
+        browser.get("/admin/statics/%2e%2e/%2e%2e/.secrets/ip_hmac_secret").status_code
+        == 404
+    )
+    assert browser.post("/admin/statics/js/jquery.min.js").status_code == 503
+    assert browser.get("/admin/orders").status_code == 503

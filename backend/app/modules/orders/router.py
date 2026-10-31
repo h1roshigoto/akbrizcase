@@ -12,7 +12,7 @@ from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.core.http_security import ip_subjects
-from app.core.rate_limits import check_limit
+from app.core.rate_limits import RateLimited, check_limit
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.orders.privacy_service import PrivacyUnavailable, public_policy
 from app.modules.orders.security import OrderSecurity
@@ -36,7 +36,11 @@ MAX_BODY_BYTES = 64 * 1024
 router = APIRouter(
     prefix="/api/v1",
     tags=["orders"],
-    responses={422: {"model": ErrorEnvelope}, 503: {"model": ErrorEnvelope}},
+    responses={
+        422: {"model": ErrorEnvelope},
+        429: {"model": ErrorEnvelope},
+        503: {"model": ErrorEnvelope},
+    },
 )
 
 
@@ -108,9 +112,21 @@ def persist_order(
             receipt = quota_safe_replay(session, request, body, headers, security)
             status = 200 if receipt is not None else 201
             if receipt is None:
-                check_limit(session, "order", subjects, consume=False)
-                receipt = create_order(session, body, headers, security, chat_token)
-                check_limit(session, "order", subjects)
+                try:
+                    check_limit(session, "order", subjects, consume=False)
+                except RateLimited:
+                    # The last-slot winner may have committed after our first
+                    # unused-key lookup. READ COMMITTED sees it now, without
+                    # charging/denying its authenticated concurrent replays.
+                    receipt = quota_safe_replay(
+                        session, request, body, headers, security
+                    )
+                    if receipt is None:
+                        raise
+                    status = 200
+                if receipt is None:
+                    receipt = create_order(session, body, headers, security, chat_token)
+                    check_limit(session, "order", subjects)
         return receipt, status  # Outer UoW committed, including late constraints.
     except IntegrityError as error:
         if (

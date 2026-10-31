@@ -12,15 +12,24 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 from sqlalchemy import delete, func, select, text
-from test_order_creation import counts, creation_db, order_headers, support_body
+from sqlalchemy.orm import Session
+from test_order_creation import (
+    counts,
+    creation_client,
+    creation_db,
+    order_headers,
+    support_body,
+)
 
 from app.core.db import Database
 from app.core.db_types import utc_now
@@ -37,7 +46,7 @@ from app.modules.orders.models import Order
 
 pytestmark = pytest.mark.integration
 # Re-export the existing synthetic creation fixture without replacing its guards.
-__all__ = ["creation_db"]
+__all__ = ["creation_client", "creation_db"]
 
 
 @dataclass
@@ -130,7 +139,14 @@ def apis(
     creation_db: Database, tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> Iterator[tuple[Api, Api]]:
     secret = tmp_path / "order-key"
-    secret.write_text("synthetic-process-order-secret-" * 3)
+    secret.write_text(
+        json.dumps(
+            {
+                "active": "synthetic-process-order-secret-" * 3,
+                "previous": ["synthetic-next-process-order-secret-" * 3],
+            }
+        )
+    )
     secret.chmod(0o600)
     monkeypatch.setenv("ORDER_HMAC_SECRET_FILE", str(secret))
     monkeypatch.delenv("TRUSTED_PROXY_HOST", raising=False)
@@ -273,7 +289,9 @@ def test_same_key_race_at_last_slot_charges_one_creation(
                 range(8),
             )
         )
-    assert sorted(r.status for r in results) == [200] * 7 + [201]
+    assert sorted(r.status for r in results) == [200] * 7 + [201], [
+        r.status for r in results
+    ]
     assert all(r.body == results[0].body for r in results)
     assert counts(creation_db) == (5, 5, 0, 5, 5)
     limited(apis[1].request("/api/v1/orders", support_body(), order_headers()), 3600)
@@ -428,3 +446,97 @@ def test_counter_expiry_cleanup_rotation_and_rollback(
                 select(RateLimitBucket).where(RateLimitBucket.subject_hash.in_(after))
             )
         } == {1}
+
+
+def test_rolling_file_rotation_two_processes_preserves_both_replay_directions(
+    apis: tuple[Api, Api],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    # Phase A readers already know the verification-only future order key.
+    # Phase B switches the writer, retaining the old verification key.
+    body, original_headers = support_body(), order_headers()
+    original = apis[0].request("/api/v1/orders", body, original_headers)
+    assert original.status == 201
+    for _ in range(3):
+        assert apis[1].request("/api/v1/orders", body, order_headers()).status == 201
+    ip_old = IpSecurity.from_environment()
+    assert ip_old is not None
+    ip_path = tmp_path / "rotated-ip-ring"
+    ip_path.write_text(
+        json.dumps(
+            {
+                "active": "synthetic-new-process-IP-key-" * 3,
+                "previous": [ip_old.keyring.secret.decode("ascii")],
+            }
+        )
+    )
+    ip_path.chmod(0o600)
+    order_path = tmp_path / "rotated-order-ring"
+    order_path.write_text(
+        json.dumps(
+            {
+                "active": "synthetic-next-process-order-secret-" * 3,
+                "previous": ["synthetic-process-order-secret-" * 3],
+            }
+        )
+    )
+    order_path.chmod(0o600)
+    monkeypatch.setenv("IP_HMAC_SECRET_FILE", str(ip_path))
+    monkeypatch.setenv("ORDER_HMAC_SECRET_FILE", str(order_path))
+    with api_process() as rotated:
+        assert rotated.pid not in {api.pid for api in apis}
+        repeated = rotated.request("/api/v1/orders", body, original_headers)
+        assert repeated.status == 200 and repeated.body == original.body
+        new_headers = order_headers()
+        created = rotated.request("/api/v1/orders", body, new_headers)
+        assert created.status == 201
+        # A phase-A process must also verify the new writer's request hash.
+        older_reader = apis[0].request("/api/v1/orders", body, new_headers)
+        assert older_reader.status == 200 and older_reader.body == created.body
+        for api in (apis[1], rotated):
+            limited(api.request("/api/v1/orders", body, order_headers()), 3600)
+            assert api.request("/api/v1/orders", body, original_headers).status == 200
+
+
+def test_winner_commits_between_unused_lookup_and_full_quota_precheck(
+    creation_client: TestClient,
+    creation_db: Database,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    for _ in range(4):
+        assert (
+            creation_client.post(
+                "/api/v1/orders", json=support_body(), headers=order_headers()
+            ).status_code
+            == 201
+        )
+    paused, resume = Event(), Event()
+
+    def gate(
+        session: Session, scope: str, subjects: tuple[str, ...], *, consume: bool = True
+    ) -> None:
+        # Schedule only; every actual quota decision still uses PostgreSQL.
+        if not consume and not paused.is_set():
+            paused.set()
+            assert resume.wait(10)
+        check_limit(session, scope, subjects, consume=consume)
+
+    monkeypatch.setattr("app.modules.orders.router.check_limit", gate)
+    headers = order_headers()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        loser = pool.submit(
+            creation_client.post, "/api/v1/orders", json=support_body(), headers=headers
+        )
+        assert paused.wait(5)
+        try:
+            winner = creation_client.post(
+                "/api/v1/orders", json=support_body(), headers=headers
+            )
+            assert winner.status_code == 201
+        finally:
+            resume.set()
+        repeated = loser.result(timeout=10)
+    assert repeated.status_code == 200
+    assert repeated.json() == winner.json()
+    assert counts(creation_db) == (5, 5, 0, 5, 5)

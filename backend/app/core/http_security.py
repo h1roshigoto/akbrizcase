@@ -78,8 +78,8 @@ class TrustedProxy:
 
 
 def ip_subjects(request: Request, scope: str, session: Session) -> tuple[str, ...]:
-    security: IpSecurity | None = request.app.state.ip_security
-    proxy: TrustedProxy = request.app.state.trusted_proxy
+    security: IpSecurity | None = getattr(request.app.state, "ip_security", None)
+    proxy: TrustedProxy = getattr(request.app.state, "trusted_proxy", TrustedProxy())
     if security is None:
         raise HTTPException(503)
     epoch = session.scalar(
