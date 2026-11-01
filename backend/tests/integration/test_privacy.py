@@ -58,7 +58,7 @@ def privacy_db(
         # This fixture runs only in conftest's fresh owner-marked disposable DB.
         # Isolate immutable publication history so the newest packet belongs to
         # this test; runtime UPDATE/DELETE protection remains enabled and tested.
-        session.execute(text("TRUNCATE app.consent_publications"))
+        session.execute(text("TRUNCATE app.consent_publications CASCADE"))
     seed_consent(runtime, mode="test")
     with migrator.unit_of_work() as session:
         session.execute(
@@ -85,7 +85,7 @@ def privacy_db(
             session.execute(update(ConsentText).values(retired_at=utc_now()))
             # Restore fixture isolation for the subsequent MVP-036 demo setup,
             # which seeds its own sole publication. This is never runtime DML.
-            session.execute(text("TRUNCATE app.consent_publications"))
+            session.execute(text("TRUNCATE app.consent_publications CASCADE"))
 
 
 @pytest.fixture
@@ -755,7 +755,7 @@ def test_policy_requires_a_publication_and_rejects_synthetic_in_production(
     monkeypatch.setenv("APP_ENV", "production")
     assert client.get("/api/v1/privacy-policy").status_code == 503
     with privacy_db[1].unit_of_work() as session:
-        session.execute(text("TRUNCATE app.consent_publications"))
+        session.execute(text("TRUNCATE app.consent_publications CASCADE"))
     assert client.get("/api/v1/privacy-policy").status_code == 503
 
 

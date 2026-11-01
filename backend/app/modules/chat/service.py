@@ -12,6 +12,7 @@ from app.core.db_types import utc_now
 from app.modules.chat.access import ChatNotFound, owner_token_hash, require_owner
 from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.chat.projection import ChatReplyProjector, initial_reply, safe_reply
+from app.modules.orders.privacy_service import PrivacyUnavailable, public_policy
 from app.schemas.chat import (
     ChatExchangeRead,
     ChatMode,
@@ -24,8 +25,16 @@ from app.schemas.chat import (
 def create_session(session: Session, body: ChatSessionCreate) -> ChatSessionCreated:
     token = secrets.token_hex(32)
     created = utc_now()
+    try:
+        bundle, enabled = public_policy(session)
+        retention_version = bundle.consent.version if enabled else None
+    except PrivacyUnavailable:
+        # Legacy synthetic fixtures may create a session without a publication.
+        # Such rows are deliberately ineligible for automatic retention.
+        retention_version = None
     row = ChatSession(
         owner_token_hash=owner_token_hash(token),
+        retention_version=retention_version,
         mode=body.mode,
         created_at=created,
         last_activity_at=created,

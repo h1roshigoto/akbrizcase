@@ -39,7 +39,11 @@ def change_status(
         order = session.scalar(
             select(Order)
             .where(Order.id == order_id)
-            .options(load_only(Order.status, Order.version, raiseload=True))
+            .options(
+                load_only(
+                    Order.status, Order.version, Order.pii_erased_at, raiseload=True
+                )
+            )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -63,13 +67,15 @@ def change_status(
         order.updated_at = now
         if change.status == "closed":
             order.closed_at = now
+        if change.status in {"closed", "cancelled"}:
+            order.terminal_at = now
         session.add(
             OrderStatusHistory(
                 order_id=order.id,
                 from_status=previous_status,
                 to_status=change.status,
                 changed_by=actor.user.id,
-                reason=change.reason,
+                reason=change.reason if order.pii_erased_at is None else None,
                 at=now,
             )
         )

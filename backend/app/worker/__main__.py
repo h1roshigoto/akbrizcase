@@ -11,6 +11,7 @@ from app.modules.notify.smtp import (
     SMTPSettings,
     send_notification,
 )
+from app.worker.cleanup import cleanup_tick
 from app.worker.runner import tick
 
 POLL_SECONDS = 2
@@ -48,16 +49,16 @@ def main() -> None:
             settings = SMTPSettings.from_environment()
         except SMTPConfigurationError:
             logging.error("SMTP_CONFIG_INVALID")
-            wait_for_stop()
-            return
-        if settings is None:
-            logging.info("SMTP_DISABLED")
-            wait_for_stop()
-            return
+            settings = None
+        else:
+            if settings is None:
+                logging.info("SMTP_DISABLED")
         while not stop:
             try:
                 if database is None:
                     database = Database(DatabaseSettings.from_environment())
+                # Cleanup has its own error boundary and runs with SMTP off.
+                cleanup_tick(database, stopped=lambda: stop)
                 tick(database, settings, send_notification)
             except Exception:
                 # Never log exceptions, DSNs, transport responses or message data.

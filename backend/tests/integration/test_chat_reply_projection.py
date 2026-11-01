@@ -727,4 +727,4 @@ def test_privacy_shutdown_replay_rechecks_revoked_source(
         # The suite owns a fresh synthetic DB. Do not leak this deliberately
         # retired publication into subsequent demo order fixtures.
         with databases[1].unit_of_work() as session:
-            session.execute(text("TRUNCATE app.consent_publications"))
+            session.execute(text("TRUNCATE app.consent_publications CASCADE"))

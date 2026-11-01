@@ -20,7 +20,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db_types import Base, utc_now
 from app.modules.chat import models as chat_models  # noqa: F401 -- register FK target
-from app.modules.orders import privacy_models  # noqa: F401 -- register publication
+from app.modules.orders import (
+    deletion_models,  # noqa: F401 -- register journal
+    privacy_models,  # noqa: F401 -- register publication
+)
 
 ORDER_STATUSES = "('new', 'in_progress', 'closed', 'cancelled')"
 order_number_sequence = Sequence(
@@ -144,6 +147,7 @@ class Order(Base):
         server_default=func.now(), onupdate=utc_now
     )
     closed_at: Mapped[datetime | None]
+    terminal_at: Mapped[datetime | None] = mapped_column(index=True)
     pii_erased_at: Mapped[datetime | None]
 
 

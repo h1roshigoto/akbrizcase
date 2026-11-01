@@ -48,6 +48,9 @@ class ChatSession(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     # Only a digest is stored. Session UUID is a locator, never ownership proof.
     owner_token_hash: Mapped[str] = mapped_column(String(64))
+    retention_version: Mapped[str | None] = mapped_column(
+        ForeignKey("app.consent_publications.consent_version", ondelete="RESTRICT")
+    )
     mode: Mapped[str] = mapped_column(String(16))
     tree_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("app.diag_trees.id", ondelete="RESTRICT")

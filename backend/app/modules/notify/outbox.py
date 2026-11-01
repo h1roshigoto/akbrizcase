@@ -76,6 +76,7 @@ def finish_success(session: Session, claim: Claim) -> bool:
         .values(
             status="sent",
             sent_at=func.clock_timestamp(),
+            failed_at=None,
             lease_token=None,
             lease_until=None,
             last_error_code=None,
@@ -87,6 +88,7 @@ def finish_success(session: Session, claim: Claim) -> bool:
 
 def _failed(row: EmailOutbox, now: datetime, code: str) -> None:
     row.status = "failed" if row.attempts >= MAX_ATTEMPTS else "pending"
+    row.failed_at = now if row.status == "failed" else None
     if row.status == "pending":
         row.next_attempt_at = now + RETRY[max(0, row.attempts - 1)]
     row.lease_token = None

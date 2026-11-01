@@ -40,6 +40,10 @@ class EmailOutbox(Base):
         CheckConstraint(
             "last_error_code ~ '^[A-Z][A-Z0-9_]{0,63}$'", name="error_code"
         ),
+        CheckConstraint(
+            "failed_at IS NULL OR (status='failed' AND isfinite(failed_at))",
+            name="failed_at",
+        ),
         Index(
             "ix_email_outbox_pending_due",
             "next_attempt_at",
@@ -67,3 +71,4 @@ class EmailOutbox(Base):
     last_error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     sent_at: Mapped[datetime | None]
+    failed_at: Mapped[datetime | None]
