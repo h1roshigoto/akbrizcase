@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -23,6 +24,7 @@ from sqlalchemy.orm import ORMExecuteState, Session
 
 from app.core.db import Database, DatabaseSettings
 from app.core.db_types import utc_now
+from app.core.rate_limits import RateLimitBucket
 from app.main import app
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 from app.modules.catalog.seed import seed_catalog
@@ -1013,21 +1015,49 @@ def test_rotation_and_expiry_on_postgresql(
     assert counts(creation_db) == (2, 2, 0, 2, 2)
 
 
+@pytest.mark.parametrize("quota_full", [False, True])
 def test_timing_review_and_no_hmac_for_hidden_paths(
     creation_client: TestClient,
     creation_db: Database,
     monkeypatch: MonkeyPatch,
+    quota_full: bool,
 ) -> None:
     body, headers = support_body(), order_headers()
     assert (
         creation_client.post("/api/v1/orders", json=body, headers=headers).status_code
         == 201
     )
+    if quota_full:
+        for _ in range(4):
+            assert (
+                creation_client.post(
+                    "/api/v1/orders", json=body, headers=order_headers()
+                ).status_code
+                == 201
+            )
+
+    def buckets() -> list[tuple[object, ...]]:
+        with creation_db.unit_of_work() as session:
+            return [
+                tuple(row)
+                for row in session.execute(
+                    select(RateLimitBucket.__table__).order_by(
+                        RateLimitBucket.scope, RateLimitBucket.subject_hash
+                    )
+                )
+            ]
+
+    before_buckets, before_counts = buckets(), counts(creation_db)
 
     def forbidden(self: OrderSecurity, order: OrderCreate, saved: str) -> bool:
         raise AssertionError("Hidden paths must never compare canonical personal data")
 
     monkeypatch.setattr(OrderSecurity, "matches_request", forbidden)
+
+    def forbidden_hash(self: OrderSecurity, order: OrderCreate) -> str:
+        raise AssertionError("Hidden paths must never HMAC canonical personal data")
+
+    monkeypatch.setattr(OrderSecurity, "request_hash", forbidden_hash)
     samples: list[list[float]] = []
     queries: list[str] = []
 
@@ -1048,6 +1078,7 @@ def test_timing_review_and_no_hmac_for_hidden_paths(
         event.listen(creation_db.engine, "before_cursor_execute", collect)
         try:
             for _ in range(20):
+                queries.clear()
                 start = monotonic()
                 response = creation_client.post(
                     "/api/v1/orders",
@@ -1055,15 +1086,65 @@ def test_timing_review_and_no_hmac_for_hidden_paths(
                     headers=headers | {"X-Request-Token": "b" * 64},
                 )
                 times.append((monotonic() - start) * 1000)
-                assert response.status_code == 404
+                assert response.status_code == (429 if quota_full else 404)
+                assert response.json()["error"] == {
+                    "code": "RATE_LIMITED" if quota_full else "NOT_FOUND",
+                    "message": "Too many requests"
+                    if quota_full
+                    else "Object not found",
+                    "details": {},
+                }
+                # Inspect each request's SQL by purpose, not a total budget.
+                # The only domain read is the locked, narrow idempotency lookup.
+                # All additional MVP-039 work is read-only IP/quota machinery;
+                # any catalog/consent access, lock/UPSERT or other SQL fails here.
+                kinds: Counter[str] = Counter()
+                for query in queries:
+                    sql = " ".join(query.split())
+                    if "FROM app.orders" in sql:
+                        assert "WHERE app.orders.idempotency_key =" in sql
+                        assert sql.endswith("FOR UPDATE")
+                        assert all(
+                            column not in sql
+                            for column in ("contact_name", "email", "comment", "city")
+                        )
+                        kinds["idempotency"] += 1
+                    elif sql == (
+                        "SELECT floor(extract(epoch FROM clock_timestamp()) / 3600)"
+                        "::bigint"
+                    ):
+                        kinds["ip_epoch"] += 1
+                    elif sql == "SELECT clock_timestamp()":
+                        kinds["quota_clock"] += 1
+                    elif "FROM app.rate_limit_buckets" in sql:
+                        assert sql.startswith("SELECT ")
+                        assert "rate_limit_buckets.scope =" in sql
+                        assert "rate_limit_buckets.subject_hash IN" in sql
+                        assert "rate_limit_buckets.expires_at >" in sql
+                        assert "FOR UPDATE" not in sql
+                        kinds["quota_read"] += 1
+                    else:
+                        pytest.fail(f"Unexpected hidden-path SQL: {sql}")
+                assert kinds == {
+                    "idempotency": 1,
+                    "ip_epoch": 2,
+                    "quota_clock": 1,
+                    "quota_read": 1,
+                }
         finally:
             event.remove(creation_db.engine, "before_cursor_execute", collect)
         samples.append(times)
-    assert all(
-        "catalog_items" not in query and "consent_texts" not in query
-        for query in queries
-    )
-    assert len(queries) == 40
+        assert buckets() == before_buckets
+        assert counts(creation_db) == before_counts
+        if quota_full:
+            unused = creation_client.post(
+                "/api/v1/orders", json=body, headers=order_headers()
+            )
+            assert unused.status_code == 429
+            assert unused.json()["error"] == response.json()["error"]
+            assert 1 <= int(unused.headers["retry-after"]) <= 3600
+            assert buckets() == before_buckets
+            assert counts(creation_db) == before_counts
     print(
         "Synthetic timing review (ms, no constant-time claim): "
         f"wrong-token={median(samples[0]):.2f}, erased={median(samples[1]):.2f}"

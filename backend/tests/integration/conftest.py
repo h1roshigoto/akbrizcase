@@ -562,9 +562,13 @@ def staff_database(databases: tuple[Database, Database]) -> Iterator[Database]:
 
 
 @pytest.fixture(autouse=True)
-def synthetic_ip_secret(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+def synthetic_ip_secret(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: MonkeyPatch
+) -> None:
     # Each test models an independent IP population, with a real runtime file.
-    path = tmp_path / "ip-key"
+    # Own a separate directory: tmp_path may belong to a deletion witness sink,
+    # whose emptiness is a security assertion after an authority denial.
+    path = tmp_path_factory.mktemp("runtime-ip-secret") / "ip-key"
     path.write_text(secrets.token_hex(32))
     path.chmod(0o600)
     monkeypatch.setenv("IP_HMAC_SECRET_FILE", str(path))

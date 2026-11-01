@@ -125,6 +125,32 @@ try {
     assert.equal(await page.locator('main script').count(), 0);
     assert.equal(await page.locator('main img').count(), 0);
     assert.equal(await page.evaluate(() => window.orderInjected), undefined);
+    const scriptSources = supportResponse.headers()['content-security-policy']
+      .split(';').map(directive => directive.trim().split(/\s+/))
+      .find(words => words[0] === 'script-src').slice(1);
+    assert(scriptSources.includes("'self'"));
+    assert(!scriptSources.includes("'unsafe-inline'") && !scriptSources.includes("'unsafe-eval'"));
+    assert.equal(scriptSources.filter(source => source.startsWith("'nonce-")).length, 1);
+    // Probe actual execution under the order page's CSP as well as checking
+    // persisted customer text in the DOM. Neither injected script nor handler
+    // receives the server's bootstrap nonce.
+    await page.evaluate(() => {
+      window.syntheticCspViolations = [];
+      document.addEventListener('securitypolicyviolation', event => {
+        window.syntheticCspViolations.push(event.effectiveDirective);
+      });
+      const script = document.createElement('script');
+      script.textContent = 'window.orderInjected=true';
+      document.head.appendChild(script);
+      const image = document.createElement('img');
+      image.setAttribute('onerror', 'window.orderInjected=true');
+      document.head.appendChild(image);
+      image.dispatchEvent(new Event('error'));
+    });
+    await page.waitForFunction(() =>
+      window.syntheticCspViolations.includes('script-src-elem') &&
+      window.syntheticCspViolations.includes('script-src-attr'));
+    assert.equal(await page.evaluate(() => window.orderInjected), undefined);
     assert.equal(supportResponse.headers()['cache-control'], 'no-store');
     // Submit the real server-rendered logout form with its CSRF token.
     await Promise.all([

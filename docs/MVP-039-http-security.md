@@ -178,5 +178,5 @@ all 33 transitions rather than bypassing the configured production quota. The
 `make http-security-smoke` adds trusted HTTPS Chromium, HTTP+HTTPS proxy behavior,
 CSP/HTML, CORS/Origin, quotas, free replay, login/API Nginx 429s, no-store and
 private storage denial. Existing auth/CSRF and frontend escaping suites remain.
-The stacked PR's CI trigger includes its explicit MVP-038 base, preserving all
-four jobs and their exact-head checkout/inventory checks.
+PR #52 targets `main` after MVP-038's merge, preserving all four CI jobs and
+their exact-head checkout/inventory checks.

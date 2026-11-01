@@ -471,6 +471,8 @@
 base `mvp-038-privacy-cleanup`), без закрытия release gates MVP-037/038.
 [Семантика квот, уточнение AQ-01 при полной квоте и границы доверия](docs/MVP-039-http-security.md).
 Статус: Draft, независимое ревью и подтверждение DoD обязательны.
+**Обновление 2026-11-02:** после merge MVP-038 (PR #51) рабочий PR #52
+перенастроен на `main`; история сохранена, release gates остаются открытыми.
 
 - **Приоритет:** P1. **Цель/результат:** все включённые публичные/admin endpoints защищены по §10.1/10.2.
 - **Объём:** rate_limit_buckets/atomic counters: chat 30/мин/session, session creation 10/час/IP, новые orders 5/час/IP; Nginx API 120/мин/IP, login 5/мин; доверенный proxy и HMAC IP с ротацией/TTL≤24 ч, replay не расходует new-order quota. Same-origin/CORS, CSP без сторонних scripts, экранирование, no-store чувствительных ответов, секреты runtime, минимальные DB-права и процедура ротации HMAC с учётом 24 ч повторов.

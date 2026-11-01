@@ -2,7 +2,7 @@ name: Skeleton CI
 
 on:
   pull_request:
-    branches: [main, mvp-038-privacy-cleanup]
+    branches: [main]
   push:
     branches: [main]
 
