@@ -243,7 +243,7 @@ def main() -> None:
             checks.append(("files:clamav-sandbox", files_acceptance))
         checks.extend(
             ("db:" + name, partial(exercise, name, reuse_image=True))
-            for name in ("applicability", "trees", "chat")
+            for name in ("applicability", "trees", "chat", "http-security")
         )
         parallel(checks)
 
