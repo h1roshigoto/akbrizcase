@@ -3,10 +3,11 @@
 import io
 import json
 import logging
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch, sentinel
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,6 +17,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.api_errors import install_api_errors
 from app.core.audit_schema import validate_audit
+from app.core.db import Database
 from app.core.observability import (
     SafeRuntimeFormatter,
     checked_event,
@@ -23,6 +25,7 @@ from app.core.observability import (
     endpoint_category,
 )
 from app.core.operations import backup_report, disk_report, main, runtime_report
+from app.worker.cleanup import cleanup_tick
 
 CANARIES = (
     "canary-contact@example.invalid",
@@ -34,6 +37,33 @@ CANARIES = (
     "<script>canary-malicious-911a2</script>",
 )
 RAW = " ".join(CANARIES)
+
+
+def test_cleanup_pending_commands_failure_emits_safe_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    database = MagicMock(spec=Database)
+    database.unit_of_work.side_effect = lambda: nullcontext(sentinel.session)
+    counts = SimpleNamespace(processed=0, skipped=0, errors=0, manual_review=0)
+    with (
+        patch("app.worker.cleanup.prepare_batch", return_value=counts),
+        patch(
+            "app.worker.cleanup.pending_commands", side_effect=OSError(RAW)
+        ) as pending,
+        caplog.at_level(logging.INFO, logger="akbrizcase.runtime"),
+    ):
+        cleanup_tick(database)
+
+    pending.assert_called_once_with(sentinel.session)
+    records = [r for r in caplog.records if r.name == "akbrizcase.runtime"]
+    assert len(records) == 1
+    event = checked_event(json.loads(records[0].getMessage()))
+    assert set(event) == {"event_code", "at", "errors"}
+    assert event["event_code"] == "CLEANUP_JOURNAL_FAILED"
+    assert event["errors"] == 1
+    output = caplog.text + SafeRuntimeFormatter().format(records[0])
+    assert all(canary not in output for canary in CANARIES)
+    assert records[0].exc_info is None and records[0].stack_info is None
 
 
 def test_http_logs_and_errors_exclude_canaries() -> None:

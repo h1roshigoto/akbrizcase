@@ -68,7 +68,7 @@ def cleanup_tick(
             except Exception:
                 emit("CLEANUP_APPLY_FAILED", errors=1)
     except Exception:
-        emit("CLEANUP_JOURNAL_FAILED errors=1")
+        emit("CLEANUP_JOURNAL_FAILED", errors=1)
 
 
 def cleanup_rate_limits(database: Database) -> None:
