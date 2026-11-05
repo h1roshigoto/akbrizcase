@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.csrf import StaffSecurity
 from app.core.http_security import TrustedProxy
+from app.core.observability import emit
 from app.core.rate_limits import IpSecurity
 from app.modules.orders.security import OrderSecurity
 
@@ -159,8 +160,10 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.order_security = OrderSecurity.from_environment()
     app.state.ip_security = IpSecurity.from_environment()
     app.state.trusted_proxy = TrustedProxy.from_environment()
+    emit("API_STARTED")
     try:
         yield
     finally:
         if database is not None:
             database.close()
+        emit("API_STOPPED")

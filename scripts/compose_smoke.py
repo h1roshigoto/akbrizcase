@@ -546,7 +546,7 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
                 service,
                 state,
             )
-        assert "Application shutdown complete." in compose("logs", "--no-color", "api")
+        assert "API_STOPPED" in compose("logs", "--no-color", "api")
         compose("down")
         compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
         stack.verify_database()

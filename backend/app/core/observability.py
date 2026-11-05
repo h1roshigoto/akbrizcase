@@ -9,6 +9,8 @@ from uuid import UUID
 
 EVENT_CODES = frozenset(
     {
+        "API_STARTED",
+        "API_STOPPED",
         "HTTP_REQUEST",
         "API_ERROR",
         "DB_ERROR",
