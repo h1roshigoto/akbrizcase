@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -15,7 +16,12 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.api_errors import install_api_errors
 from app.core.audit_schema import validate_audit
-from app.core.observability import SafeRuntimeFormatter, checked_event, emit
+from app.core.observability import (
+    SafeRuntimeFormatter,
+    checked_event,
+    emit,
+    endpoint_category,
+)
 from app.core.operations import backup_report, disk_report, main, runtime_report
 
 CANARIES = (
@@ -43,6 +49,10 @@ def test_http_logs_and_errors_exclude_canaries() -> None:
         if kind == "file":
             raise OSError(RAW)
         raise RuntimeError(RAW)
+
+    @app.post("/api/v1/chat/body")
+    def body_probe(body: dict[str, str]) -> None:
+        raise RuntimeError(body["value"])
 
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)
@@ -80,11 +90,15 @@ def test_http_logs_and_errors_exclude_canaries() -> None:
                 )
             response = client.get("/api/v1/chat/probe/value", params={"q": RAW})
             assert response.status_code == 422
+            response = client.post("/api/v1/chat/body", json={"value": RAW})
+            assert response.status_code == 500
+            assert response.headers["Cache-Control"] == "no-store"
+            assert all(v not in response.text for v in CANARIES)
         output = stream.getvalue()
         assert all(v not in output for v in (*CANARIES, "canary-path-459a3"))
         events = [checked_event(json.loads(line)) for line in output.splitlines()]
         http = [e for e in events if e["event_code"] == "HTTP_REQUEST"]
-        assert [e["status"] for e in http] == [503, 400, 500, 500, 422]
+        assert [e["status"] for e in http] == [503, 400, 500, 500, 422, 500]
         assert all(e["endpoint"] == "chat" and e["duration_ms"] >= 0 for e in http)
         assert {"DB_ERROR", "FILE_ERROR", "API_ERROR"} <= {
             e["event_code"] for e in events
@@ -102,10 +116,11 @@ def test_formatter_never_formats_arbitrary_exception_or_extra() -> None:
         import sys
 
         record.exc_info = sys.exc_info()
+    formatted = SafeRuntimeFormatter().format(record)
     assert (
-        SafeRuntimeFormatter().format(record)
-        == '{"event_code":"RUNTIME_LOG_SUPPRESSED"}'
+        checked_event(json.loads(formatted))["event_code"] == "RUNTIME_LOG_SUPPRESSED"
     )
+    assert all(value not in formatted for value in CANARIES)
     with pytest.raises(ValueError, match="EVENT_SCHEMA_INVALID"):
         emit("HTTP_REQUEST", q=RAW)
 
@@ -178,6 +193,16 @@ def test_runtime_counts_status_latency_and_failures_without_feedback(
         }
         for ms, status in [(10, 200), (20, 422), (30, 503)]
     ]
+    events.append(
+        {
+            "event_code": "HTTP_REQUEST",
+            "at": now.isoformat(),
+            "request_id": str(uuid4()),
+            "endpoint": "health",
+            "duration_ms": 10000,
+            "status": 200,
+        }
+    )
     for code in (
         "SMTP_FAILURE",
         "WORKER_TICK_FAILED",
@@ -187,7 +212,7 @@ def test_runtime_counts_status_latency_and_failures_without_feedback(
         events.append({"event_code": code, "at": now.isoformat()})
     path.write_text("\n".join(json.dumps(e) for e in events))
     report = runtime_report(path, now)
-    assert report["http_requests"] == 3 and report["http_5xx"] == 1
+    assert report["http_requests"] == 4 and report["http_5xx"] == 1
     assert report["api_latency_ms"] == {"count": 3, "mean": 20, "p95": 30}
     assert report["smtp"] == report["worker"] == "failure_observed"
     assert report["failure_events"]["CLEANUP_SCAN_FAILED"] == 1
@@ -231,10 +256,10 @@ def test_backup_and_disk_failure_signals(tmp_path: Path) -> None:
     assert RAW not in json.dumps(backup_report(path, now))
     with patch("shutil.disk_usage", side_effect=OSError(RAW)):
         assert disk_report(tmp_path)["signal"] == "DISK_UNAVAILABLE"
-    usage = type(shutil_usage := __import__("shutil").disk_usage(tmp_path))
-    with patch("shutil.disk_usage", return_value=usage(1000, 999, 1)):
+    with patch(
+        "shutil.disk_usage", return_value=SimpleNamespace(total=1000, used=999, free=1)
+    ):
         assert disk_report(tmp_path)["signal"] == "DISK_LOW"
-    assert shutil_usage.total > 0
 
 
 def test_operator_cli_failure_never_echoes_arguments_or_database_error(
@@ -253,3 +278,88 @@ def test_operator_cli_failure_never_echoes_arguments_or_database_error(
         main(["--" + RAW])
     output = capsys.readouterr()
     assert all(v not in output.out + output.err for v in CANARIES)
+
+
+@pytest.mark.parametrize("code", ["forbidden", "authentication_denied"])
+def test_denied_operator_reads_no_diagnostic_sources(
+    code: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with (
+        patch("app.core.operations.hidden", return_value=RAW),
+        patch("app.core.operations.DatabaseSettings.from_environment"),
+        patch("app.core.operations.Database") as factory,
+        patch("app.core.operations.authorize", return_value=code),
+        patch("app.core.operations.database_report") as database,
+        patch("app.core.operations.runtime_report") as runtime,
+        patch("app.core.operations.backup_report") as backup,
+        patch("app.core.operations.disk_report") as disk,
+    ):
+        factory.return_value.ready.return_value = True
+        assert main(["--runtime-journal", RAW, "--backup-receipt", RAW]) == 1
+        for source in (database, runtime, backup, disk):
+            source.assert_not_called()
+        assert (
+            json.loads(capsys.readouterr().out)["signal"]
+            == "OPERATOR_AUTHORIZATION_DENIED"
+        )
+
+
+@pytest.mark.parametrize(
+    "path,category",
+    [
+        ("/api/v1/knowledge/search", "knowledge"),
+        ("/api/v1/equipment-models", "catalog"),
+        ("/api/v1/consent-text", "orders"),
+        ("/api/v1/admin/orders/" + CANARIES[2], "admin_api"),
+        ("/api/v1/" + CANARIES[2], "api_other"),
+        ("/" + CANARIES[2], "other"),
+    ],
+)
+def test_endpoint_categories_are_closed(path: str, category: str) -> None:
+    assert endpoint_category(path) == category
+
+
+@pytest.mark.parametrize("details", [[], False, None])
+def test_orm_guard_does_not_coerce_invalid_json_to_empty_details(
+    details: object,
+) -> None:
+    from app.core.staff_models import AuditEvent, validate_new_audit
+
+    row = AuditEvent(
+        action="staff.login",
+        entity_type="staff_user",
+        result="success",
+        details=details,
+    )
+    with pytest.raises(ValueError, match="^AUDIT_SCHEMA_INVALID$"):
+        validate_new_audit(None, None, row)
+    omitted = AuditEvent(
+        action="staff.login", entity_type="staff_user", result="success"
+    )
+    validate_new_audit(None, None, omitted)
+    assert omitted.details == {}
+
+
+@pytest.mark.parametrize(
+    "action,entity,result,details",
+    [
+        ("kb.import", "document_version", "PAGES_INVALID", {}),
+        ("kb.review", "document_version", "PAGES_INVALID", {}),
+        (
+            "tree.import",
+            "diag_tree",
+            "GRAPH_INVALID",
+            {"issue_codes": ["TARGET_NOT_FOUND", "UNREACHABLE"]},
+        ),
+        ("tree.import", "diag_tree", "COMMIT_INVALID", {"issue_codes": []}),
+        ("tree.publish", "diag_tree", "STORED_DATA_CONFLICT", {"issue_codes": []}),
+    ],
+)
+def test_existing_refusal_events_remain_auditable(
+    action: str,
+    entity: str,
+    result: str,
+    details: object,
+) -> None:
+    validate_audit(action, entity, result, details)

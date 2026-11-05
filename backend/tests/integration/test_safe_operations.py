@@ -119,19 +119,21 @@ def test_protected_aggregates_and_failure_signals(
         session.execute(text("DELETE FROM app.chat_sessions"))
 
 
-def test_orm_audit_insertion_rejects_canary_metadata(staff_database: Database) -> None:
+@pytest.mark.parametrize("details", [{"reason": CANARY}, [], False, None])
+def test_orm_audit_insertion_rejects_canary_metadata(
+    staff_database: Database, details: object
+) -> None:
     with (
         pytest.raises(ValueError, match="^AUDIT_SCHEMA_INVALID$"),
         staff_database.unit_of_work() as session,
     ):
-        session.add(
-            AuditEvent(
-                action="staff.login",
-                entity_type="staff_user",
-                result="success",
-                details={"reason": CANARY},
-            )
+        row = AuditEvent(
+            action="staff.login",
+            entity_type="staff_user",
+            result="success",
+            details=details,
         )
+        session.add(row)
         session.flush()
     with staff_database.unit_of_work() as session:
         assert session.scalar(text("SELECT count(*) FROM app.audit_events")) == 0

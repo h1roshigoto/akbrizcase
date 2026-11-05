@@ -58,7 +58,12 @@ def runtime_report(path: Path | None, now: datetime) -> dict[str, Any]:
             if datetime.fromisoformat(e["at"]) >= now - timedelta(hours=24)
         ]
         http = [e for e in recent if e["event_code"] == "HTTP_REQUEST"]
-        latencies = sorted(e["duration_ms"] for e in http)
+        api = [
+            e
+            for e in http
+            if e["endpoint"] not in {"health", "readiness", "admin", "other"}
+        ]
+        latencies = sorted(e["duration_ms"] for e in api)
         codes = Counter(e["event_code"] for e in recent)
         failures = {
             code: count
@@ -90,11 +95,11 @@ def runtime_report(path: Path | None, now: datetime) -> dict[str, Any]:
                 sorted(Counter(str(e["status"]) for e in http).items())
             ),
             "api_latency_ms": {
-                "count": len(http),
-                "mean": round(sum(latencies) / len(http), 3),
-                "p95": latencies[math.ceil(0.95 * len(http)) - 1],
+                "count": len(api),
+                "mean": round(sum(latencies) / len(api), 3),
+                "p95": latencies[math.ceil(0.95 * len(api)) - 1],
             }
-            if http
+            if api
             else {"status": "unavailable"},
             "failure_events": failures,
             "worker": "failure_observed"

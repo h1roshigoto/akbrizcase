@@ -9,6 +9,7 @@ from uuid import UUID
 
 EVENT_CODES = frozenset(
     {
+        "RUNTIME_LOG_SUPPRESSED",
         "API_STARTED",
         "API_STOPPED",
         "HTTP_REQUEST",
@@ -33,7 +34,18 @@ EVENT_CODES = frozenset(
     }
 )
 ENDPOINTS = frozenset(
-    {"health", "readiness", "admin", "catalog", "chat", "orders", "knowledge", "other"}
+    {
+        "health",
+        "readiness",
+        "admin",
+        "admin_api",
+        "catalog",
+        "chat",
+        "orders",
+        "knowledge",
+        "api_other",
+        "other",
+    }
 )
 COUNTERS = frozenset({"processed", "skipped", "errors", "manual_review"})
 
@@ -45,16 +57,19 @@ def endpoint_category(path: str) -> str:
         return "readiness"
     for root, category in (
         ("/admin", "admin"),
-        ("/api/v1/admin", "admin"),
+        ("/api/v1/admin", "admin_api"),
         ("/api/v1/catalog", "catalog"),
+        ("/api/v1/equipment-models", "catalog"),
         ("/api/v1/chat", "chat"),
         ("/api/v1/orders", "orders"),
         ("/api/v1/documents", "knowledge"),
-        ("/api/v1/search", "knowledge"),
+        ("/api/v1/knowledge", "knowledge"),
+        ("/api/v1/consent-text", "orders"),
+        ("/api/v1/privacy-policy", "orders"),
     ):
         if path == root or path.startswith(root + "/"):
             return category
-    return "other"
+    return "api_other" if path.startswith("/api/v1/") else "other"
 
 
 def checked_event(value: object) -> dict[str, Any]:
@@ -116,7 +131,12 @@ class SafeRuntimeFormatter(logging.Formatter):
                 return json.dumps(checked_event(json.loads(record.msg)), sort_keys=True)
             except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
                 pass
-        return '{"event_code":"RUNTIME_LOG_SUPPRESSED"}'
+        return json.dumps(
+            {
+                "event_code": "RUNTIME_LOG_SUPPRESSED",
+                "at": datetime.now(UTC).isoformat(),
+            }
+        )
 
 
 def configure_logging() -> None:

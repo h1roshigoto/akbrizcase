@@ -12,8 +12,8 @@ Standard Python logging writes one JSON event per line. Closed fields:
 HTTP `status`, bounded `endpoint` category, `duration_ms`, and integer counters
 `processed/skipped/errors/manual_review`. Unknown fields/values are rejected.
 There are no customer/entity IDs in runtime diagnostics. Endpoint categories:
-health, readiness, admin, catalog, chat, orders, knowledge, other. Categories
-never include route arguments or URLs. HTTP events include handled errors and
+health, readiness, admin, admin_api, catalog, chat, orders, knowledge, api_other,
+other. Categories never include route arguments or URLs. HTTP events include handled errors and
 unexpected failures; request IDs, no-store, CSP and error envelopes are preserved.
 Unexpected exceptions receive a fixed INTERNAL_ERROR envelope, without traceback.
 
@@ -92,7 +92,7 @@ or automatic collection pipeline is introduced.
 | Orders by kind/status and count | Fixed SQL COUNT/GROUP BY, currently retained rows |
 | Chat sessions/outcomes | Stored routing state only; resolved/handoff are not sales, satisfaction or confirmed resolution |
 | Usefulness / conversion | unavailable: no explicit feedback or sales source exists |
-| HTTP request/error/status counts and mean/p95 handler latency | Optional bounded runtime event sample; p95 nearest rank |
+| HTTP request/error/status counts and mean/p95 handler latency | Optional bounded runtime event sample; API latency excludes health/readiness, staff UI and non-API paths; p95 nearest rank |
 | PostgreSQL connections | COUNT(pg_stat_activity) in current database; includes reporting connection, no query/session contents |
 | Outbox counts, oldest pending age, delivery-error rows | Fixed SQL aggregates; empty queue age null; oldest >24h, failed and stored error generate signals |
 | Worker/SMTP/DB/cleanup errors | Fixed runtime failure counts; missing observations unavailable, never healthy by assumption |

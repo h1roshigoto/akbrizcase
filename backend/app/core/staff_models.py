@@ -73,9 +73,6 @@ class AuditEvent(Base):
 def validate_new_audit(mapper: object, connection: object, target: AuditEvent) -> None:
     from app.core.audit_schema import validate_audit
 
-    validate_audit(
-        target.action,
-        target.entity_type,
-        target.result,
-        target.details if target.details is not None else {},
-    )
+    if "details" not in target.__dict__:
+        target.details = {}
+    validate_audit(target.action, target.entity_type, target.result, target.details)
