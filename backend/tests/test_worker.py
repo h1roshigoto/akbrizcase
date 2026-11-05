@@ -1,5 +1,6 @@
 """Check the real worker process exits on both supported stop signals."""
 
+import json
 import os
 import signal
 import subprocess
@@ -27,11 +28,11 @@ def test_worker_stops_gracefully(stop_signal: signal.Signals, invalid: bool) -> 
     )
     assert process.stdout is not None
     try:
-        assert process.stdout.readline().strip() == "Worker started"
+        assert json.loads(process.stdout.readline())["event_code"] == "WORKER_STARTED"
         process.send_signal(stop_signal)
         output, _ = process.communicate(timeout=5)
         assert process.returncode == 0
-        assert "Worker stopped gracefully" in output
+        assert "WORKER_STOPPED" in output
     finally:
         if process.poll() is None:
             process.kill()
@@ -121,7 +122,7 @@ with (
         timeout=5,
     )
     assert process.returncode == 0, process.stdout + process.stderr
-    assert process.stderr.count("Worker stopped gracefully") == 1
+    assert process.stderr.count("WORKER_STOPPED") == 1
     assert ("SMTP_CONFIG_INVALID" in process.stderr) == boundary.endswith("invalid")
     assert ("SMTP_DISABLED" in process.stderr) == boundary.endswith("disabled")
     assert ("WORKER_TICK_FAILED" in process.stderr) == (boundary == "tick-error")

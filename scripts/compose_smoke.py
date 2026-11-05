@@ -536,7 +536,7 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
         sql(f"INSERT INTO mvp055_smoke VALUES ('{marker}')")
         compose("stop", "worker")
         assert inspect("worker")["State"]["ExitCode"] == 0
-        assert "Worker stopped gracefully" in compose("logs", "--no-color", "worker")
+        assert "WORKER_STOPPED" in compose("logs", "--no-color", "worker")
         compose("stop")
         for service in ("api", "worker", "postgres", "nginx"):
             state = inspect(service)["State"]

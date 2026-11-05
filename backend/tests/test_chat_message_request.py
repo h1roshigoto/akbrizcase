@@ -93,3 +93,22 @@ def test_non_jsonb_unicode_is_rejected(value: str) -> None:
 def test_literal_unicode_escape_is_user_content() -> None:
     body = parse_message_json(request(r"literal \u0000"))
     assert minimized_input(body)["value"] == r"literal \u0000"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "+7\u202f(999)\u202f123\u201145\u201167",
+        "+7 (999) 123\u201345\u201367",
+        "synthetic+tag@example.invalid",
+        "почта@пример.рф",
+    ],
+)
+def test_minimize_realistic_unicode_contacts_preserving_original_hash(
+    value: str,
+) -> None:
+    body = parse_message_json(request(value))
+    before = request_hash(body)
+    assert minimized_input(body)["value"] in {"[phone]", "[email]"}
+    assert request_hash(body) == before
+    assert body.input.type == "text" and body.input.value == value

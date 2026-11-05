@@ -1,6 +1,7 @@
 """Sanitized HTTP errors and server-generated canonical request identifiers."""
 
 import secrets
+from time import monotonic
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.core.http_security import TrustedProxy
+from app.core.observability import emit, endpoint_category
 from app.core.rate_limits import RateLimited
 from app.schemas.common import ErrorDetail, ErrorEnvelope
 
@@ -40,6 +42,7 @@ def install_api_errors(app: FastAPI) -> None:
     async def request_identifier(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        started = monotonic()
         request.state.request_id = uuid4()
         request.state.csp_nonce = secrets.token_urlsafe(24)
         origins = request.headers.getlist("origin")
@@ -60,11 +63,22 @@ def install_api_errors(app: FastAPI) -> None:
                 denied = True
         if public_api and request.method not in {"GET", "HEAD", "OPTIONS"}:
             denied |= request.headers.get("sec-fetch-site") == "cross-site"
-        response = (
-            error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
-            if denied
-            else await call_next(request)
-        )
+        try:
+            response = (
+                error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
+                if denied
+                else await call_next(request)
+            )
+        except Exception as error:
+            # Catch before ServerErrorMiddleware/Uvicorn can print user-bearing
+            # exceptions. Preserve handled domain errors and their envelopes.
+            code = (
+                "DB_ERROR"
+                if isinstance(error, SQLAlchemyError)
+                else ("FILE_ERROR" if isinstance(error, OSError) else "API_ERROR")
+            )
+            emit(code, request_id=str(request.state.request_id))
+            response = error_response(request, 500, "INTERNAL_ERROR", "Request failed")
         response.headers["X-Request-ID"] = str(request.state.request_id)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
@@ -77,6 +91,13 @@ def install_api_errors(app: FastAPI) -> None:
         )
         if request.url.path.startswith("/api/v1/") or administrative_request(request):
             response.headers["Cache-Control"] = "no-store"
+        emit(
+            "HTTP_REQUEST",
+            request_id=str(request.state.request_id),
+            status=response.status_code,
+            endpoint=endpoint_category(request.url.path),
+            duration_ms=min(86400000, round((monotonic() - started) * 1000, 3)),
+        )
         return response
 
     @app.exception_handler(RateLimited)
@@ -116,6 +137,7 @@ def install_api_errors(app: FastAPI) -> None:
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request: Request, error: SQLAlchemyError) -> JSONResponse:
+        emit("DB_ERROR", request_id=str(request.state.request_id))
         if administrative_request(request):
             return error_response(
                 request, 503, "AUTH_UNAVAILABLE", "Authentication unavailable"

@@ -1,12 +1,12 @@
 """One bounded scan per category/tick; no transaction spans journal I/O."""
 
-import logging
 import os
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 from app.core.db import Database
+from app.core.observability import emit
 from app.core.rate_limits import cleanup_buckets
 from app.modules.orders.cleanup_service import (
     CATEGORIES,
@@ -34,17 +34,15 @@ def cleanup_tick(
             with database.unit_of_work() as session:
                 counts = prepare_batch(session, category, now=now)
             if counts.processed or counts.manual_review:
-                logging.info(
-                    "CLEANUP category=%s prepared=%d skipped=%d "
-                    "errors=%d manual_review=%d",
-                    category,
-                    counts.processed,
-                    counts.skipped,
-                    counts.errors,
-                    counts.manual_review,
+                emit(
+                    "CLEANUP",
+                    processed=counts.processed,
+                    skipped=counts.skipped,
+                    errors=counts.errors,
+                    manual_review=counts.manual_review,
                 )
         except Exception:
-            logging.error("CLEANUP_SCAN_FAILED category=%s", category)
+            emit("CLEANUP_SCAN_FAILED")
     try:
         with database.unit_of_work() as session:
             commands, synthetic = pending_commands(session)
@@ -53,9 +51,7 @@ def cleanup_tick(
         if journal is None:
             directory = os.environ.get("SYNTHETIC_DELETION_JOURNAL_DIR")
             if not directory or not synthetic:
-                logging.error(
-                    "CLEANUP_JOURNAL_REQUIRED manual_review=%d", len(commands)
-                )
+                emit("CLEANUP_JOURNAL_REQUIRED", manual_review=len(commands))
                 return
             journal = SyntheticJournal(Path(directory))
         for command in commands:
@@ -66,13 +62,13 @@ def cleanup_tick(
                     database, command, journal, execute=True, now=now
                 )
                 if result.state == JournalState.APPLIED and result.commit_confirmed:
-                    logging.info("CLEANUP_APPLIED processed=1")
+                    emit("CLEANUP_APPLIED", processed=1)
                 else:
-                    logging.info("CLEANUP_RECONCILIATION state=%s", result.state)
+                    emit("CLEANUP_RECONCILIATION", manual_review=1)
             except Exception:
-                logging.error("CLEANUP_APPLY_FAILED errors=1")
+                emit("CLEANUP_APPLY_FAILED", errors=1)
     except Exception:
-        logging.error("CLEANUP_JOURNAL_FAILED errors=1")
+        emit("CLEANUP_JOURNAL_FAILED errors=1")
 
 
 def cleanup_rate_limits(database: Database) -> None:
@@ -80,4 +76,4 @@ def cleanup_rate_limits(database: Database) -> None:
         with database.unit_of_work() as session:
             cleanup_buckets(session)
     except Exception:
-        logging.error("RATE_LIMIT_CLEANUP_FAILED")
+        emit("RATE_LIMIT_CLEANUP_FAILED")
