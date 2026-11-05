@@ -5,7 +5,9 @@ import secrets
 from collections.abc import Iterator
 from datetime import timedelta
 from decimal import Decimal
+from html.parser import HTMLParser
 from typing import Any
+from urllib.parse import urljoin, urlsplit
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,6 +37,43 @@ PASSWORD = "synthetic-order-read-password"
 ATTACK = (
     '<script>window.orderInjected=true</script><img src=x onerror="alert(1)"> & \' "'
 )
+
+
+class OrderHTML(HTMLParser):
+    """Inspect decoded text nodes separately from executable HTML contexts."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[str] = []
+        self.elements: list[tuple[str, dict[str, str | None]]] = []
+        self.text_nodes: list[tuple[tuple[str, ...], str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.elements.append((tag, dict(attrs)))
+        if tag not in {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.stack:
+            del self.stack[len(self.stack) - 1 - self.stack[::-1].index(tag) :]
+
+    def handle_data(self, data: str) -> None:
+        self.text_nodes.append((tuple(self.stack), data))
 
 
 @pytest.fixture
@@ -68,7 +107,9 @@ def read_client(
             role="manager",
         ).ok
     try:
-        with TestClient(app, base_url=ORIGIN, follow_redirects=False) as client:
+        with TestClient(
+            app, client=("192.0.2.1", 50000), base_url=ORIGIN, follow_redirects=False
+        ) as client:
             app.state.database = runtime
             app.state.staff_security = StaffSecurity(
                 frozenset({ORIGIN}), secrets.token_hex(32)
@@ -281,7 +322,47 @@ def test_persisted_detail_snapshots_consent_history_and_no_get_writes(
         assert "CHANGED CURRENT CATALOG" not in page.text
         assert DEMO_VERSION in page.text and "System" in page.text
         assert "Requires quotation" in page.text or "Not applicable" in page.text
-        assert "window.orderInjected" not in page.text.split("<script>")[-1]
+        document = OrderHTML()
+        document.feed(page.text)
+        document.close()
+        # Literal attack survives entity decoding as visible table/definition
+        # text, never as markup, script data or an attribute value.
+        assert any(
+            ATTACK in value and "main" in parents and parents[-1] in {"td", "dd"}
+            for parents, value in document.text_nodes
+        )
+        assert all(
+            "window.orderInjected" not in value
+            for parents, value in document.text_nodes
+            if "script" in parents or "style" in parents
+        )
+        for tag, attrs in document.elements:
+            assert not any(name.startswith("on") for name in attrs)
+            assert not any(
+                "window.orderInjected" in (value or "") for value in attrs.values()
+            )
+            assert not (tag == "img" and attrs.get("src") == "x")
+        directives = {
+            words[0]: words[1:]
+            for directive in page.headers["content-security-policy"].split(";")
+            if (words := directive.split())
+        }
+        scripts = directives["script-src"]
+        assert "'self'" in scripts
+        assert "'unsafe-inline'" not in scripts and "'unsafe-eval'" not in scripts
+        nonces = [source for source in scripts if source.startswith("'nonce-")]
+        assert len(nonces) == 1
+        for tag, attrs in document.elements:
+            if tag == "script":
+                if "src" in attrs:
+                    source = urlsplit(urljoin(ORIGIN, attrs["src"] or ""))
+                    assert (source.scheme, source.netloc) == (
+                        "https",
+                        urlsplit(ORIGIN).netloc,
+                    )
+                    assert source.path.startswith("/admin/statics/")
+                else:
+                    assert f"'nonce-{attrs.get('nonce')}'" == nonces[0]
     support_body = read_client.get(f"/api/v1/admin/orders/{support}").json()
     assert support_body["comment"] == ATTACK and support_body["items"] == []
     listing = read_client.get("/admin/orders")

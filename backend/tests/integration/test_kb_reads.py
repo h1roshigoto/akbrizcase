@@ -212,7 +212,9 @@ def corpus(
             }
         app.dependency_overrides[file_pipeline] = lambda: pipeline
         try:
-            with TestClient(app, base_url="https://testserver") as browser:
+            with TestClient(
+                app, client=("192.0.2.1", 50000), base_url="https://testserver"
+            ) as browser:
                 app.state.database = database
                 with database.unit_of_work() as session:
                     yield Corpus(browser, session, entries, tokens, users, sessions)
@@ -770,7 +772,9 @@ def test_concurrent_change_during_real_scan(
     monkeypatch.setattr(pipeline.scanner, "scan", pause)
     app.dependency_overrides[file_pipeline] = lambda: pipeline
     try:
-        with TestClient(app, base_url="https://testserver") as browser:
+        with TestClient(
+            app, client=("192.0.2.1", 50000), base_url="https://testserver"
+        ) as browser:
             app.state.database = database
             with ThreadPoolExecutor(1) as executor:
                 pending = executor.submit(browser.get, entry.url)
@@ -853,7 +857,9 @@ def test_real_staff_disable_can_commit_during_internal_download(
     monkeypatch.setattr(pipeline.scanner, "scan", pause)
     app.dependency_overrides[file_pipeline] = lambda: pipeline
     try:
-        with TestClient(app, base_url="https://testserver") as browser:
+        with TestClient(
+            app, client=("192.0.2.1", 50000), base_url="https://testserver"
+        ) as browser:
             app.state.database = staff_database
             browser.cookies.set(SESSION_COOKIE, token)
             with ThreadPoolExecutor(1) as executor:

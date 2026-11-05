@@ -52,11 +52,13 @@ services:
       PRIVACY_CONFIG_FILE: /run/privacy/approved.json
       STAFF_CSRF_SECRET_FILE: /run/secrets/staff_csrf_secret
       ORDER_HMAC_SECRET_FILE: /run/secrets/order_hmac_secret
+      IP_HMAC_SECRET_FILE: /run/secrets/ip_hmac_secret
+      TRUSTED_PROXY_HOST: nginx
       STAFF_TRUSTED_ORIGINS: ${STAFF_TRUSTED_ORIGINS:-https://localhost:8443}
     volumes:
       - app_files:/var/lib/akbrizcase/files
       - ${PRIVACY_CONFIG_DIR:-./.privacy}:/run/privacy:ro
-    secrets: [runtime_password, staff_csrf_secret, order_hmac_secret]
+    secrets: [runtime_password, staff_csrf_secret, order_hmac_secret, ip_hmac_secret]
     build:
       context: ./backend
     command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
@@ -178,3 +180,5 @@ secrets:
     file: ${STAFF_CSRF_SECRET_FILE:-./.secrets/staff_csrf_secret}
   order_hmac_secret:
     file: ${ORDER_HMAC_SECRET_FILE:-./.secrets/order_hmac_secret}
+  ip_hmac_secret:
+    file: ${IP_HMAC_SECRET_FILE:-./.secrets/ip_hmac_secret}

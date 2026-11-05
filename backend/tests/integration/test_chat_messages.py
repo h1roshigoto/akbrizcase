@@ -59,8 +59,8 @@ def message_db(databases: tuple[Database, Database]) -> Iterator[Database]:
 @pytest.fixture
 def browsers(message_db: Database) -> Iterator[tuple[TestClient, TestClient]]:
     with (
-        TestClient(app, base_url=ORIGIN) as one,
-        TestClient(app, base_url=ORIGIN) as two,
+        TestClient(app, client=("192.0.2.1", 50000), base_url=ORIGIN) as one,
+        TestClient(app, client=("192.0.2.1", 50000), base_url=ORIGIN) as two,
     ):
         app.state.database = message_db
         app.state.staff_security = StaffSecurity(
@@ -616,6 +616,18 @@ def test_transition_limit_survives_transactions_new_app_and_replay(
         if count == 15:
             success(post(one, own, body(own, version)), version + 1)
             version += 1
+        if version == 30:
+            # This path verifies a 30-edge diagnostic across minute windows,
+            # independently of MVP-039's 30 committed exchanges/minute limit.
+            with message_db.unit_of_work() as session:
+                session.execute(
+                    text(
+                        "UPDATE app.rate_limit_buckets SET "
+                        "started_at=started_at-interval '2 minutes', "
+                        "expires_at=expires_at-interval '2 minutes' "
+                        "WHERE scope='message'"
+                    )
+                )
         request = body(own, version, type="button", option_id="a")
         response = success(post(one, own, request), version + 1)
         row, records = saved(message_db, own)

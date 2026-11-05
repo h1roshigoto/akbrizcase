@@ -15,7 +15,13 @@ from app.modules.chat.router import router as chat_router
 from app.modules.kb.router import router as kb_router
 from app.modules.orders.router import router as orders_router
 
-app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=database_lifespan)
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.debug,
+    lifespan=database_lifespan,
+    docs_url=None,
+    redoc_url=None,
+)
 app.add_middleware(StaffSecurityMiddleware)
 # Install last so request IDs wrap even early staff middleware denials.
 install_api_errors(app)

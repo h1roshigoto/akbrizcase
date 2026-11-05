@@ -3,6 +3,7 @@
 import ast
 import json
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -11,6 +12,35 @@ import db_integration
 
 
 class AcceptanceLifecycleTests(unittest.TestCase):
+    def test_full_integration_schedules_every_suite_exactly_once(self):
+        for with_files in (False, True):
+            with (
+                self.subTest(with_files=with_files),
+                patch(
+                    "sys.argv",
+                    ["db_integration.py"] + (["--with-files"] if with_files else []),
+                ),
+                patch("db_integration.measure", lambda _: nullcontext()),
+                patch("db_integration.exercise") as exercise,
+                patch("db_integration.files_acceptance") as files,
+                patch(
+                    "db_integration.parallel",
+                    lambda checks: [check() for _, check in checks],
+                ),
+            ):
+                db_integration.main()
+                self.assertCountEqual(
+                    [call.args[0] for call in exercise.call_args_list],
+                    db_integration.SUITES,
+                )
+                self.assertEqual(exercise.call_args_list[0].args, ("clean-upgrade",))
+                for call in exercise.call_args_list[1:]:
+                    self.assertEqual(call.kwargs, {"reuse_image": True})
+                if with_files:
+                    files.assert_called_once_with()
+                else:
+                    files.assert_not_called()
+
     def test_no_acceptance_entry_point_deletes_volumes(self):
         for name in (
             "synthetic_stack",

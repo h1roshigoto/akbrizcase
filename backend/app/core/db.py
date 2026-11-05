@@ -17,9 +17,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.csrf import StaffSecurity
+from app.core.http_security import TrustedProxy
+from app.core.rate_limits import IpSecurity
 from app.modules.orders.security import OrderSecurity
 
-SCHEMA_REVISION = "0010_mvp038_journal_basis"
+SCHEMA_REVISION = "0011_mvp039_http_security"
 
 
 class DatabaseConfigurationError(ValueError):
@@ -155,6 +157,8 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.database = database
     app.state.staff_security = StaffSecurity.from_environment()
     app.state.order_security = OrderSecurity.from_environment()
+    app.state.ip_security = IpSecurity.from_environment()
+    app.state.trusted_proxy = TrustedProxy.from_environment()
     try:
         yield
     finally:

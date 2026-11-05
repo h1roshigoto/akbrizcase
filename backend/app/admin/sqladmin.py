@@ -8,6 +8,7 @@ from sqladmin import Admin, BaseView, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
 
 from app.admin.security import error_response, request_identity, security_settings
 from app.core.audit import record_staff_event
@@ -106,6 +107,11 @@ class StaffAdmin(Admin):
 
 
 def install_sqladmin(app: FastAPI) -> Admin:
+    # Precede the admin mount: static 404s must use the safe API handler rather
+    # than SQLAdmin's error template, which assumes an authenticated staff user.
+    app.mount(
+        "/admin/statics", StaticFiles(packages=["sqladmin"]), name="staff-statics"
+    )
     authentication = StaffAuthentication()
     admin = StaffAdmin(
         app,

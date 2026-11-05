@@ -65,6 +65,7 @@ def main(
     notification_retry: bool = False,
     support_handoff: bool = False,
     privacy_lifecycle: bool = False,
+    http_security: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -79,6 +80,7 @@ def main(
             ("runtime_password", "RUNTIME_PASSWORD_FILE"),
             ("staff_csrf_secret", "STAFF_CSRF_SECRET_FILE"),
             ("order_hmac_secret", "ORDER_HMAC_SECRET_FILE"),
+            ("ip_hmac_secret", "IP_HMAC_SECRET_FILE"),
         ):
             path = Path(temporary) / name
             path.write_text(secrets.token_urlsafe(48) + "\n")
@@ -245,6 +247,12 @@ d.close()
                 prepare(compose, stack, Path(temporary) / "privacy", passwords)
             tls = ssl.create_default_context(cafile=".certs/ca.crt")
             opener = build_opener(ProxyHandler({}), HTTPSHandler(context=tls))
+            if http_security:
+                from http_security_smoke import edge_boundary
+
+                edge_boundary(opener, origin, "http://127.0.0.1:" + environment["HTTP_PORT"])
+                compose("restart", "nginx")
+                compose("up", "--no-build", "-d", "--wait", "--wait-timeout", "120", "nginx")
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
                 with opener.open(origin + path, timeout=5) as response:
                     assert response.status == 200
@@ -264,7 +272,15 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if privacy_lifecycle:
+                if http_security:
+                    browser = subprocess.run(
+                        ["node", "frontend/tests/http-security.mjs"],
+                        env=browser_environment, check=False,
+                        input=json.dumps({"origin": origin,
+                                          "httpOrigin": "http://127.0.0.1:" + environment["HTTP_PORT"]}),
+                        text=True, capture_output=True, timeout=150,
+                    )
+                elif privacy_lifecycle:
                     from privacy_browser_smoke import run_browser as run_privacy
 
                     browser = run_privacy(
@@ -337,7 +353,7 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
-            expected = (
+            expected = 5 if http_security else (
                 0
                 if privacy_lifecycle
                 else (
@@ -371,7 +387,7 @@ d.close()
                 str(expected),
                 str(3 if status_changes else expected),
                 "sent" if notification_retry else "pending",
-                "0" if privacy_lifecycle else "1" if support_handoff else "2",
+                "0" if http_security or privacy_lifecycle else "1" if support_handoff else "2",
             )
             logs = compose("logs", "--no-color", "api", "nginx", "postgres")
             audit = compose(
@@ -382,7 +398,13 @@ d.close()
                 "-c",
                 "from app.core.db import Database,DatabaseSettings; from sqlalchemy import text; d=Database(DatabaseSettings.from_environment()); c=d.engine.connect(); print(c.execute(text('SELECT action,result,metadata FROM app.audit_events')).all()); c.close(); d.close()",
             )
-            for secret in [*passwords.values(), *proof["secrets"]]:
+            runtime_secrets = [
+                Path(environment[name]).read_text().strip()
+                for name in ("POSTGRES_PASSWORD_FILE", "MIGRATOR_PASSWORD_FILE",
+                             "RUNTIME_PASSWORD_FILE", "STAFF_CSRF_SECRET_FILE",
+                             "ORDER_HMAC_SECRET_FILE", "IP_HMAC_SECRET_FILE")
+            ]
+            for secret in [*runtime_secrets, *passwords.values(), *proof["secrets"]]:
                 assert secret not in logs + audit, "Authentication material leaked"
             print(proof["result"])
             if catalog_admin:

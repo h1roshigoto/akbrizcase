@@ -69,7 +69,7 @@ def catalog_http(
             session.flush()
             identifiers[sku] = item.id
     try:
-        with TestClient(app) as client:
+        with TestClient(app, client=("192.0.2.1", 50000)) as client:
             # Preserve the normal lifespan/configuration and use the real runtime
             # role/database, with no repository/session/SQL mocks or fixtures API.
             yield client, identifiers

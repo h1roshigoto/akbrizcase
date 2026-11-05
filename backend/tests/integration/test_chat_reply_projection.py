@@ -591,6 +591,18 @@ def test_valid_mixed_history_paginates_with_current_reply_independent_of_cursor(
     expected = []
     modes = ["knowledge", "commerce", "diagnose"]
     for version in range(55):
+        if version == 30:
+            # Preserve the 55-message pagination regression across two quota
+            # windows; production still accepts only 30 committed exchanges/min.
+            with message_db.unit_of_work() as session:
+                session.execute(
+                    text(
+                        "UPDATE app.rate_limit_buckets SET "
+                        "started_at=started_at-interval '2 minutes', "
+                        "expires_at=expires_at-interval '2 minutes' "
+                        "WHERE scope='message'"
+                    )
+                )
         request = body(own, version, type="select_mode", mode=modes[version % 3])
         response = post(browsers[0], own, request)
         value = reply(response, "no_match")

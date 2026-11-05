@@ -90,7 +90,7 @@ def privacy_db(
 
 @pytest.fixture
 def client(privacy_db: tuple[Database, Database]) -> Iterator[TestClient]:
-    with TestClient(app) as result:
+    with TestClient(app, client=("192.0.2.1", 50000)) as result:
         app.state.database = privacy_db[0]
         app.state.order_security = OrderSecurity(b"synthetic-privacy-key" * 3)
         yield result

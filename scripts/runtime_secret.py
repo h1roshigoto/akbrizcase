@@ -14,6 +14,7 @@ NAMES = (
     "runtime_password",
     "staff_csrf_secret",
     "order_hmac_secret",
+    "ip_hmac_secret",
 )
 
 

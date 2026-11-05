@@ -111,6 +111,12 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         path = request.url.path
+        if path.startswith("/admin/statics/") and request.method in {"GET", "HEAD"}:
+            # SQLAdmin's package-owned software assets contain no user data.
+            # StaticFiles confines reads to that dependency directory. Serving
+            # them without DB authorization also avoids an audit/lookup bypass
+            # through Nginx's static-resource exemption. Mutations stay protected.
+            return await call_next(request)
         if not any(
             path == root or path.startswith(root + "/")
             for root in ("/admin", "/api/v1/admin")

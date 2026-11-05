@@ -256,7 +256,7 @@ def test_public_fact_sources_and_cookie_boundary(
     session.flush()
     app.dependency_overrides[catalog_session] = lambda: session
     try:
-        with TestClient(app) as client:
+        with TestClient(app, client=("192.0.2.1", 50000)) as client:
             path = f"/api/v1/catalog/items/{c.item}?model_id={c.model}"
             anonymous = client.get(path)
             client.cookies.set(SESSION_COOKIE, "a" * 64)
@@ -1267,7 +1267,9 @@ def test_sqladmin_review_disclosure_and_internal_privacy(
     origin = "https://localhost:8443"
     with database.unit_of_work() as session:
         c = corpus(session, kind=kind, visibility="internal")
-    with TestClient(app, base_url=origin, follow_redirects=False) as browser:
+    with TestClient(
+        app, client=("192.0.2.1", 50000), base_url=origin, follow_redirects=False
+    ) as browser:
         monkeypatch.setattr(app.state, "database", database)
         monkeypatch.setattr(
             app.state,
@@ -1424,7 +1426,9 @@ def test_sqladmin_publication_failure_rolls_back(
         values = json.loads(release.read_text())
         values.pop("item_id")
         revision = session.get(CatalogItem, c.item).revision  # type: ignore[union-attr]
-    with TestClient(app, base_url=origin, follow_redirects=False) as browser:
+    with TestClient(
+        app, client=("192.0.2.1", 50000), base_url=origin, follow_redirects=False
+    ) as browser:
         monkeypatch.setattr(app.state, "database", database)
         monkeypatch.setattr(
             app.state,

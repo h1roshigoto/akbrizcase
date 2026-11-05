@@ -77,7 +77,9 @@ def test_catalog_and_staff_in_production_app(
     try:
         # Actual app, normal lifespan/runtime PostgreSQL and real staff services.
         # Only non-secret test origin/signing configuration is supplied here.
-        with TestClient(app, base_url=ORIGIN, follow_redirects=False) as browser:
+        with TestClient(
+            app, client=("192.0.2.1", 50000), base_url=ORIGIN, follow_redirects=False
+        ) as browser:
             monkeypatch.setattr(
                 app.state,
                 "staff_security",

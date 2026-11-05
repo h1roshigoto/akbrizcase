@@ -11,7 +11,7 @@ from app.modules.notify.smtp import (
     SMTPSettings,
     send_notification,
 )
-from app.worker.cleanup import cleanup_tick
+from app.worker.cleanup import cleanup_rate_limits, cleanup_tick
 from app.worker.runner import tick
 
 POLL_SECONDS = 2
@@ -57,6 +57,8 @@ def main() -> None:
             try:
                 if database is None:
                     database = Database(DatabaseSettings.from_environment())
+                # Expired IP aliases are removed independently of privacy release gates.
+                cleanup_rate_limits(database)
                 # Cleanup has its own error boundary and runs with SMTP off.
                 cleanup_tick(database, stopped=lambda: stop)
                 tick(database, settings, send_notification)
