@@ -98,6 +98,7 @@ def build(root: Path) -> tuple[dict, dict]:
             ],
             timeout=1200,
         )
+    print("REHEARSAL_RESOLVE_POSTGRES", flush=True)
     run(["docker", "pull", "postgres:16.13-bookworm"], timeout=180)
     pg = json.loads(run(["docker", "image", "inspect", "postgres:16.13-bookworm"]))[0][
         "RepoDigests"
@@ -114,10 +115,21 @@ def build(root: Path) -> tuple[dict, dict]:
     }
     # Two immutable packaging versions of the SAME source commit. This proves
     # application-image replacement; it does not claim cross-schema compatibility.
+    print("REHEARSAL_BUILD_CANDIDATE", flush=True)
     run(
-        ["docker", "build", "--iidfile", str(root / "candidate.id"), "-"],
-        input_text=f"FROM {first['backend']}\nLABEL com.akbrizcase.rehearsal-generation=2\n",
-        timeout=120,
+        [
+            "docker",
+            "build",
+            *common,
+            "--label",
+            "com.akbrizcase.rehearsal-generation=2",
+            "--iidfile",
+            str(root / "candidate.id"),
+            "-f",
+            str(REPO / "backend/Dockerfile"),
+            str(REPO / "backend"),
+        ],
+        timeout=1200,
     )
     second = first | {"backend": (root / "candidate.id").read_text().strip()}
     write_json(root / "first.json", first)
@@ -229,6 +241,7 @@ def snapshot(release: Release) -> str:
 
 
 def exercise(root: Path, first: dict, second: dict) -> None:
+    print("REHEARSAL_PREFLIGHT", flush=True)
     release = Release(root, first)
     release.preflight()
     try:
@@ -256,6 +269,7 @@ def exercise(root: Path, first: dict, second: dict) -> None:
             write_json(root / "modes.json", MODES)
             (root / "modes.json").chmod(0o444)
         invoke(root, root / "first.json")
+        print("REHEARSAL_FIXTURE", flush=True)
         fixture(release)
         before = snapshot(release)
         release.compose("restart", "api", "worker", "nginx")
