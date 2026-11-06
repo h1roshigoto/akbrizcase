@@ -19,6 +19,27 @@ defaults:
     shell: bash
 
 jobs:
+  release:
+    name: Synthetic staging release rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - name: Verify exact source and release failure guards
+        run: |
+          test "$(git rev-parse HEAD)" = "$RELEASE_EXPECTED_HEAD"
+          make release-test
+      - name: Immutable images, TLS, migration failure, isolation and compatible rollback
+        run: make release-rehearsal
+      # No runtime logs, secrets, private paths or database/image archives uploaded.
   backend:
     name: Backend checks
     runs-on: ubuntu-24.04

@@ -155,3 +155,10 @@ privacy-browser-smoke: acceptance-guards
 .PHONY: http-security-smoke
 http-security-smoke: acceptance-guards
 	python3 scripts/http_security_smoke.py
+
+.PHONY: release-test release-rehearsal
+release-test:
+	python3 -m unittest discover -s scripts -p 'test_release.py'
+
+release-rehearsal:
+	python3 scripts/release_rehearsal.py $(RELEASE_REHEARSAL_ARGS)

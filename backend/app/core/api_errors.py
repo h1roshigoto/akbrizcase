@@ -16,6 +16,7 @@ from starlette.responses import Response
 from app.core.http_security import TrustedProxy
 from app.core.observability import emit, endpoint_category
 from app.core.rate_limits import RateLimited
+from app.core.release import release_denied
 from app.schemas.common import ErrorDetail, ErrorEnvelope
 
 
@@ -64,11 +65,17 @@ def install_api_errors(app: FastAPI) -> None:
         if public_api and request.method not in {"GET", "HEAD", "OPTIONS"}:
             denied |= request.headers.get("sec-fetch-site") == "cross-site"
         try:
-            response = (
-                error_response(request, 403, "ORIGIN_DENIED", "Origin denied")
-                if denied
-                else await call_next(request)
-            )
+            response: Response
+            if denied:
+                response = error_response(
+                    request, 403, "ORIGIN_DENIED", "Origin denied"
+                )
+            elif release_denied(request.url.path, request.method):
+                response = error_response(
+                    request, 503, "RELEASE_MODE_DISABLED", "Release mode unavailable"
+                )
+            else:
+                response = await call_next(request)
         except Exception as error:
             # Catch before ServerErrorMiddleware/Uvicorn can print user-bearing
             # exceptions. Preserve handled domain errors and their envelopes.

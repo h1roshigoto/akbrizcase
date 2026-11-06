@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from app.core.release import release_modes
 from app.modules.kb.files import storage
 from app.modules.kb.files.process import FileRejected, Limits
 from app.modules.kb.files.sandbox import run_parser, sealed_snapshot
@@ -92,6 +93,8 @@ class ImagePipeline:
 
     @classmethod
     def from_environment(cls) -> "ImagePipeline":
+        if release_modes() is not None:
+            raise FileRejected("STORAGE_FAILURE")
         return cls(Path(os.environ.get("APP_FILES_DIR", "/var/lib/akbrizcase/files")))
 
     @contextmanager

@@ -6,6 +6,7 @@ from types import FrameType
 
 from app.core.db import Database, DatabaseSettings
 from app.core.observability import configure_logging, emit
+from app.core.release import release_modes
 from app.modules.notify.smtp import (
     SMTPConfigurationError,
     SMTPSettings,
@@ -42,6 +43,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     configure_logging()
+    try:
+        release_modes()  # Unsupported transport mode must stop startup safely.
+    except ValueError:
+        raise SystemExit("RELEASE_CONFIG_INVALID") from None
     emit("WORKER_STARTED")
     database = None
     try:
