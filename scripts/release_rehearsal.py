@@ -361,7 +361,7 @@ def exercise(root: Path, first: dict, second: dict) -> None:
         require(snapshot(release) == before)
         # Inspect safe persisted artifacts and runtime logs for canary secrets.
         logs = release.compose(
-            "logs", "--no-color", "--no-log-prefix", "api", "worker", "nginx"
+            "logs", "--no-color", "--no-log-prefix", "api", "worker", "nginx", "postgres"
         )
         for name in SECRETS:
             require((root / name).read_text().strip() not in logs)

@@ -5,10 +5,22 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError
 
+from app.core.db_migrate import failure_code
 from app.core.release import release_modes
 from app.main import app
 from app.modules.kb.files import FilePipeline, FileRejected
+
+
+def test_migration_failure_diagnostics_are_closed() -> None:
+    class DriverError(Exception):
+        sqlstate = "28P01"
+
+    error = DBAPIError("SECRET SQL", {"password": "SECRET"}, DriverError("SECRET DSN"))
+    assert failure_code(error) == "MIGRATION_AUTH_FAILED"
+    assert failure_code(OSError("SECRET PATH")) == "MIGRATION_FILE_FAILED"
+    assert failure_code(ValueError("SECRET INPUT")) == "MIGRATION_CONFIGURATION_FAILED"
 
 
 def packet() -> dict[str, object]:

@@ -69,7 +69,19 @@ def run(
         text=True,
         timeout=timeout,
     )
-    require(result.returncode == 0)
+    if result.returncode != 0:
+        for code in (
+            "MIGRATION_AUTH_FAILED",
+            "MIGRATION_PRIVILEGE_FAILED",
+            "MIGRATION_SCHEMA_FAILED",
+            "MIGRATION_CONSTRAINT_FAILED",
+            "MIGRATION_DATABASE_FAILED",
+            "MIGRATION_FILE_FAILED",
+            "MIGRATION_CONFIGURATION_FAILED",
+        ):
+            if code in result.stderr.splitlines():
+                print("RELEASE_" + code, flush=True)
+        raise Blocked
     return result.stdout.strip()
 
 
