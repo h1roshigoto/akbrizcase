@@ -7,13 +7,13 @@ No caller-supplied database/volume/daemon selectors or production credentials.
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import subprocess
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 VOLUMES = {
@@ -224,7 +224,13 @@ def main():
                 )
             print("BACKUP_EVIDENCE " + json.dumps(report, sort_keys=True), flush=True)
             return 0
-        except Exception as error:
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            subprocess.SubprocessError,
+        ) as error:
             # Private diagnostics stay local; never upload child logs as artifacts.
             debug = (
                 Path(tempfile.mkdtemp(prefix="akbriz-backup-failure-")) / "private.log"
@@ -239,8 +245,9 @@ def main():
                 try:
                     with debug.open("a") as stream:
                         stream.write(compose("logs", "--no-color", "--tail=40"))
-                except Exception:
-                    pass
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    with debug.open("a") as stream:
+                        stream.write("\nPRIVATE_DIAGNOSTICS_UNAVAILABLE")
             diagnostic = (getattr(error, "stdout", "") or "") + (
                 getattr(error, "stderr", "") or ""
             )
