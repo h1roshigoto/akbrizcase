@@ -212,6 +212,8 @@ jobs:
     name: PostgreSQL 16 integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      COMMERCIAL_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -225,7 +227,7 @@ jobs:
           echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
           cp .env.example .env
           make init-secrets
-      - name: All PostgreSQL suites and real ClamAV/sandbox (at most two stacks)
+      - name: Full PG16 suites including MVP-044 commercial regression and real files
         run: make integration-ci
       - name: Recover interrupted test stack
         if: always()

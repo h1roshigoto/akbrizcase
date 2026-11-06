@@ -23,6 +23,8 @@ services:
       retries: 30
 
   tests:
+    labels:
+      com.akbrizcase.db-integration: "true"
     image: akbrizcase-db-tests:mvp-003
     build:
       context: ./backend

@@ -78,6 +78,10 @@ migrate: check-secrets
 integration:
 	python3 scripts/db_integration.py $(INTEGRATION_ARGS)
 
+.PHONY: commercial-regression
+commercial-regression:
+	python3 scripts/db_integration.py --suite commercial-regression
+
 .PHONY: integration-ci compose-smokes
 # CI includes real file acceptance in the same two-stack concurrency budget.
 integration-ci: check-secrets
