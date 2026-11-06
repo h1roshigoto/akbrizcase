@@ -5,6 +5,7 @@ are printed. Manifests contain image identities, never runtime configuration.
 """
 
 import argparse
+from email.message import Message
 import fcntl
 import hashlib
 import json
@@ -362,7 +363,7 @@ class Release:
             query,
         )
 
-    def http(self, path: str, *, method: str = "GET") -> tuple[int, bytes, dict]:
+    def http(self, path: str, *, method: str = "GET") -> tuple[int, bytes, Message]:
         context = ssl.create_default_context(cafile=str(self.root / "ca.crt"))
         opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context))
         request = Request(
@@ -373,11 +374,13 @@ class Release:
         except HTTPError as error:
             response = error
         with response:
-            return response.status, response.read(), dict(response.headers)
+            return response.status, response.read(), response.headers
 
     def smoke(self) -> None:
+        self.event("SMOKE_TLS")
         require(self.http("/readyz")[:2] == (200, b'{"status":"ok"}'))
         require(self.http("/")[0] == 200)
+        self.event("SMOKE_MODES")
         for path, method in (
             ("/api/v1/orders", "POST"),
             ("/api/v1/chat/sessions", "POST"),
@@ -390,6 +393,7 @@ class Release:
                 and json.loads(body)["error"]["code"] == "RELEASE_MODE_DISABLED"
             )
             require(headers.get("Cache-Control") == "no-store")
+        self.event("SMOKE_FILES")
         for path in (
             "/files/private",
             "/documents/private",
@@ -397,6 +401,7 @@ class Release:
             "/.env",
         ):
             require(self.http(path)[0] == 404)
+        self.event("SMOKE_BOUNDARIES")
         for service in ("api", "worker", "postgres", "nginx"):
             ids = self.compose("ps", "-q", service).split()
             require(len(ids) == 1)
