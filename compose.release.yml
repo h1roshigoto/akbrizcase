@@ -1,0 +1,140 @@
+# Standalone synthetic staging. Never combine with development/production files.
+name: ${RELEASE_PROJECT:?Use scripts/release.py}
+
+x-app: &app
+  image: ${RELEASE_BACKEND:?Immutable image required}
+  pull_policy: never
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 512m
+  cpus: 1
+  pids_limit: 64
+  tmpfs: [/tmp:rw,noexec,nosuid,size=32m,mode=1777]
+  volumes:
+    - files:/var/lib/akbrizcase/files
+    - ${RELEASE_ROOT:?}/modes.json:/run/release/modes.json:ro
+  environment: &app-env
+    APP_ENV: staging
+    RELEASE_CONFIG_FILE: /run/release/modes.json
+    APP_FILES_DIR: /var/lib/akbrizcase/files
+    DB_HOST: postgres
+    DB_NAME: akbrizcase
+    DB_PASSWORD_FILE: /run/secrets/runtime_password
+  secrets: [runtime_password]
+  networks: [data]
+  logging: &logging
+    driver: local
+    options: {max-size: 5m, max-file: '2'}
+
+services:
+  postgres:
+    image: ${RELEASE_POSTGRES:?Immutable PG16 image required}
+    pull_policy: never
+    command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic, -c, log_statement=none]
+    environment:
+      POSTGRES_DB: akbrizcase
+      POSTGRES_USER: akbrizcase_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_password, migrator_password, runtime_password]
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./infrastructure/postgres/provision.sh:/docker-entrypoint-initdb.d/010-provision.sh:ro
+    networks: [data]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U akbrizcase_owner -d akbrizcase']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    logging: *logging
+
+  migrate:
+    <<: *app
+    profiles: [tools]
+    command: [python, -m, app.core.db_migrate]
+    volumes: []
+    environment:
+      DB_HOST: postgres
+      DB_NAME: akbrizcase
+      MIGRATION_DB_PASSWORD_FILE: /run/secrets/migrator_password
+    secrets: [migrator_password]
+
+  probe:
+    <<: *app
+    profiles: [tools]
+    command: [python, -m, app.core.release_probe]
+    environment: &api-env
+      <<: *app-env
+      STAFF_CSRF_SECRET_FILE: /run/secrets/staff_csrf_secret
+      ORDER_HMAC_SECRET_FILE: /run/secrets/order_hmac_secret
+      IP_HMAC_SECRET_FILE: /run/secrets/ip_hmac_secret
+      TRUSTED_PROXY_HOST: nginx
+      STAFF_TRUSTED_ORIGINS: https://localhost:${RELEASE_PORT:?}
+    secrets: &api-secrets [runtime_password, staff_csrf_secret, order_hmac_secret, ip_hmac_secret]
+
+  api:
+    <<: *app
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --no-proxy-headers, --no-access-log]
+    environment: *api-env
+    secrets: *api-secrets
+    networks: [web, data]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).close()"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    <<: *app
+    command: [python, -m, app.worker]
+    healthcheck:
+      test: [CMD, python, -m, app.core.release_probe, --worker]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  nginx:
+    image: ${RELEASE_FRONTEND:?Immutable image required}
+    pull_policy: never
+    command: [-g, 'daemon off;']
+    ports: ['127.0.0.1:${RELEASE_PORT:?}:8443']
+    networks: [ingress, web]
+    volumes:
+      - ./infrastructure/release/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${RELEASE_ROOT:?}/server.crt:/etc/nginx/tls/server.crt:ro
+      - ${RELEASE_ROOT:?}/server.key:/etc/nginx/tls/server.key:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 32
+    tmpfs: [/tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=1770]
+    depends_on:
+      api: {condition: service_healthy}
+    logging: *logging
+
+networks:
+  ingress:
+  web: {internal: true}
+  data: {internal: true}
+volumes:
+  database:
+    labels: {com.akbrizcase.synthetic-release: 'true'}
+  files:
+    labels: {com.akbrizcase.synthetic-release: 'true'}
+secrets:
+  postgres_password: {file: '${RELEASE_ROOT:?}/postgres_password'}
+  migrator_password: {file: '${RELEASE_ROOT:?}/migrator_password'}
+  runtime_password: {file: '${RELEASE_ROOT:?}/runtime_password'}
+  staff_csrf_secret: {file: '${RELEASE_ROOT:?}/staff_csrf_secret'}
+  order_hmac_secret: {file: '${RELEASE_ROOT:?}/order_hmac_secret'}
+  ip_hmac_secret: {file: '${RELEASE_ROOT:?}/ip_hmac_secret'}

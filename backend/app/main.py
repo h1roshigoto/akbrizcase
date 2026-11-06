@@ -11,6 +11,7 @@ from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.core.observability import configure_logging, emit
+from app.core.release import release_modes
 from app.modules.catalog.router import router as catalog_router
 from app.modules.chat.router import router as chat_router
 from app.modules.kb.router import router as kb_router
@@ -47,6 +48,10 @@ def readyz(request: Request) -> JSONResponse:
     """Accept traffic only with an accessible, compatible PostgreSQL schema."""
     database: Database | None = request.app.state.database
     ready = database is not None and database.ready()
+    try:
+        release_modes()
+    except ValueError:
+        ready = False
     if not ready:
         emit("DB_ERROR", request_id=str(request.state.request_id))
     return JSONResponse(
