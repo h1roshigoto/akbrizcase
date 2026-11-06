@@ -56,7 +56,7 @@ a reviewed streaming extension. This is not a production scale claim.
 
 Manifest v1 contains schema revision, full app Git HEAD, exact application image
 config digest, PostgreSQL major, conservative transaction snapshot time, sequence
-floor, dump SHA256/size and each file's technical path/SHA256/size/mode. No customer
+floor and optional source/epoch binding, dump SHA256/size and each file's technical path/SHA256/size/mode. No customer
 text, names, audit details, tokens or keys occur in it. It remains private inside
 the encrypted archive; do not print or upload it. Files are mode 0400, directories
 0700. The restored database carries original ACL/lifecycle metadata. Extraction
@@ -102,8 +102,9 @@ Restore checks environment, fresh DB/files, age authentication, exact supported
 schema/HEAD/digest, then runs pg_restore in one transaction. It restores files
 privately, checks every FK against actual data, validates the historical MVP-038 NOT VALID
 CHECK against restored rows, checks erasure
-postconditions, references/checksums, and consumes sequence nextval to verify it
-exceeds retained numbers and the snapshot's sequence floor (gaps are permitted).
+postconditions, references/checksums, and advances the sequence under a sequence lock beyond restored rows, its existing
+state, the backup floor and a verified external source high-water mark. Validation
+does not allocate a number (gaps are permitted).
 Only after full journal replay and repeated checks does it return
 `synthetic-ready-for-manual-review`. It never starts ingress or opens user access.
 A failure after database import leaves that database quarantined; do not reuse it
@@ -156,12 +157,16 @@ container, with read-only secret mounts and the existing DB environment):
 python -m app.backup backup --store /protected/synthetic-store \
   --identity-file /run/secrets/backup-age-identity --files /private/files \
   --head FULL_REVIEWED_HEAD --image-digest sha256:REVIEWED_IMAGE_DIGEST \
+  --sequence-authority-dir /protected/sequence \
+  --sequence-key-file /run/secrets/sequence-authority-key \
   --diagnostics-receipt /protected/status/backup.json
 python -m app.backup restore --store /protected/synthetic-store \
   --identity-file /run/secrets/backup-age-identity --files /private/new-files \
   --head FULL_REVIEWED_HEAD --image-digest sha256:REVIEWED_IMAGE_DIGEST \
   --backup-id TECHNICAL_UUID --journal /protected/independent-journal \
-  --checkpoint /protected/source-fence-checkpoint.json
+  --checkpoint /protected/source-fence-checkpoint.json \
+  --sequence-authority-dir /protected/sequence \
+  --sequence-key-file /run/secrets/sequence-authority-key
 ```
 
 No uncontrolled daemon/timer is installed. These explicit bounded operations are
@@ -216,12 +221,14 @@ This development probe used an uncommitted working tree and a synthetic image
 selector; it is debugging evidence, not exact-image or exact-HEAD acceptance.
 The dedicated clean-checkout CI job provides those measurements separately.
 
-## Verified clean-checkout CI evidence
+## Historical clean-checkout CI evidence (before P1-01)
 
 Implementation verification commit: `9e14e795d7d1ce596ac8ded219bd6975cd35e1f7`.
 [Full six-job run 42159676409](https://github.com/h1roshigoto/akbrizcase/actions/runs/42159676409)
-completed successfully. This documentation-only evidence update does not change
-the implementation; the PR reports the final HEAD and its own complete CI run.
+completed successfully before the independent P1-01 review. Its snapshot-only
+sequence assertion did NOT establish non-reuse of numbers issued after backup.
+These historical results do not validate the correction below. The PR records the
+new exact HEAD, new full six-job run and new actual measurements.
 
 | Measurement on disposable CI runner | Observed |
 |---|---:|
@@ -249,3 +256,80 @@ tools or provisioning the disposable runner and cannot establish target RTO.
 Production RPO <=24h and RTO <=4h require the owner's actual RF storage, key custody,
 authenticated complete independent journal, supervised schedule and timed full
 infrastructure recovery. All those gates remain BLOCKED; there is no public access.
+
+## P1-01 — post-backup number high-water gate
+
+A backup's sequence floor alone cannot prove non-reuse after disaster: the live
+source can issue N+1 after a backup at N. Restore must not treat that older floor
+or max(restored orders.number) as the all-time maximum, even after deletion replay.
+`invariants` and `restore` now require a verified external high-water capability;
+without it they fail closed and never return SEQUENCE PASS. No public write
+admission is provided: the result explicitly keeps `new_order_admission=false`.
+
+The narrow synthetic model is `SyntheticSequenceAuthority`, initialized BEFORE
+backup in a private directory outside the DB and encrypted backup. Its random
+source ID/epoch and a fingerprint of the live PG16 process/database are bound into
+the authenticated backup manifest. Its state and checkpoints use standard
+HMAC-SHA256 with a separate owner-only 32-byte key, never the application HMAC or
+age identity. They carry only technical identifiers, the dump digest, counter,
+fence nonce and issue time. An operator number, Boolean "fenced", bare JSON file,
+unsigned number or checkpoint reconstructed after restore is not evidence.
+
+Order of operations:
+
+1. Initialize the authority only in an empty private directory on the marked
+   synthetic source, before backup. The key must already exist as mode 0600,
+   outside the archive. Add `--initialize-sequence-authority` only to the FIRST
+   backup CLI call. Later backups load and authenticate the same authority state.
+2. After the backup and all required source deletion operations, the active
+   admin/migrator obtains the source fence: staff advisory → NOWAIT ACCESS EXCLUSIVE
+   orders table lock → `ALTER SEQUENCE ... NO CYCLE`. The sequence is required to
+   have increment/cache 1, positive bigint bounds and NO CYCLE already; this DDL
+   changes no numbering policy and takes ShareRowExclusiveLock. It fences direct
+   nextval/setval too, including allocations from other SQL connections. Acquisition
+   is bounded; there is no reset, restart, downgrade, stamp or migration.
+3. Only under those real PG locks, read the last potentially allocated number,
+   compare it with the authenticated durable authority state and backup floor,
+   fsync a monotonic authority update and signed checkpoint. A regression blocks.
+   The checkpoint binds source ID/epoch/process, exact dump digest, fresh issue
+   time and a new fence nonce. The authority never accepts a caller-supplied number.
+4. Keep that source transaction/fence live through target restore, deletion replay
+   and validation. A process-local `VerifiedHighWater` checks the MAC, protected
+   durable files, source/epoch/dump binding, freshness, source backend/transaction,
+   actual granted sequence lock and current source counter before admission checks.
+   Signature alone cannot prove completeness. A missing/corrupt/stale checkpoint,
+   wrong source/epoch, lost fence, unknown source history or lower maximum blocks.
+5. In the closed target, serialize validation with its own sequence lock. Advance
+   with setval only when needed beyond the greatest of restored row numbers,
+   backup floor, external high-water and existing sequence state. Never lower the
+   sequence, consume a probe number or infer historical maximum from surviving
+   orders. Repeated validation preserves target numbers issued since restoration.
+   A failed later gate can leave safe sequence gaps; no transaction rollback can
+   justify rewinding setval.
+
+For the synthetic CLI restore, configure `SEQUENCE_SOURCE_DB_HOST`, optional
+`SEQUENCE_SOURCE_DB_PORT`/`SEQUENCE_SOURCE_DB_NAME`, and
+`SEQUENCE_SOURCE_DB_PASSWORD_FILE` for the known original migrator connection.
+The ordinary migration DB settings select the separate clean target. The source
+must still be available to acquire/maintain the verified fence. CLI restore cannot
+initialize a replacement authority or enable public ingress. Once the source fence
+is released, its capability expires; any further write-admission review requires a
+current fence or a separately approved durable production reservation authority.
+
+A source restart/new epoch, source loss before trustworthy evidence, or loss of
+that independent authority remains BLOCKED. This intentionally does not invent
+an offline maximum from a surviving backup. The synthetic authority is a local
+protocol model outside DB rollback, not independent production storage. Production
+needs reviewed durable reservation/source-fencing continuity, authentication and
+recovery across source loss/epochs. Existing RF offsite, journal, legal retention,
+key custody, daily schedule and target RPO/RTO gates remain BLOCKED.
+
+The actual PG16 regression now issues N, encrypts the real backup, issues N+1 in
+the source AFTER it, creates source-fenced durable evidence, restores the old
+archive into a new PG16/files volume and replays deletion commands. The first
+new target nextval is >N+1. It also checks direct source nextval blocking, repeat
+validation without rewinding, missing/bare/corrupted evidence, authentic wrong
+source/epoch/fence nonce, stale/future timestamps, maxima below known evidence,
+unbound old archives and a genuinely released source fence. New-version evidence
+and measured timings are recorded after the new exact-HEAD CI run; no earlier
+HEAD's green checks close this P1.

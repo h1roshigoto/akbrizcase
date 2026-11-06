@@ -1,13 +1,18 @@
 """Dedicated PG16 encrypted backup -> new PG16/files drill, wholly synthetic."""
 
+import hmac
 import io
 import json
 import os
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import ExitStack
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event
 from time import monotonic
+from typing import cast
 from uuid import uuid4
 
 import pyrage  # type: ignore[import-untyped]
@@ -22,11 +27,16 @@ from test_kb_import import SyntheticClamAV
 from test_kb_lifecycle import draft, operation, review_publish
 from test_privacy import PASSWORD
 
-from app.backup.format import BackupBlocked, seal, unseal
+from app.backup.format import BackupBlocked, canonical, seal, unseal
+from app.backup.high_water import (
+    HighWaterCheckpoint,
+    SyntheticSequenceAuthority,
+    VerifiedHighWater,
+)
 from app.backup.journal import CompleteSyntheticJournal, replay
-from app.backup.restore import empty_target, restore
+from app.backup.restore import empty_target, invariants, restore
 from app.backup.snapshot import PgTools, capture, deletion_lease
-from app.backup.storage import SyntheticStorage, publish_verified
+from app.backup.storage import SyntheticStorage, atomic_write, publish_verified
 from app.core.csrf import SESSION_COOKIE
 from app.core.db import SCHEMA_REVISION, Database, DatabaseSettings
 from app.core.db_types import utc_now
@@ -69,8 +79,14 @@ pytestmark = [
 LOGIN = "backup-admin"
 
 
+@pytest.fixture
+def source_fences() -> Iterator[ExitStack]:
+    with ExitStack() as fences:
+        yield fences
+
+
 def test_encrypted_clean_restore(
-    databases: tuple[Database, Database], tmp_path: Path
+    databases: tuple[Database, Database], tmp_path: Path, source_fences: ExitStack
 ) -> None:
     runtime, source = databases
     with source.unit_of_work() as session:
@@ -224,6 +240,12 @@ def test_encrypted_clean_restore(
     # alone must never reset the sequence below that reservation.
     with source.unit_of_work() as session:
         session.scalar(text("SELECT nextval('app.order_number_seq')"))
+    key_file = tmp_path / "sequence-key"
+    key_file.write_bytes(os.urandom(32))
+    key_file.chmod(0o600)
+    authority_root = root.parent / "journal" / "sequence"
+    authority_root.mkdir(mode=0o700)
+    authority = SyntheticSequenceAuthority.create(source, authority_root, key_file)
     source_settings = DatabaseSettings.from_environment(migration=True)
     identity = pyrage.x25519.Identity.generate()
     head, image = os.environ["BACKUP_TEST_HEAD"], os.environ["BACKUP_TEST_IMAGE"]
@@ -239,13 +261,25 @@ def test_encrypted_clean_restore(
     saved = file.read_bytes()
     file.rename(file.with_suffix(".missing"))
     with pytest.raises(FileRejected, match="STORAGE_FAILURE"):
-        capture(source, PgTools(source_settings), root, **common)
+        capture(
+            source,
+            PgTools(source_settings),
+            root,
+            sequence_source=authority.state().source,
+            **common,
+        )
     file.with_suffix(".missing").rename(file)
     file.chmod(0o600)
     file.write_bytes(b"corrupt")
     file.chmod(0o400)
     with pytest.raises(ValueError):
-        capture(source, PgTools(source_settings), root, **common)
+        capture(
+            source,
+            PgTools(source_settings),
+            root,
+            sequence_source=authority.state().source,
+            **common,
+        )
     file.chmod(0o600)
     file.write_bytes(saved)
     file.chmod(0o400)
@@ -257,7 +291,13 @@ def test_encrypted_clean_restore(
             .values(name="Synthetic renamed")
         )
         with pytest.raises(DBAPIError):
-            capture(source, PgTools(source_settings), root, **common)
+            capture(
+                source,
+                PgTools(source_settings),
+                root,
+                sequence_source=authority.state().source,
+                **common,
+            )
     started, finished = Event(), Event()
 
     def change_image() -> None:
@@ -289,11 +329,21 @@ def test_encrypted_clean_restore(
     futures: list[Future[None]] = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         manifest, ciphertext = capture(
-            source, ConcurrentDump(source_settings), root, **common
+            source,
+            ConcurrentDump(source_settings),
+            root,
+            sequence_source=authority.state().source,
+            **common,
         )
         for future in futures:
             future.result(timeout=5)
     backup_seconds = monotonic() - backup_start
+    with source.unit_of_work() as session:
+        # The bug: this number is absent from both dump and manifest.sequence_floor.
+        issued_after_backup = session.scalar(
+            text("SELECT nextval('app.order_number_seq')")
+        )
+        assert issued_after_backup == manifest.sequence_floor + 1
     assert finished.is_set()
     decoded, dump_bytes, files = unseal(ciphertext, str(identity))
     assert decoded == manifest and len(files) == 10
@@ -314,7 +364,9 @@ def test_encrypted_clean_restore(
             )
             for table in ("order_items", "order_status_history", "email_outbox")
         }
-    journal = CompleteSyntheticJournal(root.parent / "journal", uuid4())
+    deletion_root = root.parent / "journal" / "deletions"
+    deletion_root.mkdir(mode=0o700)
+    journal = CompleteSyntheticJournal(deletion_root, uuid4())
     commands = []
     for offset, identifier in enumerate(deleted):
         with source.unit_of_work() as session:
@@ -444,6 +496,118 @@ def test_encrypted_clean_restore(
     target = Database(target_settings)
     target_files = root.parent / "restore"
     try:
+        high_water = source_fences.enter_context(
+            authority.fenced(manifest, login=LOGIN, password=PASSWORD)
+        )
+
+        def resign(value: HighWaterCheckpoint) -> HighWaterCheckpoint:
+            payload = json.dumps(
+                value.model_dump(mode="json", exclude={"mac"}),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+            return value.model_copy(
+                update={
+                    "mac": hmac.digest(key_file.read_bytes(), payload, "sha256").hex()
+                }
+            )
+
+        point = high_water.checkpoint
+        original_checkpoint = canonical(point)
+        bad_points = [
+            point.model_copy(update={"mac": "0" * 64}),
+            resign(
+                point.model_copy(
+                    update={
+                        "source": point.source.model_copy(update={"epoch": uuid4()})
+                    }
+                )
+            ),
+            resign(
+                point.model_copy(
+                    update={"source": point.source.model_copy(update={"id": uuid4()})}
+                )
+            ),
+            resign(
+                point.model_copy(update={"issued_at": utc_now() - timedelta(hours=2)})
+            ),
+            resign(
+                point.model_copy(update={"high_water": manifest.sequence_floor - 1})
+            ),
+            resign(point.model_copy(update={"high_water": manifest.sequence_floor})),
+            resign(
+                point.model_copy(update={"issued_at": utc_now() + timedelta(minutes=1)})
+            ),
+            resign(point.model_copy(update={"fence_id": uuid4()})),
+        ]
+        candidates = [
+            None,
+            cast(VerifiedHighWater, point),
+            *[replace(high_water, checkpoint=p) for p in bad_points],
+            replace(high_water, _lease=replace(high_water._lease, active=False)),
+        ]
+        for water_candidate in candidates:
+            if isinstance(water_candidate, VerifiedHighWater):
+                # Exercise provenance/epoch/freshness/high-water validation even
+                # when the supplied file is canonical and has a valid MAC.
+                atomic_write(
+                    authority.root,
+                    "checkpoint.json",
+                    canonical(water_candidate.checkpoint),
+                )
+            try:
+                with pytest.raises(BackupBlocked, match="SEQUENCE_"):
+                    restore(
+                        target,
+                        PgTools(target_settings),
+                        target_files,
+                        ciphertext,
+                        identity=str(identity),
+                        application_head=head,
+                        image_digest=image,
+                        journal=journal,
+                        checkpoint=checkpoint,
+                        login=LOGIN,
+                        password=PASSWORD,
+                        high_water=water_candidate,
+                    )
+            finally:
+                atomic_write(authority.root, "checkpoint.json", original_checkpoint)
+            empty_target(target, target_files)
+        atomic_write(
+            authority.root,
+            "checkpoint.json",
+            canonical(point.model_copy(update={"mac": "0" * 64})),
+        )
+        with pytest.raises(BackupBlocked, match="SEQUENCE_CHECKPOINT_INVALID"):
+            high_water.check(manifest)
+        atomic_write(authority.root, "checkpoint.json", original_checkpoint)
+        # Missing durable checkpoint cannot be substituted by an in-memory number.
+        (authority.root / "checkpoint.json").unlink()
+        with pytest.raises(BackupBlocked, match="SEQUENCE_CHECKPOINT_INVALID"):
+            high_water.check(manifest)
+        atomic_write(authority.root, "checkpoint.json", original_checkpoint)
+        # An unbound legacy backup and naked signed JSON cannot authorize writes.
+        unknown = manifest.model_copy(update={"sequence_source": None})
+        with pytest.raises(BackupBlocked, match="SEQUENCE_"):
+            restore(
+                target,
+                PgTools(target_settings),
+                target_files,
+                seal(unknown, dump_bytes, files, str(identity.to_public())),
+                identity=str(identity),
+                application_head=head,
+                image_digest=image,
+                journal=journal,
+                checkpoint=checkpoint,
+                login=LOGIN,
+                password=PASSWORD,
+                high_water=high_water,
+            )
+        with source.unit_of_work() as other:
+            other.execute(text("SET LOCAL lock_timeout='100ms'"))
+            with pytest.raises(DBAPIError):
+                other.scalar(text("SELECT nextval('app.order_number_seq')"))
         # Preflight failures cannot populate destination or start application code.
         for wrong in (
             {"image_digest": "sha256:" + "0" * 64},
@@ -462,6 +626,7 @@ def test_encrypted_clean_restore(
                     checkpoint=checkpoint,
                     login=LOGIN,
                     password=PASSWORD,
+                    high_water=high_water,
                 )
             empty_target(target, target_files)
         incompatible = decoded.model_copy(update={"schema_revision": "unknown"})
@@ -478,6 +643,7 @@ def test_encrypted_clean_restore(
                 checkpoint=checkpoint,
                 login=LOGIN,
                 password=PASSWORD,
+                high_water=high_water,
             )
         empty_target(target, target_files)
         (target_files / "foreign").write_bytes(b"synthetic")
@@ -517,6 +683,7 @@ def test_encrypted_clean_restore(
                     ),
                     login=LOGIN,
                     password=PASSWORD,
+                    high_water=high_water,
                 )
             assert not list((root.parent / "blocked").iterdir())
             with pytest.raises(BackupBlocked, match="RESTORE_DATABASE_NOT_EMPTY"):
@@ -536,9 +703,25 @@ def test_encrypted_clean_restore(
             checkpoint=checkpoint,
             login=LOGIN,
             password=PASSWORD,
+            high_water=high_water,
         )
         restore_seconds = monotonic() - restore_start
         assert result["deletion_replayed"] == 6
+        with target.unit_of_work() as session:
+            first_restored_number = session.scalar(
+                text("SELECT nextval('app.order_number_seq')")
+            )
+            assert first_restored_number > issued_after_backup
+        # Repeated validation includes newly issued target numbers.
+        for _ in range(2):
+            assert invariants(target, manifest, high_water)["sequence"] is True
+        with target.unit_of_work() as session:
+            assert (
+                session.scalar(text("SELECT nextval('app.order_number_seq')"))
+                > first_restored_number
+            )
+        with pytest.raises(BackupBlocked, match="SEQUENCE_HIGH_WATER_REQUIRED"):
+            invariants(target, manifest, None)
         # Idempotent retry checks every witness/postcondition again.
         with journal.fenced(checkpoint) as inventory:
             assert (
@@ -680,6 +863,8 @@ def test_encrypted_clean_restore(
                     "encrypted_bytes": len(ciphertext),
                     **result,
                     "smtp_disabled": True,
+                    "post_snapshot_number_protected": True,
+                    "sequence_negative_cases": len(candidates) + 4,
                     "commit_faults_checked": 2,
                     "journal_formats_checked": 2,
                     "incomplete_restore_blocked": True,
@@ -691,3 +876,11 @@ def test_encrypted_clean_restore(
         )
     finally:
         target.close()
+    source_fences.close()
+    # Dropping the actual source fence invalidates even an authentic checkpoint.
+    expired_target = Database(target_settings)
+    try:
+        with pytest.raises(BackupBlocked, match="SEQUENCE_SOURCE_NOT_FENCED"):
+            invariants(expired_target, manifest, high_water)
+    finally:
+        expired_target.close()

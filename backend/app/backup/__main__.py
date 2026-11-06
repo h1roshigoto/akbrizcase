@@ -1,6 +1,7 @@
 """Protected one-shot synthetic backup/restore; production provider is absent."""
 
 import json
+import os
 import signal
 import sys
 from pathlib import Path
@@ -8,7 +9,8 @@ from uuid import UUID, uuid4
 
 import pyrage  # type: ignore[import-untyped]
 
-from app.backup.format import BackupBlocked, private_read
+from app.backup.format import BackupBlocked, private_read, unseal
+from app.backup.high_water import SyntheticSequenceAuthority
 from app.backup.journal import Checkpoint, CompleteSyntheticJournal
 from app.backup.restore import restore
 from app.backup.snapshot import PgTools, capture
@@ -30,8 +32,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--journal", type=Path)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--diagnostics-receipt", type=Path)
+    parser.add_argument("--sequence-authority-dir", type=Path, required=True)
+    parser.add_argument("--sequence-key-file", type=Path, required=True)
+    parser.add_argument("--initialize-sequence-authority", action="store_true")
     args = parser.parse_args(argv)
     database = None
+    source_database = None
     previous = {}
     try:
 
@@ -55,6 +61,13 @@ def main(argv: list[str] | None = None) -> int:
             with database.unit_of_work() as session:
                 if not synthetic_database(session):
                     raise BackupBlocked("PRODUCTION_STORAGE_BLOCKED")
+            authority = SyntheticSequenceAuthority(
+                database, args.sequence_authority_dir, args.sequence_key_file
+            )
+            if args.initialize_sequence_authority:
+                authority = SyntheticSequenceAuthority.create(
+                    database, args.sequence_authority_dir, args.sequence_key_file
+                )
             manifest, ciphertext = capture(
                 database,
                 PgTools(settings),
@@ -64,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
                 application_head=args.head,
                 image_digest=args.image_digest,
                 recipient=str(pyrage.x25519.Identity.from_str(identity).to_public()),
+                sequence_source=authority.state().source,
             )
             publish_verified(store, uuid4(), manifest, ciphertext, identity)
             if args.diagnostics_receipt:
@@ -80,19 +94,41 @@ def main(argv: list[str] | None = None) -> int:
             checkpoint = Checkpoint.model_validate_json(
                 private_read(args.checkpoint, 4096)
             )
-            _, result = restore(
-                database,
-                PgTools(settings),
-                args.files,
-                store.read_accepted(args.backup_id),
-                identity=identity,
-                application_head=args.head,
-                image_digest=args.image_digest,
-                journal=CompleteSyntheticJournal(args.journal, checkpoint.epoch),
-                checkpoint=checkpoint,
-                login=login,
-                password=password,
+            if args.initialize_sequence_authority:
+                raise BackupBlocked("SEQUENCE_AUTHORITY_MUST_PREDATE_BACKUP")
+            source_database = Database(
+                DatabaseSettings(
+                    host=os.environ["SEQUENCE_SOURCE_DB_HOST"],
+                    port=int(os.environ.get("SEQUENCE_SOURCE_DB_PORT", "5432")),
+                    database=os.environ.get("SEQUENCE_SOURCE_DB_NAME", "akbrizcase"),
+                    user="akbrizcase_migrator",
+                    password=Path(os.environ["SEQUENCE_SOURCE_DB_PASSWORD_FILE"])
+                    .read_text()
+                    .strip(),
+                )
             )
+            authority = SyntheticSequenceAuthority(
+                source_database, args.sequence_authority_dir, args.sequence_key_file
+            )
+            ciphertext = store.read_accepted(args.backup_id)
+            manifest = unseal(ciphertext, identity)[0]
+            with authority.fenced(
+                manifest, login=login, password=password
+            ) as high_water:
+                _, result = restore(
+                    database,
+                    PgTools(settings),
+                    args.files,
+                    ciphertext,
+                    identity=identity,
+                    application_head=args.head,
+                    image_digest=args.image_digest,
+                    journal=CompleteSyntheticJournal(args.journal, checkpoint.epoch),
+                    checkpoint=checkpoint,
+                    login=login,
+                    password=password,
+                    high_water=high_water,
+                )
             print(json.dumps({"status": "synthetic-ready-for-manual-review", **result}))
         return 0
     except BaseException:
@@ -104,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
             signal.signal(sig, handler)
         if database is not None:
             database.close()
+        if source_database is not None:
+            source_database.close()
 
 
 if __name__ == "__main__":

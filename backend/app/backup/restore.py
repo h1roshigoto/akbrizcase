@@ -12,6 +12,7 @@ from pathlib import Path
 from sqlalchemy import select, text
 
 from app.backup.format import MAX_ARCHIVE, BackupBlocked, Manifest, unseal
+from app.backup.high_water import MAX_NUMBER, VerifiedHighWater, sequence_state
 from app.backup.journal import Checkpoint, CompleteSyntheticJournal, replay
 from app.backup.snapshot import PgTools, referenced_files
 from app.core.db import SCHEMA_REVISION, Database
@@ -56,7 +57,12 @@ def empty_target(database: Database, root: Path) -> None:
             raise BackupBlocked("RESTORE_DATABASE_NOT_EMPTY")
 
 
-def invariants(database: Database, sequence_floor: int = 0) -> dict[str, int | bool]:
+def invariants(
+    database: Database, manifest: Manifest, high_water: VerifiedHighWater | None = None
+) -> dict[str, int | bool]:
+    if not isinstance(high_water, VerifiedHighWater):
+        raise BackupBlocked("SEQUENCE_HIGH_WATER_REQUIRED")
+    external_maximum = high_water.check(manifest)
     with database.unit_of_work() as session:
         if set(
             session.scalars(text("SELECT version_num FROM app.alembic_version"))
@@ -114,11 +120,34 @@ def invariants(database: Database, sequence_floor: int = 0) -> dict[str, int | b
         ):
             if not pii_erasure_complete(session, identifier):
                 raise BackupBlocked("ERASURE_INVALID")
+        # Serialize with nextval/setval and other validations. setval is not
+        # transactional: failure may leave safe gaps, never a lowered sequence.
+        session.execute(text("ALTER SEQUENCE app.order_number_seq NO CYCLE"))
         maximum = session.scalar(text("SELECT coalesce(max(number),0) FROM app.orders"))
-        next_number = session.scalar(text("SELECT nextval('app.order_number_seq')"))
-        if next_number <= max(maximum, sequence_floor):
+        value, called = sequence_state(session)
+        known_maximum = max(
+            maximum,
+            manifest.sequence_floor,
+            external_maximum,
+            value if called else value - 1,
+        )
+        if known_maximum >= MAX_NUMBER:
+            raise BackupBlocked("SEQUENCE_EXHAUSTED")
+        if (value + 1 if called else value) <= known_maximum:
+            session.execute(
+                text("SELECT setval('app.order_number_seq',:floor,true)"),
+                {"floor": known_maximum},
+            )
+        value, called = sequence_state(session)
+        if (value + 1 if called else value) <= known_maximum:
             raise BackupBlocked("SEQUENCE_INVALID")
-        return {"fk_checked": len(constraints), "constraints": True, "sequence": True}
+    high_water.check(manifest)
+    return {
+        "fk_checked": len(constraints),
+        "constraints": True,
+        "sequence": True,
+        "sequence_high_water_synthetic": True,
+    }
 
 
 def restore(
@@ -134,6 +163,7 @@ def restore(
     checkpoint: Checkpoint,
     login: str,
     password: str,
+    high_water: VerifiedHighWater | None = None,
 ) -> tuple[Manifest, dict[str, int | bool]]:
     empty_target(database, root)
     manifest, dump, files = unseal(ciphertext, identity)
@@ -143,6 +173,9 @@ def restore(
         or manifest.image_digest != image_digest
     ):
         raise BackupBlocked("APPLICATION_INCOMPATIBLE")
+    if not isinstance(high_water, VerifiedHighWater):
+        raise BackupBlocked("SEQUENCE_HIGH_WATER_REQUIRED")
+    high_water.check(manifest)
     # Authenticate using the verified dump only AFTER integrity/version preflight.
     # The host operator is already authorized by the protected private controller;
     # restored active admin+migrator authority is rechecked before every manual
@@ -185,12 +218,12 @@ def restore(
                 raise BackupBlocked("OPERATOR_DENIED")
             if referenced_files(session, staged) != files:
                 raise BackupBlocked("FILE_SET_INVALID")
-        before = invariants(database, manifest.sequence_floor)
+        before = invariants(database, manifest, high_water)
         # This fence covers final checks, so no command can be exported during
         # the acceptance window. New journal era/hold/policy uncertainty blocks.
         with journal.fenced(checkpoint) as commands:
             count = replay(database, journal, commands, login=login, password=password)
-            result = invariants(database, manifest.sequence_floor)
+            result = invariants(database, manifest, high_water)
             with database.unit_of_work() as session:
                 if referenced_files(session, staged) != files:
                     raise BackupBlocked("FILE_SET_INVALID")
@@ -208,6 +241,7 @@ def restore(
                 "deletion_replayed": count,
                 "files_checked": len(files),
                 "completeness_synthetic": True,
+                "new_order_admission": False,
             }
     except BaseException:
         # Only our initially empty, privately claimed volume is touched.

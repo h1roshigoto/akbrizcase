@@ -25,6 +25,7 @@ from app.backup.format import (
     BackupBlocked,
     FileEntry,
     Manifest,
+    SequenceIdentity,
     digest,
     private_read,
     seal,
@@ -167,6 +168,7 @@ def capture(
     application_head: str,
     image_digest: str,
     recipient: str,
+    sequence_source: SequenceIdentity | None = None,
 ) -> tuple[Manifest, bytes]:
     with (
         deletion_lease(root),
@@ -201,6 +203,11 @@ def capture(
                 session.scalars(text("SELECT version_num FROM app.alembic_version"))
             ) != {SCHEMA_REVISION}:
                 raise BackupBlocked("SCHEMA_INCOMPATIBLE")
+            if sequence_source is not None:
+                from app.backup.high_water import fingerprint
+
+                if fingerprint(session) != sequence_source.fingerprint:
+                    raise BackupBlocked("SEQUENCE_SOURCE_MISMATCH")
             snapshot = session.scalar(text("SELECT pg_export_snapshot()"))
             at = session.scalar(text("SELECT transaction_timestamp()"))
             assert isinstance(snapshot, str) and isinstance(at, datetime)
@@ -231,6 +238,7 @@ def capture(
                 image_digest=image_digest,
                 snapshot_at=at,
                 sequence_floor=sequence_floor,
+                sequence_source=sequence_source,
                 dump_sha256=digest(dump),
                 dump_size=len(dump),
                 files=tuple(

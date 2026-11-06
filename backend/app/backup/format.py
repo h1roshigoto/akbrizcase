@@ -13,6 +13,7 @@ import stat
 import tarfile
 from pathlib import Path
 from typing import Literal, cast
+from uuid import UUID
 
 import pyrage  # type: ignore[import-untyped]
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -37,6 +38,13 @@ class FileEntry(BaseModel):
     mode: Literal[256] = 0o400
 
 
+class SequenceIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: UUID
+    epoch: UUID
+    fingerprint: str = Field(pattern=SHA)
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     format: Literal[1] = 1
@@ -48,6 +56,7 @@ class Manifest(BaseModel):
     dump_sha256: str = Field(pattern=SHA)
     dump_size: int = Field(strict=True, gt=0, le=MAX_ARCHIVE)
     sequence_floor: int = Field(default=0, strict=True, ge=0)
+    sequence_source: SequenceIdentity | None = None
     files: tuple[FileEntry, ...] = Field(max_length=10000)
 
 
@@ -56,9 +65,11 @@ def digest(data: bytes) -> str:
 
 
 def canonical(value: BaseModel) -> bytes:
-    return json.dumps(
-        value.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
-    ).encode()
+    payload = value.model_dump(mode="json")
+    # Existing v1 archives remain readable, but have no sequence admission proof.
+    if isinstance(value, Manifest) and value.sequence_source is None:
+        payload.pop("sequence_source")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
 
 
 def private_read(path: Path, maximum: int, *, mode: int = 0o600) -> bytes:
