@@ -102,7 +102,8 @@ Restore checks environment, fresh DB/files, age authentication, exact supported
 schema/HEAD/digest, then runs pg_restore in one transaction. It restores files
 privately, checks every FK against actual data, validates the historical MVP-038 NOT VALID
 CHECK against restored rows, checks erasure
-postconditions, references/checksums, and advances the sequence under a sequence lock beyond restored rows, its existing
+postconditions and references/checksums, and advances the sequence under a sequence
+lock beyond restored rows, its existing
 state, the backup floor and a verified external source high-water mark. Validation
 does not allocate a number (gaps are permitted).
 Only after full journal replay and repeated checks does it return
@@ -333,3 +334,28 @@ source/epoch/fence nonce, stale/future timestamps, maxima below known evidence,
 unbound old archives and a genuinely released source fence. New-version evidence
 and measured timings are recorded after the new exact-HEAD CI run; no earlier
 HEAD's green checks close this P1.
+
+### P1-01 measured verification
+
+The new dedicated [PG16 encrypted backup/restore job on implementation commit
+79c02c2b6b8a8503614a622c51902afd0248f9d8](https://github.com/h1roshigoto/akbrizcase/actions/runs/42169746143/job/127734528672)
+passed after the correction. This is new evidence, not the pre-review run:
+
+| Measurement/check | Observed |
+|---|---:|
+| Backup / restore core | 0.438 s / 1.160 s |
+| Snapshot → control-state interval | 7.497 s |
+| Ciphertext / checked files and sidecars | 143612 bytes / 10 |
+| FK / deletion replay | 30 / 6 |
+| Number issued after backup not reused | PASS |
+| High-water negative checks | 15 PASS |
+| Real source nextval fenced / repeated validation forward only | PASS |
+| Sequence witness is a production authority / public write admission | NO / NO |
+| Production RF RPO/RTO, offsite, journal, legal policy, keys, schedule | BLOCKED |
+
+`make backend-test backend-lint backend-types` also passed on that implementation
+(1009 tests, format/lint and 216 strict-typed files). The complete six-job run on
+the final publication HEAD and its measurements are linked in [PR #55](https://github.com/h1roshigoto/akbrizcase/pull/55).
+This evidence-only documentation update changes no runtime code. Final acceptance
+still requires all six jobs on the final exact HEAD; a partial or older green run
+is not substituted for it. Source-fenced synthetic timing is not target RPO/RTO.
