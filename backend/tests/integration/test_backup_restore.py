@@ -377,7 +377,7 @@ def test_encrypted_clean_restore(
             target,
             PgTools(target_settings),
             target_files,
-            store.read(backup_id),
+            store.read_accepted(backup_id),
             identity=str(identity),
             application_head=head,
             image_digest=image,

@@ -9,6 +9,7 @@ non-rollbackable epoch/high-water/fencing protocol before production is possible
 import fcntl
 import json
 import os
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -56,17 +57,27 @@ class CompleteSyntheticJournal(SyntheticJournal):
     @contextmanager
     def _lock(self) -> Iterator[None]:
         directory = open_root(self.directory)
-        fd = os.open(
-            ".inventory-lock",
-            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
-            0o600,
-            dir_fd=directory,
-        )
+        fd = -1
         try:
+            fd = os.open(
+                ".inventory-lock",
+                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                0o600,
+                dir_fd=directory,
+            )
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+            ):
+                raise BackupBlocked("JOURNAL_LOCK")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             yield
         finally:
-            os.close(fd)
+            if fd >= 0:
+                os.close(fd)
             os.close(directory)
 
     def _commands(self) -> tuple[DeletionCommand, ...]:

@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 database,
                 PgTools(settings),
                 args.files,
-                store.read(args.backup_id),
+                store.read_accepted(args.backup_id),
                 identity=identity,
                 application_head=args.head,
                 image_digest=args.image_digest,

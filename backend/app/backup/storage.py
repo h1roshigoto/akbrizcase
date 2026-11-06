@@ -79,6 +79,17 @@ class SyntheticStorage:
             self.root / (str(backup_id) + ".age"), MAX_ARCHIVE + 1024**2
         )
 
+    def read_accepted(self, backup_id: UUID) -> bytes:
+        receipt = json.loads(private_read(self.root / (str(backup_id) + ".json"), 4096))
+        data = self.read(backup_id)
+        if (
+            set(receipt) != {"status", "snapshot_at", "ciphertext_sha256"}
+            or receipt["status"] != "synthetic-verified"
+            or receipt["ciphertext_sha256"] != digest(data)
+        ):
+            raise BackupBlocked("ACCEPTED_BACKUP_REQUIRED")
+        return data
+
     def accept(self, backup_id: UUID, manifest: Manifest, sha256: str) -> None:
         if digest(self.read(backup_id)) != sha256:
             raise BackupBlocked("REMOTE_VERIFICATION")

@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from app.backup.format import (
     MAX_ARCHIVE,
@@ -109,10 +110,7 @@ class PgTools:
             )
 
 
-def referenced_files(session: object, root: Path) -> dict[str, bytes]:
-    from sqlalchemy.orm import Session
-
-    assert isinstance(session, Session)
+def referenced_files(session: Session, root: Path) -> dict[str, bytes]:
     result: dict[str, bytes] = {}
     # Include every bound document version, including internal/retired/draft.
     # This preserves references without promoting quarantine/unbound uploads.
@@ -137,6 +135,8 @@ def referenced_files(session: object, root: Path) -> dict[str, bytes]:
             raise BackupBlocked("DOCUMENT_INTEGRITY")
         result[base] = data
         result["documents/receipts/" + version.file_key] = receipt
+        if len(result) > 10000 or sum(map(len, result.values())) > MAX_ARCHIVE:
+            raise BackupBlocked("ARCHIVE_LIMIT")
     pipeline = ImagePipeline(root)
     keys = session.scalars(
         select(CatalogItem.image_key)
@@ -152,7 +152,7 @@ def referenced_files(session: object, root: Path) -> dict[str, bytes]:
         result["images/receipts/" + key] = private_read(
             root / "images/receipts" / key, 4096, mode=0o400
         )
-    if sum(map(len, result.values())) > MAX_ARCHIVE:
+    if len(result) > 10000 or sum(map(len, result.values())) > MAX_ARCHIVE:
         raise BackupBlocked("ARCHIVE_LIMIT")
     return result
 
@@ -205,6 +205,12 @@ def capture(
             at = session.scalar(text("SELECT transaction_timestamp()"))
             assert isinstance(snapshot, str) and isinstance(at, datetime)
             files = referenced_files(session, root)
+            sequence_floor = session.scalar(
+                text(
+                    "SELECT CASE WHEN is_called THEN last_value ELSE last_value-1 END "
+                    "FROM app.order_number_seq"
+                )
+            )
             tools.run(
                 "pg_dump",
                 "--format=custom",
@@ -219,12 +225,6 @@ def capture(
             # and administrator interference, even outside the supported protocol.
             if referenced_files(session, root) != files:
                 raise BackupBlocked("FILE_CHANGED")
-            sequence_floor = session.scalar(
-                text(
-                    "SELECT CASE WHEN is_called THEN last_value ELSE last_value-1 END "
-                    "FROM app.order_number_seq"
-                )
-            )
             manifest = Manifest(
                 schema_revision=SCHEMA_REVISION,
                 application_head=application_head,

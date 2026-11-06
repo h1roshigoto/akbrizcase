@@ -119,7 +119,24 @@ def main():
                         stream.write(compose("logs", "--no-color", "--tail=40"))
                 except Exception:
                     pass
+            diagnostic = (getattr(error, "stdout", "") or "") + (getattr(error, "stderr", "") or "")
             print("BACKUP_REHEARSAL_BLOCKED", file=sys.stderr)
+            print("BACKUP_CHILD_EXIT " + str(getattr(error, "returncode", -1)), file=sys.stderr)
+            for code, signature in {
+                "PERMISSION": "Permission denied", "READ_ONLY": "Read-only file system",
+                "NO_SPACE": "No space left", "EXEC": "executable file not found",
+                "OCI_RUNTIME": "OCI runtime", "IMPORT": "ModuleNotFoundError",
+                "IMPORT_ERROR": "ImportError", "ASSERTION": "AssertionError",
+                "DB_ERROR": "OperationalError", "ARCHIVE_GATE": "BackupBlocked",
+                "FILE_GATE": "FileRejected", "SYNTAX": "SyntaxError",
+            }.items():
+                if signature in diagnostic:
+                    print("BACKUP_FAILURE_" + code, file=sys.stderr)
+            locations = re.findall(
+                r'(?:/app/)?(app/backup/[a-z_]+\.py|tests/integration/test_backup_restore\.py):([0-9]+)',
+                diagnostic)
+            for path, line in locations[-3:]:
+                print("BACKUP_FAILURE_LOCATION " + path + ":" + line, file=sys.stderr)
             return 1
         finally:
             if claimed:
