@@ -339,7 +339,11 @@ class Release:
             env=self.env,
         )
         require(actual == self.manifest["schema"])
-        self.compose("config", "--quiet")
+        rendered = json.loads(self.compose("config", "--format", "json"))
+        # YAML flow lists require quoting comma-bearing tmpfs specifications.
+        # Compose syntax validation alone accepts the resulting invalid mounts.
+        for service in rendered["services"].values():
+            require(all(mount.startswith("/") for mount in service.get("tmpfs", [])))
 
     def sql(self, query: str) -> str:
         return self.compose(

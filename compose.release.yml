@@ -11,7 +11,7 @@ x-app: &app
   mem_limit: 512m
   cpus: 1
   pids_limit: 64
-  tmpfs: [/tmp:rw,noexec,nosuid,size=32m,mode=1777]
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=32m,mode=1777']
   volumes:
     - files:/var/lib/akbrizcase/files
     - ${RELEASE_ROOT:?}/modes.json:/run/release/modes.json:ro
@@ -117,7 +117,7 @@ services:
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 32
-    tmpfs: [/tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=1770]
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=1770']
     depends_on:
       api: {condition: service_healthy}
     logging: *logging

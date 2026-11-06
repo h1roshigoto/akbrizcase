@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
@@ -11,6 +12,24 @@ from app.core.db_migrate import failure_code
 from app.core.release import release_modes
 from app.main import app
 from app.modules.kb.files import FilePipeline, FileRejected
+
+
+def test_standalone_compose_mount_and_port_boundaries() -> None:
+    config = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "compose.release.yml").read_text()
+    )
+    services = config["services"]
+    for name, service in services.items():
+        if "tmpfs" in service:
+            assert len(service["tmpfs"]) == 1
+            assert service["tmpfs"][0].startswith("/tmp:rw,noexec,nosuid,")
+        if name != "nginx":
+            assert "ports" not in service
+    assert services["nginx"]["ports"] == ["127.0.0.1:${RELEASE_PORT:?}:8443"]
+    assert services["nginx"]["networks"] == ["ingress", "web"]
+    assert config["networks"]["data"]["internal"] is True
+    assert config["networks"]["web"]["internal"] is True
+    assert all("external" not in volume for volume in config["volumes"].values())
 
 
 def test_migration_failure_diagnostics_are_closed() -> None:
