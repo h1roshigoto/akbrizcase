@@ -4,7 +4,7 @@
 
 Base: `39bc53d48da4b29742976dc9ac75a9218a22d505`, verified against
 `origin/main` and GitHub before branching. Branch: `mvp-044-commercial-regression`.
-The final tested HEAD and Actions links belong in the Draft PR description to
+The final tested HEAD and Actions links belong in [Draft PR #57](https://github.com/h1roshigoto/akbrizcase/pull/57) to
 avoid a self-referential commit. Synthetic data only; no merge or deployment.
 
 ## 2. Required checks (implementation plan §8)
@@ -169,7 +169,13 @@ requires equality with `COMMERCIAL_EXPECTED_HEAD`.
 
 Local new suite: **64 passed in 73.41 s**, PostgreSQL **16.13 Alpine**, guarded
 project `akbrizcase-dbtest-3949bd1e78ac`. This was a dirty implementation tree,
-not exact-HEAD CI. Backend: **1009 passed**, Ruff/format and strict Mypy passed.
+not exact-HEAD CI. The final implementation then passed **64/64 in 70.42 s**
+at clean HEAD `c66ce2add47d37dccd26ac0fd7548e631828851f`, project
+`akbrizcase-dbtest-9e13c29a2d9b`; this documentation update follows that checkpoint.
+Each run executed all 33 race cases; two successful local full runs therefore
+executed 66 race cases, with the final run including strengthened contention and
+explicit lost-ack hook-reached assertions. Earlier failed development runs are
+not counted as acceptance. Backend: **1009 passed**, Ruff/format and strict Mypy passed.
 The full two-stack local PG regression was interrupted by ENOSPC during migrations
 (clean-upgrade passed; failed image/lifecycle runs are not acceptance). Final
 serial/repeated suite and Actions results are reported in the Draft PR.
@@ -190,7 +196,10 @@ after completion without changing the tested commit.
 ## 9. Acceptance
 
 PASS: new PG16 suite and local backend/guard checks above.
-PENDING: final full local PG result and exact-HEAD seven-job CI (see Draft PR).
+BLOCKED locally: full two-stack PG regression, ENOSPC (not a domain PASS).
+Exact-HEAD seven-job CI and final repeat counts: see the maintained delivery
+table in [Draft PR #57](https://github.com/h1roshigoto/akbrizcase/pull/57),
+updated after the final commit's workflow completes without changing its HEAD.
 NOT RUN locally: full Compose/Chromium, release, encrypted restore and operator
 rehearsals; these remain mandatory Actions jobs, not inferred from the new tests.
 BLOCKED: production/legal gates below. Collection/skips/xfails are never PASS.
