@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, func, select, text, update
+from sqlalchemy import event, func, insert, select, text, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
 from test_order_creation import commercial
@@ -559,15 +559,20 @@ def test_sessions_and_audit_allowlist(
             details={},
             at=at - timedelta(days=demo_bundle().retention.audit_days),
         )
-        protected = AuditEvent(
-            actor_id=actor,
-            action="catalog.applicability.confirm",
-            entity_type="catalog_item",
-            result="success",
-            details={},
-            at=at - timedelta(days=1000),
-        )
-        session.add_all([expired, live, audit, protected])
+        # Legacy evidence must survive maintenance despite the new write schema.
+        protected = session.execute(
+            insert(AuditEvent)
+            .values(
+                actor_id=actor,
+                action="catalog.applicability.confirm",
+                entity_type="catalog_item",
+                result="success",
+                details={},
+                at=at - timedelta(days=1000),
+            )
+            .returning(AuditEvent)
+        ).scalar_one()
+        session.add_all([expired, live, audit])
         session.flush()
         expired_id, live_id, audit_id, protected_id = (
             expired.id,
@@ -682,7 +687,7 @@ def test_real_worker_cleans_with_smtp_disabled_or_invalid_and_stops(
         assert any("CLEANUP_APPLIED" in line for line in lines)
         process.send_signal(signal.SIGTERM)
         output, _ = process.communicate(timeout=5)
-        assert process.returncode == 0 and "Worker stopped gracefully" in output
+        assert process.returncode == 0 and "WORKER_STOPPED" in output
         with database.unit_of_work() as session:
             row = session.get(Order, identifier)
             assert row is not None and row.pii_erased_at is not None

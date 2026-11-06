@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event, select, text, update
+from sqlalchemy import delete, event, insert, select, text, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
@@ -65,15 +65,19 @@ pytestmark = pytest.mark.integration
 
 def technical_event(database: Database) -> AuditEvent:
     with database.unit_of_work() as session:
-        row = AuditEvent(
-            action="staff.login",
-            entity_type="staff_user",
-            result="success",
-            at=utc_now() - timedelta(days=1000),
-            details={"synthetic": "DO-NOT-REPORT synthetic@example.invalid"},
-        )
-        session.add(row)
-        session.flush()
+        # Deliberately model an unbound historical row predating the new ORM
+        # allowlist. New service writes must reject this metadata (MVP-040).
+        row = session.execute(
+            insert(AuditEvent)
+            .values(
+                action="staff.login",
+                entity_type="staff_user",
+                result="success",
+                at=utc_now() - timedelta(days=1000),
+                details={"synthetic": "DO-NOT-REPORT synthetic@example.invalid"},
+            )
+            .returning(AuditEvent)
+        ).scalar_one()
         return row
 
 
@@ -197,8 +201,10 @@ def test_synthetic_runner_pipeline_with_fixture_service_binding(
     ]
     with runtime.unit_of_work() as session:
         for action in preserved:
-            session.add(
-                AuditEvent(
+            # Historical/future actions remain preserved by maintenance;
+            # inserting new such events through the service ORM is forbidden.
+            session.execute(
+                insert(AuditEvent).values(
                     action=action, entity_type="test", result="success", at=row.at
                 )
             )

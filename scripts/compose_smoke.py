@@ -536,7 +536,7 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
         sql(f"INSERT INTO mvp055_smoke VALUES ('{marker}')")
         compose("stop", "worker")
         assert inspect("worker")["State"]["ExitCode"] == 0
-        assert "Worker stopped gracefully" in compose("logs", "--no-color", "worker")
+        assert "WORKER_STOPPED" in compose("logs", "--no-color", "worker")
         compose("stop")
         for service in ("api", "worker", "postgres", "nginx"):
             state = inspect(service)["State"]
@@ -546,7 +546,7 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
                 service,
                 state,
             )
-        assert "Application shutdown complete." in compose("logs", "--no-color", "api")
+        assert "API_STOPPED" in compose("logs", "--no-color", "api")
         compose("down")
         compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
         stack.verify_database()

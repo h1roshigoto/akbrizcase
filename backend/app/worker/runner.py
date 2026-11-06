@@ -5,6 +5,7 @@ from collections.abc import Callable
 from sqlalchemy import text
 
 from app.core.db import Database
+from app.core.observability import emit
 from app.modules.notify.outbox import (
     Claim,
     claim_due,
@@ -48,8 +49,12 @@ def tick(
     except Exception as error:
         code = error.code if isinstance(error, SendFailure) else "SEND_ERROR"
         with database.unit_of_work() as session:
-            finish_failure(session, claim, code)
+            changed = finish_failure(session, claim, code)
+        if changed:
+            emit("SMTP_FAILURE", errors=1)
     else:
         with database.unit_of_work() as session:
-            finish_success(session, claim)
+            changed = finish_success(session, claim)
+        if changed:
+            emit("SMTP_SENT", processed=1)
     return True

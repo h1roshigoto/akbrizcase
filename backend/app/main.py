@@ -10,10 +10,13 @@ from app.admin.sqladmin import install_sqladmin
 from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
+from app.core.observability import configure_logging, emit
 from app.modules.catalog.router import router as catalog_router
 from app.modules.chat.router import router as chat_router
 from app.modules.kb.router import router as kb_router
 from app.modules.orders.router import router as orders_router
+
+configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
@@ -44,6 +47,8 @@ def readyz(request: Request) -> JSONResponse:
     """Accept traffic only with an accessible, compatible PostgreSQL schema."""
     database: Database | None = request.app.state.database
     ready = database is not None and database.ready()
+    if not ready:
+        emit("DB_ERROR", request_id=str(request.state.request_id))
     return JSONResponse(
         {"status": "ok" if ready else "unavailable"},
         status_code=200 if ready else 503,

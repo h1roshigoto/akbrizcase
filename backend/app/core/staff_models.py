@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, String, event, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -67,3 +67,12 @@ class AuditEvent(Base):
     details: Mapped[dict[str, str | bool | int]] = mapped_column(
         "metadata", JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
+
+
+@event.listens_for(AuditEvent, "before_insert")
+def validate_new_audit(mapper: object, connection: object, target: AuditEvent) -> None:
+    from app.core.audit_schema import validate_audit
+
+    if "details" not in target.__dict__:
+        target.details = {}
+    validate_audit(target.action, target.entity_type, target.result, target.details)

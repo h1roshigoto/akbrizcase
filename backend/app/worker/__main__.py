@@ -1,11 +1,11 @@
 """Bounded polling with safe errors and graceful SIGTERM/SIGINT shutdown."""
 
-import logging
 import signal
 import time
 from types import FrameType
 
 from app.core.db import Database, DatabaseSettings
+from app.core.observability import configure_logging, emit
 from app.modules.notify.smtp import (
     SMTPConfigurationError,
     SMTPSettings,
@@ -41,18 +41,18 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    logging.info("Worker started")
+    configure_logging()
+    emit("WORKER_STARTED")
     database = None
     try:
         try:
             settings = SMTPSettings.from_environment()
         except SMTPConfigurationError:
-            logging.error("SMTP_CONFIG_INVALID")
+            emit("SMTP_CONFIG_INVALID")
             settings = None
         else:
             if settings is None:
-                logging.info("SMTP_DISABLED")
+                emit("SMTP_DISABLED")
         while not stop:
             try:
                 if database is None:
@@ -64,12 +64,12 @@ def main() -> None:
                 tick(database, settings, send_notification)
             except Exception:
                 # Never log exceptions, DSNs, transport responses or message data.
-                logging.error("WORKER_TICK_FAILED")
+                emit("WORKER_TICK_FAILED")
             wait_for_stop(POLL_SECONDS)
     finally:
         if database is not None:
             database.close()
-        logging.info("Worker stopped gracefully")
+        emit("WORKER_STOPPED")
 
 
 if __name__ == "__main__":

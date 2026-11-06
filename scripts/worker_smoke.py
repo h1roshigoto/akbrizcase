@@ -137,7 +137,7 @@ def exercise_worker(
     logs = compose("logs", "--no-color", "worker", "smtp-test", "api", "postgres")
     for value in private:
         assert value not in logs
-    assert "Worker stopped gracefully" in logs
+    assert "WORKER_STOPPED" in logs
     for service in ("worker", "smtp-test", "api", "postgres"):
         assert not inspect(service)["HostConfig"]["PortBindings"]
     assert inspect("worker")["HostConfig"]["ReadonlyRootfs"]

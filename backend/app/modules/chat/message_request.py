@@ -62,7 +62,7 @@ def request_hash(body: ChatMessageCreate) -> str:
 
 
 _EMAIL = re.compile(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w-]+(?:\.[\w-]+)+")
-_PHONE = re.compile(r"(?<!\w)\+?\d[\d ()\u00a0.\-]{5,}\d(?!\w)")
+_PHONE = re.compile(r"(?<!\w)\+?\d[\d ()\u00a0\u202f.\-\u2010-\u2015]{5,}\d(?!\w)")
 
 
 def minimized_input(body: ChatMessageCreate) -> dict[str, JsonValue]:
