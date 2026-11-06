@@ -43,7 +43,6 @@ class OperatorRehearsalTests(unittest.TestCase):
                 "HTTPS_PROXY": "platform-proxy",
                 "DOCKER_CONFIG": "platform-config",
                 "DB_TEST_BUILD_OVERRIDE": "trusted-ca-override",
-                "DOCKER_HOST": "unix:///var/run/docker.sock",
             }
         )
         self.assertEqual(
@@ -52,6 +51,7 @@ class OperatorRehearsalTests(unittest.TestCase):
                 "HTTPS_PROXY": "platform-proxy",
                 "DOCKER_CONFIG": "platform-config",
                 "DB_TEST_BUILD_OVERRIDE": "trusted-ca-override",
+                "DOCKER_HOST": "unix:///var/run/docker.sock",
             },
         )
 
