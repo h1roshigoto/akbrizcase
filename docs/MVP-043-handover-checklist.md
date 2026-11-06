@@ -25,26 +25,42 @@ PR вместе с URL run/job и `OPERATOR_EVIDENCE`/`BACKUP_EVIDENCE`. Ито�
 
 ## Автоматическая часть
 
-Ниже исходные статусы формы передачи; фактические статусы exact-HEAD прогона
-берутся из итоговой матрицы Draft PR, а при человеческой приёмке переносятся в
-защищённый протокол с HEAD/run. Не подменять их историческими числами MVP-004–042.
+Зафиксированное evidence реализации:
+`5cf6f08ddf32db92b1a377f9efcb02f52a6c18f4`,
+[CI run 42176897142](https://github.com/h1roshigoto/akbrizcase/actions/runs/42176897142).
+Все семь jobs завершены success, операторский job выполнил все восемь этапов.
+После фиксации этого evidence результаты полного повторного CI на окончательном
+HEAD проверяются в [Draft PR #56](https://github.com/h1roshigoto/akbrizcase/pull/56/checks).
+В протокол передачи переносятся конкретный HEAD/run, а не числа прошлых MVP.
 
-| Проверка | Команда / evidence | Исходный статус |
+| Проверка | Команда / evidence | Зафиксированный результат |
 | --- | --- | --- |
-| Staff hidden CLI, manager/wrong/disabled denial, старые сессии | operator stage staff | NOT RUN |
-| KB import/check/preview/review/publish/revoke, ACL и отсутствие evidence | stage knowledge | NOT RUN |
-| YAML import/check, exact review, публикация/revoke/restore и роли | stage trees | NOT RUN |
-| JPEG/PNG, replace/remove/старый URL, invalid upload, manager denial | stage images | NOT RUN |
-| Настоящий SMTP rejection→failed, manager retry, business rows, negative states | stage smtp | NOT RUN |
-| Policy/journal/authority denials, witness, commit-ack и reconciliation | stage privacy | NOT RUN |
-| Protected aggregates, disabled/manager denial, disk/DB/backlog, missing/stale receipt | stage diagnostics | NOT RUN |
-| Age backup/clean PG16 restore, high-water/journal negatives, admission/SMTP закрыты | stage backup / BACKUP_EVIDENCE | NOT RUN |
-| Backend tests/Ruff/strict mypy, frontend tests/types/build | Backend/Frontend CI jobs | NOT RUN |
-| PG16/full files, Compose/browser/HTTPS, release, backup regressions | Пять остальных CI jobs; URL/HEAD в PR | NOT RUN |
+| Staff hidden CLI, manager/wrong/disabled denial, старые сессии | operator stage staff | PASS |
+| KB import/check/preview/review/publish/revoke, ACL и отсутствие evidence | stage knowledge | PASS |
+| YAML import/check, exact review, публикация/revoke/restore и роли | stage trees | PASS |
+| JPEG/PNG, replace/remove/старый URL, invalid upload, manager denial | stage images | PASS |
+| Настоящий SMTP rejection→failed, manager retry, business rows, negative states | stage smtp | PASS |
+| Policy/journal/authority denials, witness, commit-ack и reconciliation | stage privacy | PASS |
+| Protected aggregates, disabled/manager denial, disk/DB/backlog, missing/stale receipt | stage diagnostics | PASS |
+| Age backup/clean PG16 restore, high-water/journal negatives, admission/SMTP закрыты | stage backup / BACKUP_EVIDENCE | PASS |
+| Backend tests/Ruff/strict mypy, frontend tests/types/build | Backend/Frontend CI jobs | PASS |
+| PG16/full files, Compose/browser/HTTPS, release, backup regressions | Пять остальных CI jobs; URL/HEAD выше | PASS |
 
 Операторский job дополняет прежние шесть: Backend, Frontend, PG16 integration,
 Compose/browser/HTTPS, Synthetic staging release, Encrypted PG16 backup/restore.
 Synthetic PASS всегда сопровождается `production=BLOCKED`, `human_handover=BLOCKED`.
+
+Backend: 1009 tests, Ruff/format и strict mypy (219 файлов); frontend: 218 tests,
+typecheck/build; acceptance guards: 42 tests. Operator selection: 121 checks плюс
+повторное использование полного encrypted restore drill. Отдельный backup job:
+10 files/sidecars, 30 FK, шесть deletion replay, 15 high-water negative cases;
+backup 0.448 s, restore 1.162 s — только synthetic timing. Admission/SMTP закрыты.
+Локальные backend/frontend/guards прошли; локальный Docker/PG прогон **BLOCKED**:
+ENOSPC при распаковке PostgreSQL под VFS. Локальный operator runner завершился
+отказом на staff infrastructure, без ложного OPERATOR_EVIDENCE. Успешное CI evidence
+выше относится к отдельным disposable runners; оно не превращает локальный отказ
+или production prerequisites в PASS. Дефектов действующих бизнес-сервисов не
+выявлено; runtime-сервисы и схема БД этим изменением не менялись.
 
 ## Назначения и внешняя готовность
 
