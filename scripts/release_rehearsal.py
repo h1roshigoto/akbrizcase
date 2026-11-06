@@ -264,7 +264,7 @@ def exercise(root: Path, first: dict, second: dict) -> None:
             {"backend": "sha256:" + "0" * 64},
             {"schema": "incompatible"},
             {"backend": first["frontend"]},
-            {"commit": run(["git", "rev-parse", "HEAD^"])},
+            {"commit": "0" * 40},
         ):
             write_json(root / "bad.json", first | change)
             invoke(root, root / "bad.json", success=False)
