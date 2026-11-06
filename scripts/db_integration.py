@@ -18,10 +18,12 @@ from pathlib import Path
 
 from ci_inventory import record_verbose
 from ci_suites import command, measure, parallel
+from commercial_result import emit as commercial_result
 from synthetic_stack import SyntheticStack, isolated_environment
 
 LABEL = "com.akbrizcase.db-integration"
 SUITES = {
+    "commercial-regression": ["tests/integration/test_commercial_regression.py"],
     "http-security": ["tests/integration/test_http_limits.py"],
     "clean-upgrade": ["tests/integration/test_kb_clean_upgrade.py"],
     "images": [
@@ -146,6 +148,19 @@ def run(
                 or not record_verbose("db-" + suite, result.stdout)
             ):
                 print(result.stdout, flush=True)
+            if args[0] == "run" and suite == "commercial-regression":
+                head = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], text=True
+                ).strip()
+                expected = environment.get("COMMERCIAL_EXPECTED_HEAD")
+                if expected and head != expected:
+                    raise RuntimeError("MVP-044 checkout does not match expected HEAD")
+                dirty = bool(
+                    subprocess.check_output(
+                        ["git", "status", "--porcelain"], text=True
+                    ).strip()
+                )
+                commercial_result(result.stdout, head, dirty=dirty)
             return result.stdout or ""
 
         stack = SyntheticStack(project, compose, environment)
@@ -252,7 +267,13 @@ def main() -> None:
             checks.append(("files:clamav-sandbox", files_acceptance))
         checks.extend(
             ("db:" + name, partial(exercise, name, reuse_image=True))
-            for name in ("applicability", "trees", "chat", "http-security")
+            for name in (
+                "applicability",
+                "trees",
+                "chat",
+                "http-security",
+                "commercial-regression",
+            )
         )
         parallel(checks)
 
