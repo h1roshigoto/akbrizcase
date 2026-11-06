@@ -274,7 +274,7 @@ class Release:
                 require(labels.get("com.akbrizcase.synthetic-release") == "true")
                 require(labels.get("com.docker.compose.project") == project)
             else:
-                require("No such volume" in result.stderr)
+                require("no such volume" in result.stderr.lower())
         containers = run(
             [
                 "docker",
