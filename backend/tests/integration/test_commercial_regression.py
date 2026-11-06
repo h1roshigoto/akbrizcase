@@ -1397,7 +1397,7 @@ def test_journal_faults_after_http_status_and_smtp(
         else:
             original, changed, raised = db.unit_of_work, [False], [0]
 
-            def applied(
+            def applied_write(
                 connection: Connection,
                 cursor: Any,
                 statement: str,
@@ -1417,7 +1417,7 @@ def test_journal_faults_after_http_status_and_smtp(
                     raised[0] += 1
                     raise OSError("Synthetic lost commit acknowledgement")
 
-            event.listen(db.engine, "after_cursor_execute", applied)
+            event.listen(db.engine, "after_cursor_execute", applied_write)
             try:
                 with monkeypatch.context() as patch:
                     patch.setattr(db, "unit_of_work", lost_ack)
@@ -1425,7 +1425,7 @@ def test_journal_faults_after_http_status_and_smtp(
                         db, command, sink_journal, execute=True, now=now
                     )
             finally:
-                event.remove(db.engine, "after_cursor_execute", applied)
+                event.remove(db.engine, "after_cursor_execute", applied_write)
             same(raised[0], 1, "lost journal acknowledgement seam reached")
             same(result.state, JournalState.APPLIED)
             same(result.commit_confirmed, True)
