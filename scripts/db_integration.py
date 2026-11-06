@@ -99,6 +99,11 @@ def run(
     cleanup_only: bool = False,
     suite: str = "core",
     reuse_image: bool = False,
+    test_paths: tuple[str, ...] | None = None,
+    command_timeout: int | None = None,
+    test_mark: str = "integration",
+    environment: dict[str, str] | None = None,
+    capture_all: bool = False,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="akbrizcase-dbtest-") as temporary:
         directory = Path(temporary)
@@ -107,7 +112,9 @@ def run(
             path.write_text(secrets.token_urlsafe(48) + "\n")
             # The parent is 0700 on the host; only selected files are mounted.
             path.chmod(0o444)
-        environment = isolated_environment(os.environ)
+        environment = isolated_environment(
+            os.environ if environment is None else environment
+        )
         environment["DB_TEST_SECRETS_DIR"] = temporary
         prefix = [
             "docker",
@@ -129,7 +136,9 @@ def run(
                 env=environment,
                 check=True,
                 text=True,
-                capture_output=args[0] in ("config", "ps", "exec", "run"),
+                capture_output=capture_all
+                or args[0] in ("config", "ps", "exec", "run"),
+                timeout=command_timeout,
             )
             # Keep verbose node IDs intact when independent suites overlap.
             if args[0] == "run" and (
@@ -177,11 +186,11 @@ def run(
                         "-m",
                         "pytest",
                         "-m",
-                        "integration",
+                        test_mark,
                         "-p",
                         "no:cacheprovider",
                         "-v",
-                        *SUITES[suite],
+                        *(test_paths if test_paths is not None else SUITES[suite]),
                     )
             else:
                 stack.recover_for_stop()
