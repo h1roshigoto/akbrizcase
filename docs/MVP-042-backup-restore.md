@@ -184,17 +184,17 @@ missed schedule cannot refresh a success record; stale observations alert after
 
 | DoD | Synthetic evidence | Production |
 |---|---|---|
-| One snapshot for dump/references; bounded locks | PG16 dedicated drill; pending exact-HEAD result | Infrastructure acceptance BLOCKED |
-| Files/sidecars/SHA256/private ACL and original visibility | Dedicated clean restore/HTTP checks | BLOCKED |
-| Standard authenticated encryption; wrong key/tamper/truncation | Real age unit faults | Key custody BLOCKED |
-| Durable remote verification | Atomic synthetic adapter faults | Independent RF storage BLOCKED |
+| One snapshot for dump/references; bounded locks | PASS: real PG16 snapshot/concurrency drill | Infrastructure acceptance BLOCKED |
+| Files/sidecars/SHA256/private ACL and original visibility | PASS: clean restore/public and staff HTTP checks | BLOCKED |
+| Standard authenticated encryption; wrong key/tamper/truncation | PASS: real age unit faults | Key custody BLOCKED |
+| Durable remote verification | PASS: atomic synthetic adapter faults | Independent RF storage BLOCKED |
 | Daily backup, <=24h watchdog, 14d retention dependencies | One-shot mechanism; conservative no-prune | Schedule/policy/provider BLOCKED |
-| New PG16 and new files, FK/sequence/schema checks | Dedicated actual pg_dump/pg_restore | Target drill BLOCKED |
-| Full graph/PII/chat replay and idempotency | Post-backup commands in dedicated drill | Independent journal/ADR/policy BLOCKED |
-| Full-history completeness, missing/conflicting/stale checkpoint | Indexed synthetic sink and negative unit cases | Authenticated source fencing/discovery BLOCKED |
-| No SMTP/worker/ingress during restore | Standalone profile and disabled SMTP assertions | Operator network review BLOCKED |
-| Required regressions plus release rehearsal | Six jobs preserved/added; exact HEAD in PR | No deploy or production claim |
-| RPO <=24h, RTO <=4h | Aggregate timings only after actual dedicated job | **BLOCKED** |
+| New PG16 and new files, FK/sequence/schema checks | PASS: actual pg_dump/pg_restore | Target drill BLOCKED |
+| Full graph/PII/chat replay and idempotency | PASS: six post-backup v1/v2 commands | Independent journal/ADR/policy BLOCKED |
+| Full-history completeness, missing/conflicting/stale checkpoint | PASS: live fenced inventory and negative cases | Authenticated source fencing/discovery BLOCKED |
+| No SMTP/worker/ingress during restore | PASS: standalone profile and disabled SMTP assertions | Operator network review BLOCKED |
+| Required regressions plus release rehearsal | PASS: all six jobs on verification commit below | No deploy or production claim |
+| RPO <=24h, RTO <=4h | PASS rehearsal only: timings below | **BLOCKED** |
 
 Measurements must be copied from a successful `BACKUP_EVIDENCE` record on the PR's
 exact HEAD: backup/restore wall seconds, snapshot-to-control-state interval,
@@ -215,3 +215,37 @@ operations, v1/v2 and two real commit fault boundaries, incomplete restore BLOCK
 This development probe used an uncommitted working tree and a synthetic image
 selector; it is debugging evidence, not exact-image or exact-HEAD acceptance.
 The dedicated clean-checkout CI job provides those measurements separately.
+
+## Verified clean-checkout CI evidence
+
+Implementation verification commit: `9e14e795d7d1ce596ac8ded219bd6975cd35e1f7`.
+[Full six-job run 42159676409](https://github.com/h1roshigoto/akbrizcase/actions/runs/42159676409)
+completed successfully. This documentation-only evidence update does not change
+the implementation; the PR reports the final HEAD and its own complete CI run.
+
+| Measurement on disposable CI runner | Observed |
+|---|---:|
+| Age-encrypted backup wall time | 0.418 s |
+| Clean PG16/files restore, replay and gates | 1.203 s |
+| Snapshot to final control-state interval | 6.320 s |
+| Encrypted archive | 143655 bytes |
+| Verified file/sidecar members | 10 |
+| Explicitly checked foreign keys | 30 |
+| Replayed post-backup operations | 6 |
+| Journal wire formats / real commit fault boundaries | 2 / 2 |
+| Incomplete-journal restore | BLOCKED; extracted files removed |
+| CHECK validation / sequence / original ACL / SMTP disabled | PASS |
+| Independent RF offsite verification / target RPO-RTO | **BLOCKED** |
+
+Executed commands: `make backup-rehearsal`, `make backend-test backend-lint
+backend-types`, frontend tests/typecheck/build, `make integration-ci`, Compose
+build/smoke/HTTPS/browser suites and `make release-rehearsal`. Backend: 1009 PASS,
+lint/format PASS, strict types 215 files PASS; frontend: 218 PASS and typecheck/build
+PASS. The required PostgreSQL, Compose/browser and release jobs all passed.
+
+The 6.320s interval is a measured synthetic recovery-point observation, not a
+production daily scheduling guarantee. The 1.203s restore does not include building
+tools or provisioning the disposable runner and cannot establish target RTO.
+Production RPO <=24h and RTO <=4h require the owner's actual RF storage, key custody,
+authenticated complete independent journal, supervised schedule and timed full
+infrastructure recovery. All those gates remain BLOCKED; there is no public access.
