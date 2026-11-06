@@ -1,0 +1,202 @@
+# MVP-042 — encrypted backup and closed restore
+
+**PARTIAL / PRODUCTION RELEASE BLOCKED.** The implementation and dedicated CI
+job are synthetic rehearsal tools. No RF offsite provider, credentials, legal
+retention approval, independent production journal or target restore measurement
+was supplied. ADR-038-A remains PROPOSED. No merge, deployment or MVP-043.
+
+Baseline: `d03ad1211a2c676686c40037ceb4085d174fd054`.
+Schema: `0011_mvp039_http_security`; no migration or public API change.
+Exact tested HEAD and aggregate measurements are emitted as `BACKUP_EVIDENCE`
+by the dedicated Actions job; a test's existence is not evidence of execution.
+
+## Snapshot and trust boundary
+
+`app.backup.snapshot.capture` uses one PostgreSQL 16 REPEATABLE READ transaction.
+The exported snapshot is passed to `pg_dump --snapshot`; the document/image
+inventory is selected in the same transaction, never after an independent dump.
+All app-schema tables, data, ACLs, triggers, constraints, functions, indexes,
+sequences and migration state are dumped; server roles/passwords are not dumped.
+
+Order: shared filesystem deletion lease → nonblocking staff advisory lock 4004 →
+`SHARE NOWAIT` table locks on catalog_items, documents, document_versions →
+existing active-admin authentication with migrator credentials → exported snapshot
+and referenced files/dump. There are no content/cleanup/row locks in the backup.
+Existing lifecycle writers use staff/content/row locks unchanged. Any table lock
+conflict aborts immediately, so backup cannot form a wait cycle with those writers.
+Readers remain available; competing file-reference/visibility writes wait only
+for the bounded copy phase. CLI has a 600s process deadline, pg_dump 120s timeout,
+SQL 120s statement and 130s idle-transaction limits. Encryption and storage I/O
+occur after releasing all database/filesystem locks. Failures/cancellation close
+the UoW and temporary dump directory; acceptance is a separate final step.
+
+Verified objects are immutable, created exclusively and never overwritten by
+existing application code. There is currently no physical-file cleanup worker;
+MVP-038 cleanup deletes database personal data, not stored documents/images.
+Any future physical file remover MUST hold `deletion_lease(root, removal=True)`
+through reference checks and removal. Backup holds the shared lease until every
+reference has been copied and rechecked. Direct administrator edits are outside
+the supported lifecycle, but strict reopen/checksum/size checks catch interference.
+
+Every bound document version is saved, including internal, retired, revoked and
+bound draft versions; restoration does not publish them. Every catalog image_key
+still referenced by a row is saved, preserving archived-row metadata as well.
+Unbound verified or quarantine uploads are excluded. Document/image receipt
+sidecars are included and checked against metadata. Source components are opened
+with directory descriptors/O_NOFOLLOW, owner/mode/nlink/regular-file/size checks.
+File keys are closed-format server identifiers, never caller paths.
+
+## Format, encryption, keys and storage
+
+Age v1 through pinned `pyrage==1.3.0` (maintained Rust age implementation) provides
+standard authenticated encryption. The entire tar, including manifest and dump,
+is encrypted. There is no custom cipher/KDF/nonce construction. Limits are explicit:
+256 MiB archive and 10,000 file members; larger installations fail closed and need
+a reviewed streaming extension. This is not a production scale claim.
+
+Manifest v1 contains schema revision, full app Git HEAD, exact application image
+config digest, PostgreSQL major, conservative transaction snapshot time, sequence
+floor, dump SHA256/size and each file's technical path/SHA256/size/mode. No customer
+text, names, audit details, tokens or keys occur in it. It remains private inside
+the encrypted archive; do not print or upload it. Files are mode 0400, directories
+0700. The restored database carries original ACL/lifecycle metadata. Extraction
+never uses tar.extract: only exact allowlisted regular members with no duplicate
+names or traversal/links are accepted. Each checksum and size is checked before
+restoring; sources are rechecked against restored DB references afterwards.
+
+Identity files are owner-only 0600 under a protected directory, separate from
+archives and journal. CLI receives their path, never key bytes/passwords in argv.
+Admin credentials use the existing hidden terminal input. PostgreSQL passwords
+enter pg_dump/restore through a temporary 0600 pgpass, never argv or output.
+The CLI captures all child output and returns only closed codes. Temporary dump,
+pgpass and extraction staging directories are cleaned on errors; failed DBs stay
+isolated and their services are stopped by the controller. Power loss leaves
+unaccepted encrypted objects or a quarantined volume, never a ready receipt.
+
+`BackupStorage` is the narrow trusted adapter seam: immutable publish → durable
+read-back → age authentication and exact manifest/ciphertext comparison → accept.
+`SyntheticStorage` models this using fsync/atomic writes in a private directory.
+A failed upload/read/check/decryption/accept has no accepted-copy record; encrypted
+orphans are unusable until an explicit new verified operation. It is **not offsite**.
+A production provider must implement authenticated durability and conditional
+publication using independent RF infrastructure and separate credentials.
+
+Key rotation: provision a new age identity outside Git, rehearse recovery with it,
+then select its public recipient for subsequent copies. Retain protected old keys
+until every permitted backup encrypted for them has expired under approved policy.
+Do not overwrite the only recoverable identity. Actual custody/escrow and rotation
+approval are operator responsibilities and remain BLOCKED without that setup.
+
+## Closed restore and deletion completeness
+
+`compose.backup.yml` is standalone. The controller claims a random namespace,
+rejects existing/external volumes and checks actual PG mounts. Source and target
+are separate fresh PG16 instances with six independently generated passwords.
+The target bootstrap creates roles and pg_trgm, no app schema or application rows.
+A new files volume must be empty. There are no API/worker/SMTP services, no ports,
+no external network, production mounts or production credentials in this profile.
+
+Restore checks environment, fresh DB/files, age authentication, exact supported
+schema/HEAD/digest, then runs pg_restore in one transaction. It restores files
+privately, checks every FK against actual data, validated constraints, erasure
+postconditions, references/checksums, and consumes sequence nextval to verify it
+exceeds retained numbers and the snapshot's sequence floor (gaps are permitted).
+Only after full journal replay and repeated checks does it return
+`synthetic-ready-for-manual-review`. It never starts ingress or opens user access.
+A failure after database import leaves that database quarantined; do not reuse it
+as an empty target. Start another fresh instance for a subsequent restore.
+
+`CompleteSyntheticJournal` preserves MVP-038 `JournalSink`, durable acknowledgement,
+VerifiedWitness, reconciliation and postconditions. Every export is durably indexed
+before acknowledgement. Full-history discovery requires all indexed objects,
+matching UUID/canonical bytes and an independently supplied source-time checkpoint
+(epoch, count, inventory digest, fenced_at). The checkpoint is obtained AFTER the
+last relevant source deletion, outside the backup; restore cannot manufacture its
+own anchor from surviving files. A lock fences new exports through final checks.
+Local journal entries are cross-checked but never substitute for missing external
+witnesses. Post-snapshot commands use the migrator restore seam and exact original
+UUID/bytes; manual full delete reauthenticates active admin. Chunked deletion is
+bounded; UNCONFIRMED/CONFLICT/REVIEW_REQUIRED never passes. Policy, legacy, hold
+uncertainty and unbound service records retain existing fail-closed behavior.
+
+The source must be stopped/fenced, and every mutation writer must use the indexed
+sink, before obtaining a checkpoint. This local synthetic model cannot prove
+provider independence, nonrollbackable source fencing or authenticated freshness
+following a host loss. Production discovery/checkpoint authentication, complete
+legacy import and durable terminal acknowledgements remain **BLOCKED**. There is
+no production enabling flag. Witnesses and unresolved PREPARED never expire or
+prune automatically; elapsed 14 days cannot authorize deletion.
+
+## Operators, scheduling and retention
+
+Run the disposable rehearsal from the repository (no production data):
+
+```sh
+make backup-rehearsal
+# Optional aggregate-only report, with a caller-selected safe output path:
+make backup-rehearsal BACKUP_REHEARSAL_ARGS='--report /tmp/mvp042-measurements.json'
+```
+
+The controller builds exact-source tools, runs actual encrypted dump → fresh
+restore → replay → ACL/business checks, then stops all containers while retaining
+volumes for protected inspection. No secrets/dumps/archives/manifests/raw logs are
+CI artifacts. Local failure diagnostics stay under a private /tmp directory.
+`--reuse-image sha256:...` is a development-only immutable tool-image selector;
+release evidence must use a clean checkout and a newly verified exact-source build.
+
+Protected one-shot CLI operations (only inside a claimed synthetic operator
+container, with read-only secret mounts and the existing DB environment):
+
+```sh
+python -m app.backup backup --store /protected/synthetic-store \
+  --identity-file /run/secrets/backup-age-identity --files /private/files \
+  --head FULL_REVIEWED_HEAD --image-digest sha256:REVIEWED_IMAGE_DIGEST \
+  --diagnostics-receipt /protected/status/backup.json
+python -m app.backup restore --store /protected/synthetic-store \
+  --identity-file /run/secrets/backup-age-identity --files /private/new-files \
+  --head FULL_REVIEWED_HEAD --image-digest sha256:REVIEWED_IMAGE_DIGEST \
+  --backup-id TECHNICAL_UUID --journal /protected/independent-journal \
+  --checkpoint /protected/source-fence-checkpoint.json
+```
+
+No uncontrolled daemon/timer is installed. These explicit bounded operations are
+an operator mechanism, not proof of a daily schedule. Before production the owner
+must configure a supervised <=24h timer, failure/missed-run watchdog and approved
+remote adapter, then measure a restore there. Retention is policy-bound: proposed
+14 days is not silently treated as legal approval. `prune` refuses to delete any
+copy until policy, last-usable-copy safety, dependent journal terminal evidence and
+all backup horizons are approved. The current absence of pruning retains the last
+usable copy and every unresolved journal; capacity must be supervised meanwhile.
+
+MVP-040 receipt v1 stays compatible. V2 adds actual snapshot time, operation result
+and synthetic/offsite scope. A successful local rehearsal writes status=failure
+for mandatory offsite verification and `BACKUP_OFFSITE_BLOCKED`, never production
+success. Snapshot age and last actual verification age are separate. A crash or
+missed schedule cannot refresh a success record; stale observations alert after
+24 hours. No receipt replaces provider evidence or target RPO/RTO acceptance.
+
+## Acceptance matrix and measurements
+
+| DoD | Synthetic evidence | Production |
+|---|---|---|
+| One snapshot for dump/references; bounded locks | PG16 dedicated drill; pending exact-HEAD result | Infrastructure acceptance BLOCKED |
+| Files/sidecars/SHA256/private ACL and original visibility | Dedicated clean restore/HTTP checks | BLOCKED |
+| Standard authenticated encryption; wrong key/tamper/truncation | Real age unit faults | Key custody BLOCKED |
+| Durable remote verification | Atomic synthetic adapter faults | Independent RF storage BLOCKED |
+| Daily backup, <=24h watchdog, 14d retention dependencies | One-shot mechanism; conservative no-prune | Schedule/policy/provider BLOCKED |
+| New PG16 and new files, FK/sequence/schema checks | Dedicated actual pg_dump/pg_restore | Target drill BLOCKED |
+| Full graph/PII/chat replay and idempotency | Post-backup commands in dedicated drill | Independent journal/ADR/policy BLOCKED |
+| Full-history completeness, missing/conflicting/stale checkpoint | Indexed synthetic sink and negative unit cases | Authenticated source fencing/discovery BLOCKED |
+| No SMTP/worker/ingress during restore | Standalone profile and disabled SMTP assertions | Operator network review BLOCKED |
+| Required regressions plus release rehearsal | Six jobs preserved/added; exact HEAD in PR | No deploy or production claim |
+| RPO <=24h, RTO <=4h | Aggregate timings only after actual dedicated job | **BLOCKED** |
+
+Measurements must be copied from a successful `BACKUP_EVIDENCE` record on the PR's
+exact HEAD: backup/restore wall seconds, snapshot-to-control-state interval,
+encrypted bytes, files checked, FK count/sequence checks, deletion replay count and
+completeness scope. CI runner timings are rehearsal evidence only; they do not
+verify RF storage, sustained schedule, production data scale or target RPO/RTO.
+
+Initial local Docker VFS attempts hit ENOSPC before the drill; no PASS or measured
+restore time is claimed for those attempts. Final local/CI outcomes are recorded
+in the PR after running the checks, with no borrowed historical PASS.

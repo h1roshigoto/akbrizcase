@@ -44,3 +44,31 @@ USER 10001:10001
 CMD ["python", "-m", "pytest", "-m", "integration", "-p", "no:cacheprovider", "-v"]
 
 FROM runtime AS final
+
+# One-shot synthetic drill. Independent build graph avoids copying each large
+# application layer through Docker VFS on small disposable runners.
+FROM postgres:16.13-bookworm AS pg16tools
+FROM python:3.12.14-slim-bookworm AS backup
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_PYTHON_DOWNLOADS=never \
+    UV_NO_CACHE=1 PATH="/app/.venv/bin:$PATH"
+WORKDIR /app
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=pg16tools /usr/lib/postgresql/16/bin/pg_dump /usr/lib/postgresql/16/bin/pg_restore /usr/local/bin/
+COPY . /app
+RUN --mount=type=secret,id=proxy_ca \
+    apt-get update && apt-get install -y --no-install-recommends \
+      libpq5 clamav=1.4.6+dfsg-0+deb12u1 clamav-base=1.4.6+dfsg-0+deb12u1 \
+      libclamav12=1.4.6+dfsg-0+deb12u1 libseccomp2=2.5.4-1+deb12u1 \
+    && rm -rf /var/lib/apt/lists/* /var/lib/clamav/* \
+    && if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
+    uv sync --locked --no-install-project \
+    && groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app \
+    && mkdir -p /var/lib/akbrizcase/files /var/lib/akbrizcase/restore \
+       /var/lib/akbrizcase/store /var/lib/akbrizcase/journal \
+    && chown -R app:app /var/lib/akbrizcase && chmod 0700 /var/lib/akbrizcase/* \
+    && chmod -R a+rX /app
+USER 10001:10001
+CMD ["python", "-m", "app.backup", "--help"]
+
+# Preserve the ordinary default target used by Compose/release jobs.
+FROM runtime AS application

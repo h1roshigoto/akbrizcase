@@ -219,3 +219,19 @@ jobs:
           path: ${{ env.CI_INVENTORY_DIR }}/*.json
           if-no-files-found: error
           retention-days: 7
+
+  backup:
+    name: Encrypted PG16 backup and clean restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - name: Actual age archive, new PG16 and files, deletion completeness and replay
+        run: make backup-rehearsal
+      # No archives, keys, database dumps, manifests, runtime or pytest logs uploaded.

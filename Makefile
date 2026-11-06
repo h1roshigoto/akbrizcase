@@ -162,3 +162,8 @@ release-test:
 
 release-rehearsal:
 	python3 scripts/release_rehearsal.py $(RELEASE_REHEARSAL_ARGS)
+
+.PHONY: backup-rehearsal
+# Explicit one-shot synthetic operator/CI job; no resident scheduler or deploy.
+backup-rehearsal:
+	python3 scripts/backup_rehearsal.py $(BACKUP_REHEARSAL_ARGS)

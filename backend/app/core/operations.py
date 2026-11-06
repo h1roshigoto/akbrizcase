@@ -128,15 +128,62 @@ def backup_report(path: Path | None, now: datetime) -> dict[str, Any]:
         return {"status": "not_configured", "signal": "BACKUP_NOT_CONFIGURED"}
     try:
         receipt = json.loads(_read(path, 4096))
-        if set(receipt) != {"status", "checked_at"} or receipt["status"] not in {
-            "success",
-            "failure",
-        }:
+        version_two = receipt.get("format") == 2
+        if version_two:
+            if (
+                set(receipt)
+                != {
+                    "format",
+                    "status",
+                    "checked_at",
+                    "snapshot_at",
+                    "scope",
+                    "operation_status",
+                }
+                or receipt["scope"] not in {"synthetic", "offsite"}
+                or receipt["operation_status"] not in {"verified", "failure"}
+                or (
+                    receipt["status"] == "success"
+                    and (
+                        receipt["scope"] != "offsite"
+                        or receipt["operation_status"] != "verified"
+                    )
+                )
+            ):
+                raise ValueError
+        elif set(receipt) != {"status", "checked_at"}:
+            raise ValueError
+        if receipt["status"] not in {"success", "failure"}:
             raise ValueError
         at = datetime.fromisoformat(receipt["checked_at"])
         if at.tzinfo is None or at > now:
             raise ValueError
         age = int((now - at).total_seconds())
+        if version_two:
+            snapshot_age = None
+            if receipt["snapshot_at"] is not None:
+                snapshot = datetime.fromisoformat(receipt["snapshot_at"])
+                if snapshot.tzinfo is None or snapshot > at:
+                    raise ValueError
+                snapshot_age = int((now - snapshot).total_seconds())
+            if receipt["status"] == "success" and snapshot_age is None:
+                raise ValueError
+            return {
+                "status": receipt["status"],
+                "age_seconds": age,
+                "snapshot_age_seconds": snapshot_age,
+                "scope": receipt["scope"],
+                "operation_status": receipt["operation_status"],
+                "signal": "BACKUP_OFFSITE_BLOCKED"
+                if receipt["scope"] == "synthetic"
+                else "BACKUP_FAILURE"
+                if receipt["status"] == "failure"
+                else "BACKUP_CONFIRMATION_STALE"
+                if age > 86400
+                else "BACKUP_SNAPSHOT_STALE"
+                if snapshot_age is None or snapshot_age > 86400
+                else "BACKUP_CONFIRMATION_OBSERVED",
+            }
         return {
             "status": receipt["status"],
             "age_seconds": age,
