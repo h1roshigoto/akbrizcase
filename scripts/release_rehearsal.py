@@ -134,6 +134,11 @@ def build(root: Path) -> tuple[dict, dict]:
     second = first | {"backend": (root / "candidate.id").read_text().strip()}
     write_json(root / "first.json", first)
     write_json(root / "candidate.json", second)
+    print(
+        "REHEARSAL_IDENTITY "
+        + json.dumps({"first": first, "candidate": second}, sort_keys=True),
+        flush=True,
+    )
     return first, second
 
 
