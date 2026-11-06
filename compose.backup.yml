@@ -1,0 +1,98 @@
+# Standalone, synthetic only. No application services, ingress, SMTP or workers.
+services:
+  postgres-test:
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_DB: akbrizcase
+      POSTGRES_USER: akbrizcase_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic]
+    secrets: [postgres_password, migrator_password, runtime_password]
+    volumes:
+      - source_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/provision.sh:/docker-entrypoint-initdb.d/010-provision.sh:ro
+      - ./backend/tests/integration/mark_test_database.sql:/docker-entrypoint-initdb.d/020-marker.sql:ro
+    networks: [closed]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 100
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U akbrizcase_owner -d akbrizcase"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  restore-postgres:
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_DB: akbrizcase
+      POSTGRES_USER: akbrizcase_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/restore_postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command: [postgres, -c, log_error_verbosity=terse, -c, log_min_error_statement=panic]
+    secrets: [restore_postgres_password, restore_migrator_password, restore_runtime_password]
+    volumes:
+      - restore_data:/var/lib/postgresql/data
+      - ./infrastructure/backup/restore-provision.sh:/docker-entrypoint-initdb.d/010-restore.sh:ro
+    networks: [closed]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 100
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U akbrizcase_owner -d akbrizcase"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  drill:
+    image: ${BACKUP_TEST_IMAGE:?Use scripts/backup_rehearsal.py}
+    environment:
+      APP_ENV: test
+      DB_INTEGRATION_ISOLATED: '1'
+      BACKUP_RESTORE_ISOLATED: '1'
+      DB_HOST: postgres-test
+      DB_PASSWORD_FILE: /run/secrets/runtime_password
+      MIGRATION_DB_PASSWORD_FILE: /run/secrets/migrator_password
+      APP_FILES_DIR: /var/lib/akbrizcase/files
+      BACKUP_TEST_HEAD: ${BACKUP_TEST_HEAD:?Exact checkout required}
+      BACKUP_TEST_IMAGE: ${BACKUP_TEST_IMAGE:?Immutable image required}
+    secrets: [runtime_password, migrator_password, restore_migrator_password, restore_runtime_password]
+    volumes:
+      - source_files:/var/lib/akbrizcase/files
+      - restore_files:/var/lib/akbrizcase/restore
+      - blocked_files:/var/lib/akbrizcase/blocked
+      - synthetic_store:/var/lib/akbrizcase/store
+      - external_journal:/var/lib/akbrizcase/journal
+    networks: [closed]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 128
+    command: [python, -m, pytest, -m, integration, -p, 'no:cacheprovider', -v, -s, tests/integration/test_backup_restore.py]
+networks:
+  closed:
+    internal: true
+volumes:
+  source_data:
+  restore_data:
+  source_files:
+  restore_files:
+  blocked_files:
+  synthetic_store:
+  external_journal:
+secrets:
+  postgres_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/postgres_password
+  migrator_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/migrator_password
+  runtime_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/runtime_password
+  restore_postgres_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/restore_postgres_password
+  restore_migrator_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/restore_migrator_password
+  restore_runtime_password:
+    file: ${BACKUP_TEST_SECRETS:?Private root required}/restore_runtime_password
