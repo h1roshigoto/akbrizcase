@@ -157,7 +157,6 @@ def invoke(
         text=True,
         timeout=400,
     )
-    require((result.returncode == 0) == success)
     output = result.stdout + result.stderr
     # Closed output: no subprocess output, path, DSN or arbitrary exception.
     require(
@@ -166,9 +165,10 @@ def invoke(
             for line in output.splitlines()
         )
     )
+    print(output.strip(), flush=True)
+    require((result.returncode == 0) == success)
     status = read_json(root / "status.json")
     require(status["status"] == ("accepted-local-rehearsal" if success else "blocked"))
-    print(output.strip(), flush=True)
     return output
 
 
@@ -259,9 +259,21 @@ def exercise(root: Path, first: dict, second: dict) -> None:
             {"backend": "sha256:" + "0" * 64},
             {"schema": "incompatible"},
             {"backend": first["frontend"]},
+            {"commit": run(["git", "rev-parse", "HEAD^"])},
         ):
             write_json(root / "bad.json", first | change)
             invoke(root, root / "bad.json", success=False)
+        certificate = root / "server.crt"
+        original_certificate = certificate.read_bytes()
+        certificate.unlink()
+        certificate.write_bytes(b"INVALID SYNTHETIC TLS CERTIFICATE")
+        certificate.chmod(0o444)
+        try:
+            invoke(root, root / "first.json", success=False)
+        finally:
+            certificate.unlink()
+            certificate.write_bytes(original_certificate)
+            certificate.chmod(0o444)
         # Requiring absent SMTP/scanner/signature refresh cannot be called PASS.
         for field in ("smtp", "clamav", "signature_update"):
             write_json(root / "modes.json", MODES | {field: "required"})
@@ -328,13 +340,17 @@ def exercise(root: Path, first: dict, second: dict) -> None:
             require(result.returncode != 0)
         finally:
             release.compose("up", "--no-build", "-d", "--wait", "postgres")
-        release.sql("UPDATE app.alembic_version SET version_num='unknown_schema'")
+        # Hide migration metadata temporarily, rather than forging/stamping a
+        # version or touching domain rows. This is isolated fault injection.
+        release.sql(
+            "ALTER TABLE app.alembic_version RENAME TO rehearsal_version_hidden"
+        )
         try:
             output = invoke(root, root / "first.json", rollback=True, success=False)
             require("RELEASE_BLOCKED_ROLLBACK_COMPATIBILITY" in output)
         finally:
             release.sql(
-                "UPDATE app.alembic_version SET version_num='0011_mvp039_http_security'"
+                "ALTER TABLE app.rehearsal_version_hidden RENAME TO alembic_version"
             )
         invoke(root, root / "first.json", rollback=True)
         require(snapshot(release) == before)
@@ -344,6 +360,23 @@ def exercise(root: Path, first: dict, second: dict) -> None:
         )
         for name in SECRETS:
             require((root / name).read_text().strip() not in logs)
+        for image in (first["backend"], first["frontend"], second["backend"]):
+            metadata = run(["docker", "image", "inspect", image], env=release.env)
+            history = run(
+                [
+                    "docker",
+                    "history",
+                    "--no-trunc",
+                    "--format",
+                    "{{.CreatedBy}}",
+                    image,
+                ],
+                env=release.env,
+            )
+            for name in SECRETS:
+                secret = (root / name).read_text().strip()
+                require(secret not in metadata and secret not in history)
+            require(str(root) not in metadata and str(root) not in history)
         for forbidden in (
             str(root),
             "release@example.invalid",
@@ -369,6 +402,14 @@ def main() -> int:
     parser.add_argument("--root", type=Path)
     args = parser.parse_args()
     try:
+        for variable in (
+            "DOCKER_CONTEXT",
+            "DOCKER_TLS",
+            "DOCKER_TLS_VERIFY",
+            "DOCKER_CERT_PATH",
+        ):
+            os.environ.pop(variable, None)
+        os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
         root = args.root or Path(tempfile.mkdtemp(prefix="akbriz-release-"))
         if args.root:
             root.mkdir(mode=0o700, exist_ok=False)
