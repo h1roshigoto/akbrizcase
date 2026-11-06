@@ -227,9 +227,7 @@ jobs:
           echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
           cp .env.example .env
           make init-secrets
-      - name: MVP-044 full commercial regression on fresh PostgreSQL 16
-        run: make commercial-regression
-      - name: All PostgreSQL suites, repeated MVP-044, real ClamAV/sandbox (two stacks)
+      - name: Full PG16 suites including MVP-044 commercial regression and real files
         run: make integration-ci
       - name: Recover interrupted test stack
         if: always()

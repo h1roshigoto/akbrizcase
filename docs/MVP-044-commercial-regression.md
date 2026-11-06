@@ -186,12 +186,24 @@ flattened into one layer plus read-only current tests and PG16 Alpine via a
 temporary override, with the same SyntheticStack/marker/role/migration guards.
 Neither this environment override nor trust roots/runtime secrets enter Git.
 
-Actions retains all seven jobs. Its database job explicitly invokes
-`make commercial-regression` on standard clean PG16 bookworm, then the full
-integration dispatcher (which repeats MVP-044 on another fresh database).
+Actions retains all seven jobs. Its explicitly named database step runs
+`make integration-ci`; the full dispatcher unconditionally schedules the complete
+commercial suite on its own fresh standard PG16 bookworm stack, alongside all
+prior suites. The existing scheduler guard verifies every SUITES entry executes
+exactly once. `make commercial-regression` remains the standalone entry point.
 No continue-on-error or new test processes against a shared database are added.
 Final HEAD, PR URL and seven job links belong in the PR description, updated
 after completion without changing the tested commit.
+
+The first exact-HEAD Actions run at `5e6df43770405d37835de59395abc3a08c23a875`
+passed all six other jobs. Its database job passed the explicit commercial run
+(64 cases, 92.24 s including stack/build) and every prior PG/files suite, then
+reached the 15-minute job deadline during the duplicate commercial run.
+[Cancelled run](https://github.com/h1roshigoto/akbrizcase/actions/runs/42207952968).
+The duplicate workflow invocation was removed: the full dispatcher's mandatory
+commercial run is retained. No timeout, assertion or concurrency bound changed,
+and no failed race was retried until success. Final CI is a separate run on the
+updated HEAD; cancellation is not reported as successful acceptance.
 
 ## 9. Acceptance
 
