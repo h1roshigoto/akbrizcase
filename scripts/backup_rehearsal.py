@@ -132,6 +132,14 @@ def main():
             }.items():
                 if signature in diagnostic:
                     print("BACKUP_FAILURE_" + code, file=sys.stderr)
+            known_words = {"pull", "access", "denied", "not", "found", "mount", "stat",
+                           "absolute", "volume", "network", "forbidden", "command",
+                           "executable", "sha256", "image", "invalid", "resource",
+                           "secret", "memory", "permission", "conflict", "cannot",
+                           "start", "directory", "version", "service", "library",
+                           "regular", "loading", "arguments", "support", "unrecognized"}
+            words = set(re.findall(r"[a-z]+", diagnostic.lower())) & known_words
+            print("BACKUP_FAILURE_WORDS " + ",".join(sorted(words)), file=sys.stderr)
             locations = re.findall(
                 r'(?:/app/)?(app/backup/[a-z_]+\.py|tests/integration/test_backup_restore\.py):([0-9]+)',
                 diagnostic)

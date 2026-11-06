@@ -44,7 +44,13 @@ from app.modules.orders.deletion_journal import command_for
 from app.modules.orders.deletion_operator import authorize, prepare_deletion
 from app.modules.orders.deletion_reconciliation import JournalState, reconcile_command
 from app.modules.orders.erasure_service import pii_erasure_complete
-from app.modules.orders.models import Consent, Order, OrderItem, OrderStatusHistory
+from app.modules.orders.models import (
+    Consent,
+    ConsentText,
+    Order,
+    OrderItem,
+    OrderStatusHistory,
+)
 from app.modules.orders.security import OrderSecurity
 from app.modules.orders.seed import DEMO_VERSION, seed_consent
 
@@ -62,7 +68,15 @@ def test_encrypted_clean_restore(
     databases: tuple[Database, Database], tmp_path: Path
 ) -> None:
     runtime, source = databases
+    with source.unit_of_work() as session:
+        session.execute(update(ConsentText).values(retired_at=utc_now()))
     seed_consent(runtime, mode="test")
+    with source.unit_of_work() as session:
+        session.execute(
+            update(ConsentText)
+            .where(ConsentText.version == DEMO_VERSION)
+            .values(retired_at=None)
+        )
     with source.unit_of_work() as session:
         assert bootstrap_admin(session, login=LOGIN, password=PASSWORD).ok
     root = Path(os.environ["APP_FILES_DIR"])
@@ -260,7 +274,7 @@ def test_encrypted_clean_restore(
     assert not any(
         "quarantine" in path or replacement.image_key in path for path in files
     )
-    store = SyntheticStorage(Path("/var/lib/akbrizcase/store"))
+    store = SyntheticStorage(root.parent / "store")
     backup_id = uuid4()
     publish_verified(store, backup_id, manifest, ciphertext, str(identity))
     # Capture all business rows before post-snapshot deletion, without reporting them.
@@ -274,7 +288,7 @@ def test_encrypted_clean_restore(
             )
             for table in ("order_items", "order_status_history", "email_outbox")
         }
-    journal = CompleteSyntheticJournal(Path("/var/lib/akbrizcase/journal"), uuid4())
+    journal = CompleteSyntheticJournal(root.parent / "journal", uuid4())
     commands = []
     for identifier in deleted:
         with source.unit_of_work() as session:
@@ -324,13 +338,20 @@ def test_encrypted_clean_restore(
     checkpoint = journal.checkpoint()  # Independent source-time anchor, AFTER backup.
     target_settings = DatabaseSettings(
         host="restore-postgres",
-        port=5432,
+        port=int(os.environ.get("BACKUP_RESTORE_PORT", "5432")),
         database="akbrizcase",
         user="akbrizcase_migrator",
-        password=Path("/run/secrets/restore_migrator_password").read_text().strip(),
+        password=Path(
+            os.environ.get(
+                "BACKUP_RESTORE_MIGRATOR_PASSWORD_FILE",
+                "/run/secrets/restore_migrator_password",
+            )
+        )
+        .read_text()
+        .strip(),
     )
     target = Database(target_settings)
-    target_files = Path("/var/lib/akbrizcase/restore")
+    target_files = root.parent / "restore"
     try:
         # Preflight failures cannot populate destination or start application code.
         for wrong in (
@@ -443,10 +464,15 @@ def test_encrypted_clean_restore(
         target_runtime = Database(
             DatabaseSettings(
                 host="restore-postgres",
-                port=5432,
+                port=int(os.environ.get("BACKUP_RESTORE_PORT", "5432")),
                 database="akbrizcase",
                 user="akbrizcase_runtime",
-                password=Path("/run/secrets/restore_runtime_password")
+                password=Path(
+                    os.environ.get(
+                        "BACKUP_RESTORE_RUNTIME_PASSWORD_FILE",
+                        "/run/secrets/restore_runtime_password",
+                    )
+                )
                 .read_text()
                 .strip(),
             )
