@@ -13,7 +13,8 @@ from uuid import uuid4
 import pyrage  # type: ignore[import-untyped]
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text, update
+from sqlalchemy import event, select, text, update
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import DBAPIError
 from test_catalog_image_binding import picture
 from test_cleanup import create
@@ -26,21 +27,25 @@ from app.backup.journal import CompleteSyntheticJournal, replay
 from app.backup.restore import empty_target, restore
 from app.backup.snapshot import PgTools, capture, deletion_lease
 from app.backup.storage import SyntheticStorage, publish_verified
+from app.core.csrf import SESSION_COOKIE
 from app.core.db import SCHEMA_REVISION, Database, DatabaseSettings
 from app.core.db_types import utc_now
 from app.core.staff import bootstrap_admin
+from app.core.staff_models import StaffSession
+from app.core.staff_sessions import token_hash
 from app.main import app
 from app.modules.catalog.images.pipeline import ImagePipeline
 from app.modules.catalog.models import CatalogItem
 from app.modules.catalog.router import image_pipeline
 from app.modules.chat.models import ChatMessage, ChatSession
-from app.modules.kb.files import FilePipeline
+from app.modules.kb.files import FilePipeline, FileRejected
 from app.modules.kb.models import Document
 from app.modules.kb.router import file_pipeline
 from app.modules.notify.models import EmailOutbox
 from app.modules.notify.smtp import SMTPSettings
 from app.modules.orders.cleanup_service import eligibility, prepare_entry
 from app.modules.orders.deletion_journal import command_for
+from app.modules.orders.deletion_models import DeletionEntry
 from app.modules.orders.deletion_operator import authorize, prepare_deletion
 from app.modules.orders.deletion_reconciliation import JournalState, reconcile_command
 from app.modules.orders.erasure_service import pii_erasure_complete
@@ -78,7 +83,15 @@ def test_encrypted_clean_restore(
             .values(retired_at=None)
         )
     with source.unit_of_work() as session:
-        assert bootstrap_admin(session, login=LOGIN, password=PASSWORD).ok
+        admin_result = bootstrap_admin(session, login=LOGIN, password=PASSWORD)
+        assert admin_result.ok
+        session.add(
+            StaffSession(
+                user_id=admin_result.user_id,
+                token_hash=token_hash("b" * 64),
+                expires_at=utc_now() + timedelta(hours=1),
+            )
+        )
     root = Path(os.environ["APP_FILES_DIR"])
     signatures = tmp_path / "signatures"
     signatures.mkdir()
@@ -152,6 +165,15 @@ def test_encrypted_clean_restore(
         )
         assert item is not None
         item_id = item.id
+    previous = images.accept(
+        io.BytesIO(picture(color="gray")), filename="synthetic.png", mime="image/png"
+    )
+    with source.unit_of_work() as session:
+        session.execute(
+            update(CatalogItem)
+            .where(CatalogItem.id == item_id)
+            .values(image_key=previous.image_key)
+        )
     accepted = images.accept(
         io.BytesIO(picture()), filename="synthetic.png", mime="image/png"
     )
@@ -198,6 +220,10 @@ def test_encrypted_clean_restore(
     stray = root / "documents/quarantine" / ("f" * 64)
     stray.write_bytes(b"Synthetic unfinished private upload")
     stray.chmod(0o400)
+    # A previously issued number can outlive its order; max(orders.number)
+    # alone must never reset the sequence below that reservation.
+    with source.unit_of_work() as session:
+        session.scalar(text("SELECT nextval('app.order_number_seq')"))
     source_settings = DatabaseSettings.from_environment(migration=True)
     identity = pyrage.x25519.Identity.generate()
     head, image = os.environ["BACKUP_TEST_HEAD"], os.environ["BACKUP_TEST_IMAGE"]
@@ -212,7 +238,7 @@ def test_encrypted_clean_restore(
     file = root / "images/verified" / accepted.image_key
     saved = file.read_bytes()
     file.rename(file.with_suffix(".missing"))
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileRejected, match="STORAGE_FAILURE"):
         capture(source, PgTools(source_settings), root, **common)
     file.with_suffix(".missing").rename(file)
     file.chmod(0o600)
@@ -290,10 +316,29 @@ def test_encrypted_clean_restore(
         }
     journal = CompleteSyntheticJournal(root.parent / "journal", uuid4())
     commands = []
-    for identifier in deleted:
+    for offset, identifier in enumerate(deleted):
         with source.unit_of_work() as session:
             row = session.get(Order, identifier)
             assert row is not None
+            if offset == 0:
+                # Preserve a genuine legacy v1 witness byte-for-byte through
+                # actual encrypted backup restore, without rewriting v1 to v2.
+                assert authorize(session, LOGIN, PASSWORD) == "SUCCESS"
+                at = utc_now()
+                legacy = DeletionEntry(
+                    format=1,
+                    operation="order_delete",
+                    object_id=identifier,
+                    consent_id=row.consent_id,
+                    decision_id=uuid4(),
+                    policy_version=DEMO_VERSION,
+                    created_at=at,
+                    retain_until=at + timedelta(days=14),
+                )
+                session.add(legacy)
+                session.flush()
+                commands.append(command_for(legacy))
+                continue
             code, cmd = prepare_deletion(
                 session,
                 login=LOGIN,
@@ -323,6 +368,52 @@ def test_encrypted_clean_restore(
                     )
                 )
             )
+    faults = ["before", "after"]
+
+    def mark_apply(
+        connection: Connection,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if statement.startswith("UPDATE app.deletion_journal SET applied_at"):
+            connection.info["backup_commit_fault"] = True
+
+    def fail_commit(connection: Connection) -> None:
+        if not connection.info.pop("backup_commit_fault", False) or not faults:
+            return
+        mode = faults.pop(0)
+        if mode == "after":
+            connection.connection.commit()  # Actual server COMMIT, then lost ack.
+        raise DBAPIError("SYNTHETIC_COMMIT_ACK", None, RuntimeError("SYNTHETIC"), False)
+
+    event.listen(source.engine, "before_cursor_execute", mark_apply)
+    event.listen(source.engine, "commit", fail_commit)
+    try:
+        uncertain = reconcile_command(
+            source,
+            commands[0],
+            journal,
+            execute=True,
+            authorize_manual=lambda s: authorize(s, LOGIN, PASSWORD) == "SUCCESS",
+        )
+        assert (
+            uncertain.state == JournalState.WITNESSED and not uncertain.commit_confirmed
+        )
+        recovered = reconcile_command(
+            source,
+            commands[0],
+            journal,
+            execute=True,
+            authorize_manual=lambda s: authorize(s, LOGIN, PASSWORD) == "SUCCESS",
+        )
+        assert recovered.state == JournalState.APPLIED and recovered.commit_confirmed
+        assert not faults
+    finally:
+        event.remove(source.engine, "before_cursor_execute", mark_apply)
+        event.remove(source.engine, "commit", fail_commit)
     for cmd in commands:
         reconciliation = reconcile_command(
             source,
@@ -393,6 +484,45 @@ def test_encrypted_clean_restore(
         with pytest.raises(BackupBlocked):
             empty_target(target, target_files)
         (target_files / "foreign").unlink()
+        blocked = Database(
+            DatabaseSettings(
+                host=target_settings.host,
+                port=target_settings.port,
+                database="akbrizcase_blocked",
+                user=target_settings.user,
+                password=target_settings.password,
+            )
+        )
+        try:
+            with pytest.raises(BackupBlocked, match="JOURNAL_INCOMPLETE"):
+                restore(
+                    blocked,
+                    PgTools(
+                        DatabaseSettings(
+                            host=target_settings.host,
+                            port=target_settings.port,
+                            database="akbrizcase_blocked",
+                            user=target_settings.user,
+                            password=target_settings.password,
+                        )
+                    ),
+                    root.parent / "blocked",
+                    ciphertext,
+                    identity=str(identity),
+                    application_head=head,
+                    image_digest=image,
+                    journal=journal,
+                    checkpoint=checkpoint.model_copy(
+                        update={"count": checkpoint.count + 1}
+                    ),
+                    login=LOGIN,
+                    password=PASSWORD,
+                )
+            assert not list((root.parent / "blocked").iterdir())
+            with pytest.raises(BackupBlocked, match="RESTORE_DATABASE_NOT_EMPTY"):
+                empty_target(blocked, root.parent / "blocked")
+        finally:
+            blocked.close()
         restore_start = monotonic()
         _, result = restore(
             target,
@@ -507,6 +637,31 @@ def test_encrypted_clean_restore(
                     assert response.status_code == (
                         200 if visibility == "public" and status != "revoked" else 404
                     )
+                assert (
+                    client.get(
+                        f"/api/v1/catalog/items/{item_id}/image/{previous.image_key}"
+                    ).status_code
+                    == 404
+                )
+                client.cookies.set(SESSION_COOKIE, "b" * 64)
+                for document_id, version_id, _visibility, status in doc_rows:
+                    response = client.get(
+                        f"/api/v1/documents/{document_id}/versions/{version_id}/file"
+                    )
+                    assert response.status_code == (404 if status == "revoked" else 200)
+                client.cookies.clear()
+                with target.unit_of_work() as session:
+                    session.execute(
+                        update(CatalogItem)
+                        .where(CatalogItem.id == item_id)
+                        .values(status="archived")
+                    )
+                assert (
+                    client.get(
+                        f"/api/v1/catalog/items/{item_id}/image/{accepted.image_key}"
+                    ).status_code
+                    == 404
+                )
         finally:
             app.dependency_overrides.clear()
             target_runtime.close()
@@ -514,7 +669,7 @@ def test_encrypted_clean_restore(
             empty_target(target, target_files)
         rpo_seconds = (datetime.now(UTC) - manifest.snapshot_at).total_seconds()
         print(
-            "BACKUP_EVIDENCE "
+            "\nBACKUP_EVIDENCE "
             + json.dumps(
                 {
                     "head": head,
@@ -525,6 +680,9 @@ def test_encrypted_clean_restore(
                     "encrypted_bytes": len(ciphertext),
                     **result,
                     "smtp_disabled": True,
+                    "commit_faults_checked": 2,
+                    "journal_formats_checked": 2,
+                    "incomplete_restore_blocked": True,
                     "offsite": "BLOCKED",
                     "target_rpo_rto": "BLOCKED",
                 },

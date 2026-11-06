@@ -59,6 +59,7 @@ services:
     volumes:
       - source_files:/var/lib/akbrizcase/files
       - restore_files:/var/lib/akbrizcase/restore
+      - blocked_files:/var/lib/akbrizcase/blocked
       - synthetic_store:/var/lib/akbrizcase/store
       - external_journal:/var/lib/akbrizcase/journal
     networks: [closed]
@@ -79,6 +80,7 @@ volumes:
   restore_data:
   source_files:
   restore_files:
+  blocked_files:
   synthetic_store:
   external_journal:
 secrets:

@@ -185,8 +185,10 @@ def test_complete_history(tmp_path: Path, fault: str) -> None:
     anchor = sink.checkpoint()
     with sink.fenced(anchor) as all_commands:
         assert len(all_commands) == 2
+        assert all_commands.current(sink)
         with pytest.raises(BlockingIOError):
             sink.export(command(), synthetic=True)
+    assert not all_commands.current(sink)
     if fault == "omitted":
         (tmp_path / (str(second.id) + ".json")).unlink()
     elif fault == "conflict":
@@ -222,3 +224,61 @@ def test_private_paths_leases_diagnostics(tmp_path: Path) -> None:
     )
     with pytest.raises(BackupBlocked):
         check_age(datetime.now(UTC) - timedelta(hours=25), datetime.now(UTC))
+
+
+def test_actual_snapshot_age_and_no_synthetic_success(tmp_path: Path) -> None:
+    import json
+
+    tmp_path.chmod(0o700)
+    path = tmp_path / "receipt.json"
+    diagnostics_receipt(
+        path,
+        durable_offsite_verified=False,
+        snapshot_at=datetime.now(UTC) - timedelta(hours=25),
+        verified=True,
+    )
+    report = backup_report(path, datetime.now(UTC))
+    assert report["status"] == "failure"
+    assert report["operation_status"] == "verified"
+    assert report["snapshot_age_seconds"] >= 90000
+    data = json.loads(path.read_text())
+    data["status"] = "success"
+    path.write_text(json.dumps(data))
+    assert backup_report(path, datetime.now(UTC))["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("fault", ["manifest", "missing_file", "duplicate", "symlink"])
+def test_authenticated_but_invalid_tar_is_rejected(
+    fault: str, archive: tuple[Manifest, bytes, str]
+) -> None:
+    import io
+    import tarfile
+
+    manifest, ciphertext, key = archive
+    plaintext = pyrage.decrypt(ciphertext, [pyrage.x25519.Identity.from_str(key)])
+    output = io.BytesIO()
+    with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:") as source:
+        with tarfile.open(fileobj=output, mode="w") as destination:
+            for entry in source:
+                stream = source.extractfile(entry)
+                assert stream is not None
+                data = stream.read()
+                if entry.name == "manifest.json" and fault == "manifest":
+                    data = data.replace(manifest.dump_sha256.encode(), b"0" * 64)
+                if entry.name.startswith("documents/"):
+                    if fault == "missing_file":
+                        continue
+                    if fault == "symlink":
+                        entry.type, entry.linkname, entry.size = (
+                            tarfile.SYMTYPE,
+                            "/private",
+                            0,
+                        )
+                    if fault == "duplicate":
+                        destination.addfile(entry, io.BytesIO(data))
+                destination.addfile(entry, io.BytesIO(data))
+    forged = pyrage.encrypt(
+        output.getvalue(), [pyrage.x25519.Identity.from_str(key).to_public()]
+    )
+    with pytest.raises((BackupBlocked, KeyError)):
+        unseal(forged, key)

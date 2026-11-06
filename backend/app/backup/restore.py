@@ -62,13 +62,24 @@ def invariants(database: Database, sequence_floor: int = 0) -> dict[str, int | b
             session.scalars(text("SELECT version_num FROM app.alembic_version"))
         ) != {SCHEMA_REVISION}:
             raise BackupBlocked("SCHEMA_INCOMPATIBLE")
-        if session.scalar(
+        quote = database.engine.dialect.identifier_preparer.quote_identifier
+
+        def table(name: str) -> str:
+            return ".".join(quote(p) for p in name.split("."))
+
+        # MVP-038 deliberately added an existing CHECK as NOT VALID to preserve
+        # upgrade compatibility. Validate actual restored rows, rather than
+        # mistaking this historical flag for proof of corrupt data.
+        for relation, name in session.execute(
             text(
-                "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n "
-                "ON n.oid=c.connamespace WHERE n.nspname='app' AND NOT c.convalidated"
+                "SELECT c.conrelid::regclass::text,c.conname FROM pg_constraint c "
+                "JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='app' "
+                "AND NOT c.convalidated AND c.contype IN ('c','f')"
             )
         ):
-            raise BackupBlocked("CONSTRAINT_INVALID")
+            session.execute(
+                text(f"ALTER TABLE {table(relation)} VALIDATE CONSTRAINT {quote(name)}")
+            )
         # Recheck every FK against restored rows; no row values leave the process.
         constraints = session.execute(
             text("""
@@ -83,12 +94,8 @@ def invariants(database: Database, sequence_floor: int = 0) -> dict[str, int | b
             WHERE n.nspname='app' AND c.contype='f'
         """)
         ).all()
-        quote = database.engine.dialect.identifier_preparer.quote_identifier
         for child, parent, local, remote in constraints:
             # Table regclass names come only from our catalog. Quote each segment.
-            def table(name: str) -> str:
-                return ".".join(quote(p) for p in name.split("."))
-
             present = " AND ".join("c." + quote(c) + " IS NOT NULL" for c in local)
             match = " AND ".join(
                 "c." + quote(c) + "=p." + quote(p)

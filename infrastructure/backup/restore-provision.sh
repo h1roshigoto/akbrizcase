@@ -19,6 +19,15 @@ GRANT CONNECT ON DATABASE akbrizcase TO akbrizcase_runtime;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:test';
 CREATE EXTENSION pg_trgm WITH SCHEMA public;
+-- A second fresh database is solely a negative restore gate fixture.
+CREATE DATABASE akbrizcase_blocked;
+\connect akbrizcase_blocked
+REVOKE ALL ON DATABASE akbrizcase_blocked FROM PUBLIC;
+GRANT CONNECT, CREATE ON DATABASE akbrizcase_blocked TO akbrizcase_migrator;
+GRANT CONNECT ON DATABASE akbrizcase_blocked TO akbrizcase_runtime;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+CREATE EXTENSION pg_trgm WITH SCHEMA public;
+COMMENT ON DATABASE akbrizcase_blocked IS 'akbrizcase:synthetic-seed:test';
 -- No app schema, no migrations, no existing data. pg_restore creates all of it.
 SQL
 unset MIGRATOR_PASSWORD RUNTIME_PASSWORD

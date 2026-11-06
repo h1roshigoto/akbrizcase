@@ -64,7 +64,7 @@ RUN --mount=type=secret,id=proxy_ca \
     uv sync --locked --no-install-project \
     && groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home app \
     && mkdir -p /var/lib/akbrizcase/files /var/lib/akbrizcase/restore \
-       /var/lib/akbrizcase/store /var/lib/akbrizcase/journal \
+       /var/lib/akbrizcase/store /var/lib/akbrizcase/journal /var/lib/akbrizcase/blocked \
     && chown -R app:app /var/lib/akbrizcase && chmod 0700 /var/lib/akbrizcase/* \
     && chmod -R a+rX /app
 USER 10001:10001

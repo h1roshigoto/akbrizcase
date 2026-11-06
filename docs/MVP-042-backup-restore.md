@@ -91,14 +91,17 @@ approval are operator responsibilities and remain BLOCKED without that setup.
 
 `compose.backup.yml` is standalone. The controller claims a random namespace,
 rejects existing/external volumes and checks actual PG mounts. Source and target
-are separate fresh PG16 instances with six independently generated passwords.
+are separate fresh PG16 instances with six independently generated passwords. A
+second empty target database and independent files volume exercise incomplete
+journal failure without reusing the successful restore destination.
 The target bootstrap creates roles and pg_trgm, no app schema or application rows.
 A new files volume must be empty. There are no API/worker/SMTP services, no ports,
 no external network, production mounts or production credentials in this profile.
 
 Restore checks environment, fresh DB/files, age authentication, exact supported
 schema/HEAD/digest, then runs pg_restore in one transaction. It restores files
-privately, checks every FK against actual data, validated constraints, erasure
+privately, checks every FK against actual data, validates the historical MVP-038 NOT VALID
+CHECK against restored rows, checks erasure
 postconditions, references/checksums, and consumes sequence nextval to verify it
 exceeds retained numbers and the snapshot's sequence floor (gaps are permitted).
 Only after full journal replay and repeated checks does it return
@@ -112,7 +115,9 @@ before acknowledgement. Full-history discovery requires all indexed objects,
 matching UUID/canonical bytes and an independently supplied source-time checkpoint
 (epoch, count, inventory digest, fenced_at). The checkpoint is obtained AFTER the
 last relevant source deletion, outside the backup; restore cannot manufacture its
-own anchor from surviving files. A lock fences new exports through final checks.
+own anchor from surviving files. A lock fences new exports through final checks. Replay accepts only a live
+process-local VerifiedInventory from that checked fence, bound to its sink; a
+caller-supplied list or expired inventory cannot authorize replay.
 Local journal entries are cross-checked but never substitute for missing external
 witnesses. Post-snapshot commands use the migrator restore seam and exact original
 UUID/bytes; manual full delete reauthenticates active admin. Chunked deletion is
@@ -200,3 +205,13 @@ verify RF storage, sustained schedule, production data scale or target RPO/RTO.
 Initial local Docker VFS attempts hit ENOSPC before the drill; no PASS or measured
 restore time is claimed for those attempts. Final local/CI outcomes are recorded
 in the PR after running the checks, with no borrowed historical PASS.
+
+Development native probe (before the final CI acceptance commit): two fresh PG16.13
+clusters and private file roots; real ClamAV 1.4.6 and the existing sandbox, with
+executables relocated to /tmp because Docker VFS exhausted the local disk.
+One full test passed: backup 0.415s, restore 1.011s, snapshot/control interval
+3.095s, encrypted size 143743 bytes, 10 files, 30 FKs, sequence PASS, six replayed
+operations, v1/v2 and two real commit fault boundaries, incomplete restore BLOCKED.
+This development probe used an uncommitted working tree and a synthetic image
+selector; it is debugging evidence, not exact-image or exact-HEAD acceptance.
+The dedicated clean-checkout CI job provides those measurements separately.

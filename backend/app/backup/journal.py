@@ -12,6 +12,7 @@ import os
 import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -45,6 +46,31 @@ class Checkpoint(BaseModel):
     count: int = Field(strict=True, ge=0, le=10000)
     inventory_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     fenced_at: AwareDatetime
+
+
+_INVENTORY = object()
+
+
+class _Fence:
+    active = True
+
+
+@dataclass(frozen=True, repr=False)
+class VerifiedInventory:
+    commands: tuple[DeletionCommand, ...]
+    sink: "CompleteSyntheticJournal"
+    _fence: _Fence
+    _verification: object
+
+    def current(self, sink: "CompleteSyntheticJournal") -> bool:
+        return (
+            self.sink is sink
+            and self._verification is _INVENTORY
+            and self._fence.active
+        )
+
+    def __len__(self) -> int:
+        return len(self.commands)
 
 
 class CompleteSyntheticJournal(SyntheticJournal):
@@ -138,7 +164,7 @@ class CompleteSyntheticJournal(SyntheticJournal):
             return receipt
 
     @contextmanager
-    def fenced(self, expected: Checkpoint) -> Iterator[tuple[DeletionCommand, ...]]:
+    def fenced(self, expected: Checkpoint) -> Iterator[VerifiedInventory]:
         # Hold the fence until replay AND all final validation finish. A fresh
         # restore cannot use an old anchor to claim knowledge of later deletions.
         with self._lock():
@@ -156,7 +182,17 @@ class CompleteSyntheticJournal(SyntheticJournal):
                 or (datetime.now(UTC) - expected.fenced_at).total_seconds() > 3600
             ):
                 raise BackupBlocked("JOURNAL_INCOMPLETE")
-            yield tuple(sorted(commands, key=lambda c: (c.created_at, str(c.id))))
+            fence = _Fence()
+            inventory = VerifiedInventory(
+                tuple(sorted(commands, key=lambda c: (c.created_at, str(c.id)))),
+                self,
+                fence,
+                _INVENTORY,
+            )
+            try:
+                yield inventory
+            finally:
+                fence.active = False
 
     def checkpoint(self) -> Checkpoint:
         """Source authority operation, before source loss, outside backup archive.
@@ -182,11 +218,14 @@ class CompleteSyntheticJournal(SyntheticJournal):
 def replay(
     database: Database,
     sink: CompleteSyntheticJournal,
-    commands: tuple[DeletionCommand, ...],
+    inventory: VerifiedInventory,
     *,
     login: str,
     password: str,
 ) -> int:
+    if not isinstance(inventory, VerifiedInventory) or not inventory.current(sink):
+        raise BackupBlocked("JOURNAL_COMPLETENESS_REQUIRED")
+    commands = inventory.commands
     with database.unit_of_work() as session:
         if not synthetic_database(session):
             raise BackupBlocked("SYNTHETIC_RESTORE_REQUIRED")
