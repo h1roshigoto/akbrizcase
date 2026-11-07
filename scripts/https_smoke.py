@@ -66,6 +66,7 @@ def main(
     support_handoff: bool = False,
     privacy_lifecycle: bool = False,
     http_security: bool = False,
+    mvp046: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -101,13 +102,17 @@ def main(
                 }
             )
         )
-        if catalog_admin:
+        if catalog_admin or mvp046:
             # Test-only dependency composition: real ClamAV with synthetic ndb,
             # never a production scanner bypass or runtime environment switch.
             override = json.loads(labels.read_text())
             override["services"] = {
                 "api": {
-                    "command": ["python", "/tmp/browser_media_server.py"],
+                    "command": [
+                        "python",
+                        "/tmp/browser_media_server.py",
+                        *(["--documents"] if mvp046 else []),
+                    ],
                     "volumes": [
                         str(Path("backend/tests/browser_media_server.py").resolve())
                         + ":/tmp/browser_media_server.py:ro"
@@ -130,6 +135,17 @@ def main(
                     "volumes": [str(directory) + ":/run/privacy:ro"],
                 }
             }
+            labels.write_text(json.dumps(override))
+        if mvp046 and environment.get("CODEX_PROXY_CERT"):
+            # Optional cloud builder CA is a mount, never an image/context file.
+            override = json.loads(labels.read_text())
+            override["secrets"] = {
+                "proxy_ca": {"file": environment["CODEX_PROXY_CERT"]}
+            }
+            for service in ("api", "nginx"):
+                override.setdefault("services", {}).setdefault(service, {})["build"] = {
+                    "secrets": ["proxy_ca"]
+                }
             labels.write_text(json.dumps(override))
         prefix = [
             "docker",
@@ -162,6 +178,8 @@ def main(
         stack = SyntheticStack(project, compose, environment)
         try:
             stack.claim()
+            if mvp046:
+                compose("build")
             compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
             stack.verify_volumes()
             assert (
@@ -226,7 +244,7 @@ d.close()
 """,
             )
             support_config = {}
-            if support_handoff:
+            if support_handoff or mvp046:
                 support_config = json.loads(
                     compose(
                         "exec",
@@ -250,9 +268,13 @@ d.close()
             if http_security:
                 from http_security_smoke import edge_boundary
 
-                edge_boundary(opener, origin, "http://127.0.0.1:" + environment["HTTP_PORT"])
+                edge_boundary(
+                    opener, origin, "http://127.0.0.1:" + environment["HTTP_PORT"]
+                )
                 compose("restart", "nginx")
-                compose("up", "--no-build", "-d", "--wait", "--wait-timeout", "120", "nginx")
+                compose(
+                    "up", "--no-build", "-d", "--wait", "--wait-timeout", "120", "nginx"
+                )
             for path in ("/", "/healthz", "/readyz", "/admin/login"):
                 with opener.open(origin + path, timeout=5) as response:
                     assert response.status == 200
@@ -272,13 +294,32 @@ d.close()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(
                     Path(".certs/ca.crt").resolve()
                 )
-                if http_security:
+                if mvp046:
+                    from mvp046_browser_smoke import run_browser as run_acceptance
+
+                    browser = run_acceptance(
+                        browser_environment,
+                        {"origin": origin, "passwords": passwords, **support_config},
+                        compose,
+                        stack,
+                        prefix,
+                        temporary,
+                    )
+                elif http_security:
                     browser = subprocess.run(
                         ["node", "frontend/tests/http-security.mjs"],
-                        env=browser_environment, check=False,
-                        input=json.dumps({"origin": origin,
-                                          "httpOrigin": "http://127.0.0.1:" + environment["HTTP_PORT"]}),
-                        text=True, capture_output=True, timeout=150,
+                        env=browser_environment,
+                        check=False,
+                        input=json.dumps(
+                            {
+                                "origin": origin,
+                                "httpOrigin": "http://127.0.0.1:"
+                                + environment["HTTP_PORT"],
+                            }
+                        ),
+                        text=True,
+                        capture_output=True,
+                        timeout=150,
                     )
                 elif privacy_lifecycle:
                     from privacy_browser_smoke import run_browser as run_privacy
@@ -353,14 +394,22 @@ d.close()
                     diagnostic = diagnostic.replace(value, "[redacted]")
                 raise RuntimeError("Browser acceptance failed: " + diagnostic)
             proof = json.loads(browser.stdout)
-            expected = 5 if http_security else (
-                0
-                if privacy_lifecycle
+            expected = (
+                proof["orders"]
+                if mvp046
+                else 5
+                if http_security
                 else (
-                    5
-                    if support_handoff
+                    0
+                    if privacy_lifecycle
                     else (
-                        1 if request_form or catalog_admin or notification_retry else 2
+                        5
+                        if support_handoff
+                        else (
+                            1
+                            if request_form or catalog_admin or notification_retry
+                            else 2
+                        )
                     )
                 )
             )
@@ -381,15 +430,29 @@ d=Database(DatabaseSettings.from_environment())
 with d.unit_of_work() as s:
  for table,count in [('orders',expected),('consents',expected),('order_items',int(sys.argv[4])),('order_status_history',history),('email_outbox',expected)]:
   assert s.scalar(text('SELECT count(*) FROM app.'+table))==count
- assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status=:status"), {'status':notification_status})==expected
+ if notification_status != 'linked':
+  assert s.scalar(text("SELECT count(*) FROM app.email_outbox WHERE status=:status"), {'status':notification_status})==expected
 d.close()
 """,
                 str(expected),
-                str(3 if status_changes else expected),
-                "sent" if notification_retry else "pending",
-                "0" if http_security or privacy_lifecycle else "1" if support_handoff else "2",
+                str(proof["history"] if mvp046 else 3 if status_changes else expected),
+                "linked" if mvp046 else "sent" if notification_retry else "pending",
+                str(proof["items"])
+                if mvp046
+                else "0"
+                if http_security or privacy_lifecycle
+                else "1"
+                if support_handoff
+                else "2",
             )
-            logs = compose("logs", "--no-color", "api", "nginx", "postgres")
+            logs = compose(
+                "logs",
+                "--no-color",
+                "api",
+                "nginx",
+                "postgres",
+                *(["worker", "smtp-test"] if mvp046 else []),
+            )
             audit = compose(
                 "exec",
                 "-T",
@@ -400,9 +463,14 @@ d.close()
             )
             runtime_secrets = [
                 Path(environment[name]).read_text().strip()
-                for name in ("POSTGRES_PASSWORD_FILE", "MIGRATOR_PASSWORD_FILE",
-                             "RUNTIME_PASSWORD_FILE", "STAFF_CSRF_SECRET_FILE",
-                             "ORDER_HMAC_SECRET_FILE", "IP_HMAC_SECRET_FILE")
+                for name in (
+                    "POSTGRES_PASSWORD_FILE",
+                    "MIGRATOR_PASSWORD_FILE",
+                    "RUNTIME_PASSWORD_FILE",
+                    "STAFF_CSRF_SECRET_FILE",
+                    "ORDER_HMAC_SECRET_FILE",
+                    "IP_HMAC_SECRET_FILE",
+                )
             ]
             for secret in [*runtime_secrets, *passwords.values(), *proof["secrets"]]:
                 assert secret not in logs + audit, "Authentication material leaked"

@@ -527,3 +527,26 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
   expect(api.read.mock.calls.length).toBeGreaterThanOrEqual(3)
   expect(orders.submit).not.toHaveBeenCalled()
 })
+
+it('preserves the query after 429 and sends only after explicit retry', async () => {
+  const api = transport()
+  api.create.mockResolvedValue({
+    ...(await api.create('knowledge')),
+    reply: reply('knowledge'),
+  })
+  api.send.mockRejectedValueOnce(new ChatError(429, 'RATE_LIMITED'))
+  api.send.mockResolvedValueOnce(result(1, reply('knowledge', { text: 'Accepted query' })))
+  const { controller } = mount(api)
+  const query = await screen.findByLabelText('Запрос по документации')
+  fireEvent.change(query, { target: { value: 'SYNTHETIC retained query' } })
+  await userEvent.click(screen.getByRole('button', { name: 'Отправить запрос' }))
+  await screen.findByText(/Слишком много запросов/)
+  expect((query as HTMLTextAreaElement).value).toBe('SYNTHETIC retained query')
+  expect(api.send).toHaveBeenCalledTimes(1)
+  expect(controller.snapshot().pending).toBe(false)
+  expect(controller.snapshot().version).toBe(0)
+  await userEvent.click(screen.getByRole('button', { name: 'Отправить запрос' }))
+  await screen.findByText('Accepted query')
+  expect(api.send).toHaveBeenCalledTimes(2)
+  await waitFor(() => expect((query as HTMLTextAreaElement).value).toBe(''))
+})

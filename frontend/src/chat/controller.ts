@@ -371,7 +371,14 @@ export class ChatController {
         })
     } catch (error) {
       if (this.unavailable(error)) return
-      if (error instanceof ChatError && error.status === 409) {
+      if (error instanceof ChatError && error.status === 429) {
+        owner.pending = null
+        this.persist()
+        this.set({
+          pending: false,
+          error: 'Слишком много запросов. Подождите и отправьте запрос снова.',
+        })
+      } else if (error instanceof ChatError && error.status === 409) {
         owner.pending = null
         this.persist()
         const message =

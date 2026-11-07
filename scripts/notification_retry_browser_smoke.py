@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from https_smoke import main
 
 
-def run_browser(environment, config, compose, stack, prefix, temporary):
+def prepare_smtp(config, compose, stack, prefix, temporary):
     stack.verify_database()
     compose("stop", "worker")  # deterministic pending observation, isolated stack only
     root = Path(__file__).resolve().parents[1]
@@ -77,6 +77,12 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
         result = json.loads(output)
         assert result["result"] == "PASS"
         return result
+
+    return probe
+
+
+def run_browser(environment, config, compose, stack, prefix, temporary):
+    probe = prepare_smtp(config, compose, stack, prefix, temporary)
 
     def snapshot():
         stack.verify_database()
