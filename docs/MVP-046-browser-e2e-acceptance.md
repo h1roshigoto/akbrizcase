@@ -23,7 +23,9 @@ as a substitute for these links. Existing standalone smokes remain mandatory.
 ## Admission boundaries
 
 `LOCAL_SYNTHETIC_E2E: BLOCKED` — Docker VFS ENOSPC before browser startup.
-`CI_SYNTHETIC_E2E: PENDING` — final exact-HEAD outcome will be recorded below and in the PR.
+`CI_SYNTHETIC_E2E: PASS` — two complete independent fresh stacks on verified
+`ef63589fd24718ffb20cd5c5d88e23ddfbec2a58`; all eight jobs passed.
+The final report-only commit and its exact-HEAD rerun are tracked in Draft PR #59.
 `TARGET_STAGING_E2E: BLOCKED`: no target server/domain/TLS, authorized full
 profile, operator access or customer/expert approvals supplied. Reduced
 MVP-041 release mode remains unchanged. Real PII, production SMTP, deployment,
@@ -37,6 +39,25 @@ SMTP and secret custody; independent production recovery/RPO/RTO; operator and
 customer pilot authorization. No synthetic PASS closes those gates.
 
 ## Implementation and checkpoints
+
+```mermaid
+flowchart LR
+    Browser[Chromium desktop/mobile and staff contexts] -->|verified HTTPS CA and hostname| Edge[Nginx]
+    Edge --> App[React assets / FastAPI / SQLAdmin]
+    App --> PG[(PostgreSQL 16 fresh marked volume)]
+    App --> Files[(Private document/image volume)]
+    Worker[Controlled real worker ticks] --> PG
+    Worker --> SMTP[Closed synthetic SMTP double]
+    Controller[Ownership and marker guards] -->|fixed domain transitions via private exec| App
+    Controller -->|post-COMMIT assertions via private exec| PG
+```
+
+Only Nginx loopback ingress is published. PostgreSQL/API/worker/SMTP and storage
+are private. All catalog/orders/chat/knowledge/admin/image paths are enabled
+only in this marked synthetic demo profile; worker SMTP targets only the double.
+Real-data admission, real SMTP and production signed-CVD readiness are not
+established by this profile. Reduced MVP-041 mode gates are preserved.
+
 
 `make mvp046-browser-e2e` builds the current checkout, claims fresh labelled
 volumes, migrates PostgreSQL 16, verifies the synthetic marker and seeds only
@@ -54,7 +75,7 @@ final writes fail the runner. `MVP046_EVIDENCE` contains only HEAD, case IDs,
 counts, PG version, duration and the external gate. It is emitted only after
 all mandatory browser and database assertions, not from test collection.
 
-| Scenario | Intended order/consent/item/outbox/history delta | Evidence asserted |
+| Scenario | Observed order/consent/item/outbox/history delta per successful stack | Evidence asserted |
 | --- | --- | --- |
 | A.desktop | 1 / 1 / 2 / 1 / 2 | lost real committed 201, exact manual 200 replay, SQLAdmin snapshots, status actor/version/history, worker failed→protected retry→actual SMTP sent |
 | C.desktop | 1 / 1 / 0 / 1 / 1 | permitted model/scenario, forged/free input denied result, feedback, edited exact description, no POST on open, witnessed chat cleanup, FK NULL and manager comment |
@@ -64,8 +85,8 @@ all mandatory browser and database assertions, not from test collection.
 | E expiry / pre-send disconnect | 1 / 1 / 0 / 1 / 1 | own 410, preserved fields, explicit fresh site review/secrets, no chat header/FK; abort before transmission, exact manual retry, genuine 201 then original 200 |
 | Total | **5 / 5 / 4 / 5 / 7** | one sent + four pending outbox, five distinct receipts; no duplicate writes |
 
-Numbers above are executable expected postconditions, **not results of a run**
-until the corresponding evidence is produced. Desktop is 1280×800; mobile is
+These postconditions were checked after real COMMIT in both successful stacks
+listed below. Desktop is 1280×800; mobile is
 390×844. Both commercial and support mandatory fields/confirmations/submission
 use keyboard traversal. Focus, labels, Tab/Shift+Tab, Space/Enter, errors,
 Back/Forward, double-click guard, receipt visibility and overflow are checked.
@@ -88,13 +109,13 @@ rate limit, keeps current context and performs no automatic retry. A component
 regression proves retained text and exactly one call before explicit continuation.
 Successful text submission still clears the accepted draft.
 
-Local results so far (dirty implementation checkout):
+Local results (implementation checkout; capacity limits are not PASS):
 
 | Command | Result |
 | --- | --- |
 | `make backend-test` | 1009 PASS, 32.50 s in the serial run |
 | `make backend-lint`, `make backend-types` | PASS, 223 typed files |
-| `npm --prefix frontend test` | 219 PASS, 13 files |
+| `npm --prefix frontend test` | 219 PASS, 13 files, 30.78 s |
 | `make frontend-typecheck frontend-build` | PASS |
 | `uv run --locked python -m app.contracts.export_types --check` (backend) | PASS |
 | `make acceptance-guards` | 50 PASS, including missing/duplicate journey and corrupt-count negatives |
@@ -114,7 +135,8 @@ Full PG16 regression and prior browser runs require a runner with enough disk;
 they remain mandatory in the unchanged seven CI jobs. A separate eighth job
 runs the new controller twice on independent fresh stacks at the exact PR HEAD,
 with a 20-minute outer budget; existing Compose timing/assertions are unchanged.
-Final measured CI timing/results and source HEAD will be added to the Draft PR.
+Measured timing/results are below. Final report-only HEAD/run/job links are
+maintained in the Draft PR without inventing a self-referential commit SHA.
 
 All input is synthetic, contacts use `.invalid`; credentials are transient.
 Raw browser errors, SQL output, bodies, contacts, cookies, tokens, HAR, traces
@@ -233,3 +255,117 @@ then requires all eight application tabs to have the expected origin and empty
 localStorage. It does not skip any application tab's storage check. The final
 candidate also restores a current knowledge citation before revoke, in addition
 to checking history/replay, and explicitly observes visible keyboard validation.
+
+
+## Confirmed synthetic acceptance
+
+Verified application/test implementation:
+`ef63589fd24718ffb20cd5c5d88e23ddfbec2a58`.
+[Exact-HEAD run 42363954544](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544)
+completed **8/8 SUCCESS**. Both commands completed without retrying a failed run.
+The only following change is this evidence document; the final exact-HEAD rerun
+is linked and maintained in [Draft PR #59](https://github.com/h1roshigoto/akbrizcase/pull/59).
+
+| Fresh project | Full `make mvp046-browser-e2e` | Controller/browser stage | Actual result |
+| --- | ---: | ---: | --- |
+| `akbrizcase-https-test-36d5c17fd3` | 379.29 s | 323.67 s | 15/15 checkpoints; PASS after final private log/audit scan |
+| `akbrizcase-https-test-1e6bf50071` | 371.94 s | 323.92 s | 15/15 checkpoints; PASS after final private log/audit scan |
+
+Both used PostgreSQL `16.13 (Debian 16.13-1.pgdg12+1)`, schema
+`0011_mvp039_http_security`, different fresh labelled DB/files volumes and
+transient secrets. Both retained their own volumes after shutdown. Each produced
+5 distinct receipts; **5 orders, 5 consents, 4 items, 5 outbox, 7 history**;
+one sent and four pending notifications. No duplicate write set after replay.
+The 20-minute new-job budget covers the measured 751.23 s for the two complete
+commands plus tooling/setup, without changing any previous job or inner deadline.
+
+| User journey | Desktop | Mobile | Actual linked result |
+| --- | --- | --- | --- |
+| A | PASS | PASS | Mixed product/service → explicit submission → same SQLAdmin order → status/history/actor → real worker failure/retry/send; immutable snapshots and original receipt |
+| B | PASS | PASS | Exact quoted citation → actual browser attachment → bytes/SHA256/MIME/disposition/nosniff → source withdrawal → current reply/history/replay/file denial; original raw JSONB retained |
+| C | PASS | PASS | Published synthetic diagnosis → forged/free input cannot skip result → feedback → edited confirmed support → witnessed chat cleanup → exact manager comment/history and FK NULL |
+| D | PASS | PASS | SQLAdmin fact review/publication; public confirmed without internal IDs/title/text/source; revoke gives unknown/zero total; current commerce reprojects revisions; JPEG/PNG/replace/failure/remove/fallback/archive |
+| E | PASS | PASS where the journey applies | Genuine consent/price/staff/chat 409; own 410 with explicit new site review; real session 429 and manual continuation; before-send loss and lost committed response with exact retry, no extra writes |
+| Keyboard | PASS | PASS | Commercial and support mandatory fields, Tab/Shift+Tab, Space/Enter, validation/focus/labels, confirmations and explicit submit; no accidental/double submission |
+
+The file links' completed about:blank download popups are closed as their own
+transient resources. Every one of the **eight application tabs** then passed
+same-origin and empty-localStorage assertions. No unexpected browser/routing
+error, observed contact/authentication canary in browser console or application,
+proxy, PostgreSQL, worker, SMTP logs/audit was found by the private final checks.
+No screenshots, HAR, traces, raw HTTP bodies, tokens or cookies were uploaded.
+Only synthetic `.invalid` contacts were created; no real personal data was used.
+
+### Preserved jobs on the verified implementation
+
+| Job | Result and exact job |
+| --- | --- |
+| Backend checks | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030590): 1009 tests in 21.96 s, lint/types |
+| Frontend checks | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030394): 219 tests/13 files in 11.51 s, types/build |
+| PostgreSQL 16 integration | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030509): all dispatcher suites and real files; safe test inventory retained |
+| Compose build and smoke | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030570): all former smokes, including new strict HTTP/HTTPS header regressions |
+| Encrypted PG16 backup and clean restore | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030587): 10 files, 30 FK, 6 deletion replays; admission/SMTP closed; production recovery remains BLOCKED |
+| Synthetic staging release rehearsal | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030774): existing reduced profile only |
+| Synthetic operator handover rehearsal | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030496): all eight operator stages; human handover/production BLOCKED |
+| New linked browser E2E | [SUCCESS](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363954544/job/128378030709): two independent complete runs above |
+
+Full PG dispatcher timings include core 416.99 s, images 321.65 s, lifecycle
+145.40 s, applicability 70.13 s, trees 80.30 s, chat 54.68 s, HTTP security
+57.50 s, **commercial regression 75.54 s**, **ACL/publication regression 215.47 s**,
+real ClamAV/sandbox 148.81 s (119 actual file tests), build/clean-upgrade 36.81 s.
+Groups retain the existing two-stack scheduler and inventory; no new case is
+silently substituted for or double-counted as an old pytest case.
+
+Existing Compose suite durations (all PASS): smoke 79.65 s; worker/SMTP 134.30 s;
+catalog browser 39.79 s; chat 29.18 s; HTTPS auth 29.78 s; support 37.54 s;
+privacy 37.63 s; vertical 57.86 s; status 61.73 s; catalog admin/media 56.30 s;
+notification retry 45.73 s; HTTP security 36.21 s. Every former browser command
+ran on this exact implementation; none was removed for the new suite's budget.
+
+### Explicit unavailable/local-only checks
+
+Local full `make integration-ci`, standalone `make commercial-regression` and
+`make acl-publication-regression`, and prior full Docker/browser smokes were
+**NOT RUN to completion locally** after the demonstrated VFS ENOSPC. The exact
+CI `make integration-ci` did execute both complete named regression groups in
+fresh owned PG16 stacks. This is not a claim that the standalone local command
+succeeded. Canonical CI `make build` succeeded on the verified implementation;
+the earlier local build is historical evidence only. Local Nginx `-t` passed
+for HTTP, HTTPS, packaged default and release configs; contracts exporter
+`--check`, config, TLS generation, backend/frontend checks and 50 safety guards
+passed as listed above. Earlier timeout/CA/ENOSPC/harness failures are recorded
+in the ledger; they are not retroactively labelled PASS. New scenarios had no
+skip/xfail or retry-until-success. The existing PostgreSQL core skips for tests
+executed by their dedicated upgrade/backup jobs remain unchanged.
+
+No known unresolved P0/P1 application defect remains in these successful
+synthetic paths. Local disk capacity is an unresolved infrastructure limitation.
+**The full staging/pilot DoD is not closed**: target staging, real corpus expert
+approval/rights, legal decisions, signed production CVD supply, real SMTP/secret
+custody, independent production restore and human/pilot authorization remain
+BLOCKED. Required target input: owner-authorized full RF synthetic staging,
+domain/TLS/firewall, isolated storage/secrets and operator/admin/manager access,
+enabled-mode record, and the responsible content/legal/operations approvals.
+Do not send secrets in chat. No merge, deployment or MVP-047–050 work occurred.
+
+## Files in the PR
+
+- `.github/workflows/ci.yml`
+- `Makefile`
+- `backend/tests/browser_media_server.py`
+- `docs/MVP-046-browser-e2e-acceptance.md`
+- `frontend/nginx.conf`
+- `frontend/src/chat/ChatPage.tsx`
+- `frontend/src/chat/controller.ts`
+- `frontend/src/test/chatUI.test.tsx`
+- `frontend/tests/http-security.mjs`
+- `frontend/tests/https-auth.mjs`
+- `frontend/tests/mvp046-e2e.mjs`
+- `infrastructure/nginx.conf`
+- `infrastructure/nginx.https.conf`
+- `infrastructure/release/nginx.conf`
+- `scripts/https_smoke.py`
+- `scripts/mvp046_browser_smoke.py`
+- `scripts/mvp046_fixture.py`
+- `scripts/notification_retry_browser_smoke.py`
+- `scripts/test_mvp046.py`
