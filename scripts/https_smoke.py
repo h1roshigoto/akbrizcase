@@ -474,6 +474,12 @@ d.close()
             ]
             for secret in [*runtime_secrets, *passwords.values(), *proof["secrets"]]:
                 assert secret not in logs + audit, "Authentication material leaked"
+            if mvp046:
+                print(
+                    "MVP046_EVIDENCE "
+                    + json.dumps(proof["mvp046_evidence"], sort_keys=True),
+                    flush=True,
+                )
             print(proof["result"])
             if catalog_admin:
                 print(

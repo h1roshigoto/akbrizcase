@@ -86,6 +86,7 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
     checkpoints = []
     baseline = None
     receipt_numbers = []
+    outbox_identity = None
 
     def snapshot():
         rows = stack.sql(
@@ -182,7 +183,7 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                     assert (
                         stack.sql(f"""SELECT count(*) FROM app.order_items i JOIN app.orders o ON o.id=i.order_id
                         WHERE o.number={number} AND o.kind='commercial' AND o.source='site'
-                        AND o.items_total IS NULL AND o.total_amount IS NULL
+                        AND o.items_total IS NULL AND o.total_amount IS NULL AND o.known_subtotal=2*{price} AND o.currency='RUB'
                         AND ((i.sku_snapshot='DEMO-P-001' AND i.qty=2 AND i.unit_price_snapshot={price} AND i.kind_snapshot='product')
                         OR (i.sku_snapshot='DEMO-S-001' AND i.qty=3 AND i.unit_price_snapshot IS NULL AND i.price_mode_snapshot='on_request' AND i.kind_snapshot='service'))""")
                         == "2"
@@ -215,8 +216,14 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
             elif action == "fail":
                 baseline = snapshot()
                 result = probe("fail")
+                outbox_identity = stack.sql(
+                    "SELECT jsonb_build_array(id,order_id,event_kind,created_at) FROM app.email_outbox"
+                )
                 assert baseline == snapshot()
             elif action == "retried":
+                assert outbox_identity == stack.sql(
+                    "SELECT jsonb_build_array(id,order_id,event_kind,created_at) FROM app.email_outbox"
+                )
                 assert baseline == snapshot()
                 assert (
                     stack.sql(
@@ -232,6 +239,9 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                 )
             elif action == "send":
                 result = probe("send")
+                assert outbox_identity == stack.sql(
+                    "SELECT jsonb_build_array(id,order_id,event_kind,created_at) FROM app.email_outbox"
+                )
                 assert baseline == snapshot()
             elif action == "status":
                 number = int(event["number"])
@@ -319,7 +329,7 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
             "postgresql": stack.sql("SHOW server_version"),
             "target_staging": "BLOCKED",
         }
-        print("MVP046_EVIDENCE " + json.dumps(evidence, sort_keys=True), flush=True)
+        proof["mvp046_evidence"] = evidence
         return subprocess.CompletedProcess(process.args, 0, json.dumps(proof), "")
     finally:
         timer.cancel()

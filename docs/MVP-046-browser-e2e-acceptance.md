@@ -126,3 +126,15 @@ Changed files: workflow, Makefile, browser media test composition, chat page and
 controller, chat UI regression, shared HTTPS/SMTP harness helpers, new linked
 browser/controller/domain fixture/evidence guards, and this report. No migration,
 release profile, production configuration or business-domain rewrite.
+
+First exact-HEAD CI attempt (`03eb44ab0c16485a56d3b1acd1b4e760e7ebacea`,
+run [42360128043](https://github.com/h1roshigoto/akbrizcase/actions/runs/42360128043)):
+new suite **FAIL** at B.desktop, 101.53 s. Actual checkpoints passed:
+keyboard.desktop (zero writes), lost committed response/replay (1/1/2/1/1),
+A.desktop including worker/status (1/1/2/1/2), C.desktop including witnessed
+cleanup/manager (2/2/2/2/3). Root cause: new browser assertion expected the quote
+without the existing knowledge response's heading and numbered citation prefix.
+The assertion now compares the exact established full text; no API behavior or
+security predicate was changed. The failure is not counted as a full E2E PASS.
+Also tightened outbox identity equality and moved aggregate PASS emission after
+the final private log/audit scan. Next exact-HEAD CI must verify the whole suite.

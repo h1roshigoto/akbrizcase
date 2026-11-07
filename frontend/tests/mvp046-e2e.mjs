@@ -335,7 +335,7 @@ try {
     safe(replyResponse.status() === 200, 'Real knowledge response')
     const wire = replyResponse.request()
     const answerBody = await replyResponse.json()
-    await current(kb).getByText('Синтетическийквантопылесос: точная цитата для проверки.', { exact: true }).waitFor()
+    await expect(current(kb).locator('.chat-text')).toHaveText('Цитаты из опубликованных материалов (не диагноз):\n\n[1] Синтетическийквантопылесос: точная цитата для проверки.')
     const link = current(kb).getByRole('link').first()
     const url = `/api/v1/documents/${config.document_id}/versions/${config.version_id}/file`
     safe(await link.getAttribute('href') === url, 'Citation binds exact document/version')
