@@ -99,6 +99,7 @@ def draft(
     *,
     visibility: str = "internal",
     extension: str = "txt",
+    title: str = "Synthetic",
 ) -> tuple[str, UUID, UUID]:
     # Trusted synthetic fixture setup through the draft service. The actual
     # import/check/hidden-input path is separately exercised by the PTY test;
@@ -113,7 +114,7 @@ def draft(
     user = admin(session)
     service = DraftEditService(session, AuthenticatedStaff(user))
     version = service.import_draft(
-        DraftDocument("SYNTHETIC-023-" + uuid4().hex, "Synthetic", "other", visibility),
+        DraftDocument("SYNTHETIC-023-" + uuid4().hex, title, "other", visibility),
         1,
         DraftFile(
             accepted.file_key,

@@ -38,6 +38,7 @@ services:
       APP_FILES_DIR: /var/lib/akbrizcase/files
     volumes:
       - test_files:/var/lib/akbrizcase/files
+      - ./content/trees:/content/trees:ro
     secrets: [runtime_password, migrator_password]
     networks: [test]
     tmpfs:
