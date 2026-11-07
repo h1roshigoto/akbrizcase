@@ -3,7 +3,7 @@
 Base: `b086981d48ea26a1537fa58ea520dd9be93e21a3` (merged MVP-044, PR #57).
 `git fetch origin` confirmed this exact `origin/main`; the worktree was clean.
 Branch: `mvp-045-acl-publication-regression`. The final HEAD and exact-HEAD
-Actions job URLs are maintained in the Draft PR, avoiding a self-referential
+Actions job URLs are maintained in [Draft PR #58](https://github.com/h1roshigoto/akbrizcase/pull/58), avoiding a self-referential
 commit. Synthetic fixtures only. No merge, deployment, production operations,
 real personal data or MVP-046 work.
 
@@ -98,10 +98,42 @@ two-stack scheduler, inventory and real file acceptance. `core` excludes this
 file to avoid duplicate execution. CI still checks out the exact PR HEAD and
 retains all seven jobs and all safety/volume guards. No migration is needed.
 
-Local baseline checks: backend **1009 passed**; frontend **218 passed**;
-frontend typecheck/build PASS; scheduler/acceptance guards **45 passed**.
-Final Ruff/Mypy, complete new-suite runs, full integration and exact-HEAD Actions
-results are recorded below and in the maintained Draft PR delivery table.
+Test implementation SHA: `ccc1a63eaaadf30707feaa652f9fd2f63b846243`.
+Subsequent changes are CI budget, evidence comparison/guards and this report;
+the 65 PostgreSQL test cases and application code are unchanged.
+
+| Executed command/check | Actual result |
+| --- | --- |
+| `make backend-test` | **1009 PASS**, no failures; final local repeat 35.78 s |
+| `make backend-lint`, `make backend-types` | Ruff/format and strict Mypy **PASS** |
+| `npm --prefix frontend test` | **218 PASS** |
+| `make frontend-typecheck`, `make frontend-build` | **PASS** |
+| `make acceptance-guards` | **47 PASS**, including two new inventory comparison negatives |
+| `make acl-publication-regression`, fresh project `akbrizcase-dbtest-0018c5071cc2` | **65 PASS / 0 FAIL / 0 SKIP**, pytest 357.72 s, guarded runner 386.18 s |
+| Same command, independent fresh project `akbrizcase-dbtest-27b5c8818f31` | **65 PASS / 0 FAIL / 0 SKIP**, pytest 332.68 s, guarded runner 370.43 s |
+| `make integration-ci`, local VFS | **BLOCKED**: clean-upgrade 1 PASS, full run deliberately interrupted after two stacks left <600 MiB, before starting the larger file stack; incomplete groups are not PASS |
+| `make integration-ci`, standard exact-HEAD Actions | Entire command **PASS** on the implementation SHA above; new suite 65 outcomes, real files 119 outcomes; overall job **CANCELLED** at its 15-minute budget before artifact upload |
+
+Both local new-suite runs used the same committed test implementation on
+independent fresh PG16 stacks, with no retry-until-success or skipped race.
+Their safe inventory files each contain exactly 65 distinct PASSED identities.
+
+[Implementation Actions run 42336573653](https://github.com/h1roshigoto/akbrizcase/actions/runs/42336573653)
+finished all six other jobs successfully. The PostgreSQL command completed
+successfully at 04:16:49 UTC after starting at 04:01:59; the job started at
+04:01:49 and reached its outer 15-minute deadline before inventory upload.
+The full dispatcher recorded outcomes: clean upgrade 1, core 955, images 58,
+lifecycle 43, applicability 75, trees 136, chat 174, HTTP security 11, commercial
+64, new ACL suite 65 and real files 119. Core's two pre-existing skips are the
+clean-upgrade and backup tests, each actually executed in its dedicated stack/job.
+There were no skipped new ACL cases. The cancelled job is not a seven-job PASS.
+The earlier run 42336306818 was superseded by the CLI readiness fix.
+
+The PostgreSQL job budget is now 20 minutes for the measured added workload
+and inventory upload. All seven jobs, assertions, two-stack ceiling, database,
+scanner/parser and race deadlines are preserved. Final HEAD/run/job URLs and
+the seven conclusions are maintained in the Draft PR delivery table after
+the final commit's workflow completes, without changing the tested HEAD again.
 
 Local infrastructure: standard integration runner built successfully; pulling
 standard PG16 bookworm then failed with ENOSPC on the managed 8 GiB Docker VFS
@@ -113,6 +145,23 @@ were preserved. Session CA/build overrides and secrets are not committed.
 An attempted file-test invocation through the DB runner also exhausted its
 32 MiB tmpfs; it is not file acceptance evidence. The existing file acceptance
 runner's volume/tmpfs/network/resource contract remains authoritative.
+The local full-run interruption used labelled recovery and an exact
+project/service/image/oneoff ownership check before stopping its remaining
+one-off test container; a second container had already exited. No volumes were
+deleted. P2 infrastructure limitation: ordinary Compose down can leave an
+active one-off runner after dispatcher termination; manual owner-verified
+container stop was needed locally. This is not a content/auth bypass.
+
+## Defects and remaining gates
+
+No domain security defect was found in the completed scenarios. One actual
+evidence defect was found: `compare_ci_tests.inventory` used a historical fixed
+list and silently ignored newer PG artifacts, including chat/HTTP/commercial
+and the new ACL suite. It now includes every provided DB group and requires
+every group announced by CI; missing announced artifacts cannot fall back to a
+partial console result. Two positive/negative guard cases also cover a future
+group, omitted ACL artifact and absence of all announced artifacts. Older
+inventories remain comparable; raw runtime logs are not exported.
 
 Development failures are not counted as acceptance: initial fixture edit used
 reconciliation rather than `edit_section`; the TCP harness needed the real

@@ -10,6 +10,57 @@ from compare_ci_tests import RANDOM_UUID_CASES, compare, inventory, normalize_id
 
 
 class InventoryTests(unittest.TestCase):
+    def test_newer_and_future_pg_groups_cannot_disappear_from_comparison(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for job in ("backend", "frontend", "database", "compose"):
+                (root / (job + ".log")).write_text("tests/a.py::one PASSED [100%]\n")
+            old = [
+                "db-clean-upgrade",
+                "db-core",
+                "db-images",
+                "db-lifecycle",
+                "db-applicability",
+                "db-trees",
+                "files",
+            ]
+            newer = [
+                "db-chat",
+                "db-http-security",
+                "db-commercial-regression",
+                "db-acl-publication-regression",
+                "db-future-security",
+            ]
+            for name in old + newer:
+                (root / (name + ".json")).write_text(
+                    json.dumps(
+                        {"suite": name, "tests": [[f"tests/{name}.py::one", "PASSED"]]}
+                    )
+                )
+            database = root / "database.log"
+            database.write_text(
+                "CI_INVENTORY db-acl-publication-regression: 1 outcomes\n"
+            )
+            result = inventory(root)["database"]
+            self.assertEqual(result.total(), len(old + newer))
+            for name in newer:
+                self.assertEqual(result[(f"tests/{name}.py::one", "PASSED")], 1)
+            (root / "db-acl-publication-regression.json").unlink()
+            with self.assertRaisesRegex(ValueError, "Missing inventory"):
+                inventory(root)
+
+    def test_announced_artifacts_cannot_fall_back_to_partial_console_results(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for job in ("backend", "frontend", "database", "compose"):
+                (root / (job + ".log")).write_text("tests/a.py::one PASSED [100%]\n")
+            with (root / "database.log").open("a") as output:
+                output.write(
+                    "CI_INVENTORY db-acl-publication-regression: 65 outcomes\n"
+                )
+            with self.assertRaisesRegex(ValueError, "Missing inventory"):
+                inventory(root)
+
     def test_artifacts_are_complete_and_do_not_double_count_console_ids(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -46,7 +97,8 @@ class InventoryTests(unittest.TestCase):
             database = root / "database.log"
             database.write_text(
                 "tests/integration/db.py::one PASSED [100%]\n"
-                "CI_FILE_TEST_RESULTS_BEGIN\n1 passed in 1.0s\nCI_FILE_TEST_RESULTS_END\n"
+                "CI_FILE_TEST_RESULTS_BEGIN\n"
+                "1 passed in 1.0s\nCI_FILE_TEST_RESULTS_END\n"
                 "CI_FILE_TEST_INVENTORY_BEGIN\ntests/files.py::one\nCI_FILE_TEST_INVENTORY_END\n"
             )
             self.assertEqual(inventory(root)["database"].total(), 2)
@@ -96,7 +148,8 @@ class InventoryTests(unittest.TestCase):
             root = Path(temporary)
             for job in ("backend", "frontend", "database", "compose"):
                 (root / (job + ".log")).write_text(
-                    "2026-10-27T19:00:00.123Z tests/a.py::one[with spaces] PASSED [ 50%]\n"
+                    "2026-10-27T19:00:00.123Z "
+                    "tests/a.py::one[with spaces] PASSED [ 50%]\n"
                     "tests/a.py::one[with spaces] PASSED [100%]\n"
                     "tests/a.py::two SKIPPED [100%]\n"
                     "PASSED tests/a.py::summary[with spaces]\n"
