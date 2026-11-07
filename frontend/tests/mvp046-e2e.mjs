@@ -139,11 +139,14 @@ async function status(manager, staff, detail) {
 }
 async function postForm(page, label, expected = 303) {
   secrets.push(await page.locator('input[name=csrf_token]').first().inputValue())
-  const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/admin/catalog/'))
-  await page.getByRole('button', { name: label, exact: true }).click()
-  safe((await response).status() === expected, 'Actual SQLAdmin mutation status')
-  await page.waitForLoadState('load')
+  const [response] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/admin/catalog/')),
+    page.waitForNavigation({ waitUntil: 'load' }),
+    page.getByRole('button', { name: label, exact: true }).click(),
+  ])
+  safe(response.status() === expected, 'Actual SQLAdmin mutation status')
 }
+
 try {
   const manager = await newContext()
   const staff = await manager.newPage()
@@ -152,6 +155,7 @@ try {
   const buyers = []
   for (const [index, name, viewport] of [[0, 'desktop', { width: 1280, height: 800 }], [1, 'mobile', { width: 390, height: 844 }]]) {
     stage = 'A.' + name
+    await staff.setViewportSize(viewport)
     const context = await newContext(viewport)
     const page = await context.newPage()
     const requests = capture(page)
@@ -172,6 +176,12 @@ try {
     await page.getByRole('main').getByLabel(/Комментарий|Описание проблемы/).fill(comment)
     // Required name/email, two independent confirmations and submission are
     // traversed by Tab/Shift+Tab/Space/Enter on both viewports.
+    await keyboard(page, false, () => requests.length)
+    await page.goBack()
+    await page.getByRole('heading', { name: 'Товары и услуги', exact: true }).waitFor()
+    await page.goForward()
+    await retained(page, comment)
+    await expect(page.getByRole('checkbox', { name: /Я прочитал/ })).toBeEnabled()
     await keyboard(page, false, () => requests.length)
     await checkpoint('keyboard.' + name)
     if (index === 1) {
@@ -335,20 +345,29 @@ try {
     safe(replyResponse.status() === 200, 'Real knowledge response')
     const wire = replyResponse.request()
     const answerBody = await replyResponse.json()
+    stage = 'B.citation.' + name
     await expect(current(kb).locator('.chat-text')).toHaveText('Цитаты из опубликованных материалов (не диагноз):\n\n[1] Синтетическийквантопылесос: точная цитата для проверки.')
     const link = current(kb).getByRole('link').first()
     const url = `/api/v1/documents/${config.document_id}/versions/${config.version_id}/file`
     safe(await link.getAttribute('href') === url, 'Citation binds exact document/version')
+    stage = 'B.file-http.' + name
+    const file = await context.request.get(config.origin + url)
+    safe(file.status() === 200 && file.headers()['content-type'].startsWith('text/plain') && file.headers()['content-disposition'].startsWith('attachment') && file.headers()['x-content-type-options'] === 'nosniff', 'File delivery security headers')
+    safe(createHash('sha256').update(await file.body()).digest('hex') === config.checksum, 'HTTP bytes checksum')
+    stage = 'B.download.' + name
     const downloadEvent = kb.waitForEvent('download')
     await link.click()
     const download = await downloadEvent
     const bytes = await readFile(await download.path())
     safe(createHash('sha256').update(bytes).digest('hex') === config.checksum, 'Actual browser downloaded exact file bytes')
-    const file = await context.request.get(config.origin + url)
-    safe(file.status() === 200 && file.headers()['content-type'].startsWith('text/plain') && file.headers()['content-disposition'].startsWith('attachment') && file.headers()['x-content-type-options'] === 'nosniff', 'File delivery security headers')
-    safe(createHash('sha256').update(await file.body()).digest('hex') === config.checksum, 'HTTP bytes checksum')
+    stage = 'B.internal-acl.' + name
     const privateUrl = `/api/v1/documents/${config.internal_document_id}/versions/${config.internal_version_id}/file`
     safe((await context.request.get(config.origin + privateUrl)).status() === 404, 'Internal file denied')
+    const privateSearch = await (await context.request.get(config.origin + '/api/v1/knowledge/search?q=SYNTHETIC046-INTERNAL-NEVER-PUBLIC')).json()
+    safe(privateSearch.total === 0 && privateSearch.items.length === 0, 'ACL excludes matching internal excerpt before total')
+    const documentList = await (await context.request.get(config.origin + '/api/v1/documents')).json()
+    safe(documentList.total === 1 && !JSON.stringify(documentList).includes(config.internal_document_id), 'Public document list excludes internal source')
+
     safe(!JSON.stringify(answerBody).includes(config.internal_document_id) && !(await kb.content()).includes('SYNTHETIC046-INTERNAL-NEVER-PUBLIC'), 'No internal knowledge disclosure')
     await visible(kb)
     knowledge.push({ context, page: kb, url, wire: { body: wire.postData(), token: wire.headers()['x-chat-token'] }, name })
@@ -367,7 +386,8 @@ try {
     safe(response.status() === 200, 'Quota fill is a genuine committed message')
     state = await response.json()
   }
-  safe(throttled && Number(throttled.headers()['retry-after']) >= 1 && throttled.headers()['cache-control'] === 'no-store', 'Real 429 and Retry-After')
+  safe(throttled && Number(throttled.headers()['retry-after']) >= 1 && Number(throttled.headers()['retry-after']) <= 60 && throttled.headers()['cache-control'] === 'no-store', 'Real 429 and Retry-After')
+  safe((await throttled.json()).error.code === 'RATE_LIMITED', 'Actual quota envelope')
   await limited.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
   await expect(limited.page.getByRole('main').getByLabel('Запрос по документации')).toBeEnabled()
   await limited.page.getByRole('main').getByLabel('Запрос по документации').fill('SYNTHETIC046 preserved rate query')
@@ -578,7 +598,8 @@ try {
   process.stdout.write(JSON.stringify({ action: 'done', proof: { result: 'PASS: MVP-046 linked browser acceptance A–E, desktop/mobile/keyboard, real TLS/HTTP/PostgreSQL', secrets: [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'] } }) + '\n')
 } catch (error) {
   // Closed stage names only; Playwright errors can include contacts and HTML.
-  process.stderr.write('MVP046_BROWSER_FAILED stage=' + stage + '\n')
+  const location = error?.stack?.match(/mvp046-e2e\.mjs:(\d+):\d+/)?.[1] ?? 'unknown'
+  process.stderr.write('MVP046_BROWSER_FAILED stage=' + stage + ' line=' + location + '\n')
   process.exitCode = 1
 } finally {
   for (const context of contexts) await context.close()

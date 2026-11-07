@@ -138,3 +138,13 @@ The assertion now compares the exact established full text; no API behavior or
 security predicate was changed. The failure is not counted as a full E2E PASS.
 Also tightened outbox identity equality and moved aggregate PASS emission after
 the final private log/audit scan. Next exact-HEAD CI must verify the whole suite.
+
+Second attempt (`627887d0ad5417d2ebd46891be860f8e8721cb27`,
+[run 42360390735](https://github.com/h1roshigoto/akbrizcase/actions/runs/42360390735)):
+**FAIL**, B.desktop, 90.78 s; same four preceding checkpoints passed.
+The remaining B failure is under investigation: granular citation/file/download
+stage and source-line diagnostics are added without disclosing browser errors.
+HTTP file headers/checksum are checked before the actual browser download to
+separate delivery failure from browser event observation. Subsequent changes
+also explicitly cover commercial Back/Forward, manager mobile viewport, matching
+internal-search exclusion and deterministic SQLAdmin navigation completion.
