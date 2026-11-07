@@ -16,7 +16,7 @@ const rpc = async (action, data = {}) => {
 }
 const checkpoint = async name => rpc('checkpoint', { case: name })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined })
-const contexts = [], secrets = [], consoles = [], pageErrors = [], knowledge = []
+const contexts = [], secrets = [], consoles = [], pageErrors = [], knowledge = [], commercialReplays = []
 const ordersPath = '/api/v1/orders'
 let stage = 'setup'
 const safe = (condition, message) => assert(condition, message)
@@ -264,6 +264,7 @@ try {
       await expect(notice).toContainText('sent')
       await replay(context, requests[0], receipt)
     }
+    commercialReplays.push({ context, wire: requests.at(-1), receipt })
     await checkpoint('A.' + name)
 
     stage = 'C.' + name
@@ -290,7 +291,12 @@ try {
     }
     // Actual UI must reconcile the externally advanced version, then show only
     // the permitted current-node buttons.
-    await page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    const staleMessage = page.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
+    await current(page).getByRole('button', { name: 'Синтетическое наблюдение', exact: true }).click()
+    safe((await staleMessage).status() === 409, 'Actual stale expected_version conflict in UI')
+    await page.getByText(/Состояние изменилось/).waitFor()
+    await expect(current(page).getByRole('button', { name: 'Синтетическое наблюдение', exact: true })).toBeEnabled()
+    safe((await state()).reply.resolution === 'question', 'Conflict does not auto-advance diagnostic state')
     await current(page).getByRole('button', { name: 'Синтетическое наблюдение', exact: true }).click()
     await current(page).getByText('Синтетический утверждённый результат', { exact: true }).waitFor()
     await current(page).getByRole('button', { name: 'Помогло', exact: true }).click()
@@ -352,6 +358,7 @@ try {
     safe(await link.getAttribute('href') === url, 'Citation binds exact document/version')
     stage = 'B.file-http.' + name
     const file = await context.request.get(config.origin + url)
+    stage = 'B.file-http.' + name + '.' + file.status()
     safe(file.status() === 200 && file.headers()['content-type'].startsWith('text/plain') && file.headers()['content-disposition'].startsWith('attachment') && file.headers()['x-content-type-options'] === 'nosniff', 'File delivery security headers')
     safe(createHash('sha256').update(await file.body()).digest('hex') === config.checksum, 'HTTP bytes checksum')
     stage = 'B.download.' + name
@@ -524,6 +531,8 @@ try {
   const imageState = await rpc('image_state')
   safe(imageState[0].status === 'archived' && imageState[0].image_key !== null && imageState[1].image_key === null, 'Database current image bindings and archive')
   await rpc('unchanged')
+  for (const original of commercialReplays) await replay(original.context, original.wire, original.receipt)
+  await rpc('unchanged')
   await checkpoint('D.images')
 
   stage = 'B.withdrawal'
@@ -598,7 +607,7 @@ try {
   process.stdout.write(JSON.stringify({ action: 'done', proof: { result: 'PASS: MVP-046 linked browser acceptance A–E, desktop/mobile/keyboard, real TLS/HTTP/PostgreSQL', secrets: [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'] } }) + '\n')
 } catch (error) {
   // Closed stage names only; Playwright errors can include contacts and HTML.
-  const location = error?.stack?.match(/mvp046-e2e\.mjs:(\d+):\d+/)?.[1] ?? 'unknown'
+  const location = [...(error?.stack?.matchAll(/mvp046-e2e\.mjs:(\d+):\d+/g) ?? [])].at(-1)?.[1] ?? 'unknown'
   process.stderr.write('MVP046_BROWSER_FAILED stage=' + stage + ' line=' + location + '\n')
   process.exitCode = 1
 } finally {

@@ -144,7 +144,11 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                     flush=True,
                 )
             elif action in ("price", "consent", "revoke_public", "revoke_internal"):
+                immutable_before = snapshot()
                 result = domain(action)
+                assert immutable_before == snapshot(), (
+                    "Content mutation changed business rows"
+                )
                 if action == "revoke_public":
                     assert (
                         int(

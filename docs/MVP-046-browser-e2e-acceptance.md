@@ -125,7 +125,7 @@ A failed or unexecuted scan is not evidence of absence of leaks.
 Changed files: workflow, Makefile, browser media test composition, chat page and
 controller, chat UI regression, shared HTTPS/SMTP harness helpers, new linked
 browser/controller/domain fixture/evidence guards, and this report. No migration,
-release profile, production configuration or business-domain rewrite.
+release-mode enablement or business-domain rewrite; the Nginx canonical response header fix is described below.
 
 First exact-HEAD CI attempt (`03eb44ab0c16485a56d3b1acd1b4e760e7ebacea`,
 run [42360128043](https://github.com/h1roshigoto/akbrizcase/actions/runs/42360128043)):
@@ -148,3 +148,20 @@ HTTP file headers/checksum are checked before the actual browser download to
 separate delivery failure from browser event observation. Subsequent changes
 also explicitly cover commercial Back/Forward, manager mobile viewport, matching
 internal-search exclusion and deterministic SQLAdmin navigation completion.
+
+Third attempt (`821690ae8fa3a23661951e4bfe26499c9fbf442e`,
+[run 42360673607](https://github.com/h1roshigoto/akbrizcase/actions/runs/42360673607)):
+**FAIL**, B.file-http.desktop, 78.72 s. This localized failure to the file
+security-header assertion, before browser download. Configuration analysis found
+that API middleware and Nginx both added X-Content-Type-Options, yielding duplicate
+nosniff fields at the proxy. Nginx now hides the upstream copy and emits exactly
+one canonical nosniff, including error responses. The same small fix applies to
+HTTP, HTTPS, packaged default and reduced release Nginx configurations; no release
+mode/rate/admission/scanner setting is enabled or relaxed. Existing HTTPS auth and
+HTTP security smokes now assert a single effective header, in addition to the
+strict file assertion in B. Next CI verifies actual corrected delivery.
+
+Additional linked checks: real chat expected_version 409 followed by explicit
+button choice; original commercial receipt replay after consent/price/image/
+archive changes; unchanged business rows across each domain content mutation;
+unchanged outbox identity across notification retry. These add no extra orders.
