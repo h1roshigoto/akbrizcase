@@ -268,9 +268,9 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                     subject = hashlib.sha256(UUID(identifier).bytes).hexdigest()
                     # Hash format is asserted against the implementation below.
                     result = stack.sql(
-                        f"UPDATE app.rate_limit_buckets SET started_at=started_at-interval '2 minutes',expires_at=expires_at-interval '2 minutes' WHERE scope='message' AND subject_hash='{subject}' RETURNING used"
+                        f"WITH moved AS (UPDATE app.rate_limit_buckets SET started_at=started_at-interval '2 minutes',expires_at=expires_at-interval '2 minutes' WHERE scope='message' AND subject_hash='{subject}' RETURNING used) SELECT count(*)=1 AND min(used)=30 FROM moved"
                     )
-                    assert result == "30"
+                    assert result == "t"
                 else:
                     number = int(event["number"])
                     assert (

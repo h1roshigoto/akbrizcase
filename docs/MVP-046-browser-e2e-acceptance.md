@@ -165,3 +165,15 @@ Additional linked checks: real chat expected_version 409 followed by explicit
 button choice; original commercial receipt replay after consent/price/image/
 archive changes; unchanged business rows across each domain content mutation;
 unchanged outbox identity across notification retry. These add no extra orders.
+
+Fourth attempt (`b8236ca004281810b8e89999e01c9f08ad978ce8`,
+[run 42361085189](https://github.com/h1roshigoto/akbrizcase/actions/runs/42361085189)):
+**FAIL**, quota-recovery harness assertion, 105.84 s. Both A/C viewports,
+commercial Back/Forward, keyboard, actual consent/price/staff/chat conflicts,
+and both exact browser file downloads/security headers/checksums passed before
+failure. Nginx header correction is thus exercised. Actual 429 and retained
+query were observed. Root cause: psql `UPDATE … RETURNING` includes the `UPDATE 1`
+command tag; comparing its stdout with just `30` was wrong. Recovery now uses a
+CTE and SELECT asserting exactly one moved row with used=30. No rate threshold,
+retry, HTTP success or business invariant is relaxed. Nginx `-t` also passed
+locally for all four changed configurations in networkless read-only containers.
