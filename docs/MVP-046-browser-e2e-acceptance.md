@@ -177,3 +177,10 @@ command tag; comparing its stdout with just `30` was wrong. Recovery now uses a
 CTE and SELECT asserting exactly one moved row with used=30. No rate threshold,
 retry, HTTP success or business invariant is relaxed. Nginx `-t` also passed
 locally for all four changed configurations in networkless read-only containers.
+
+Fifth attempt (`76145e38216b9b2bad5e276c4111d98e6f7f6bea`,
+[run 42361392429](https://github.com/h1roshigoto/akbrizcase/actions/runs/42361392429)):
+**FAIL**, D.applicability visible filtered count, 115.51 s. E.429 including the
+real quota, retained text and explicit continuation now passed. Next diagnostic
+adds a committed prerequisite join and observes the actual browser model-filter
+HTTP response before asserting its rendering, retaining the one-item requirement.

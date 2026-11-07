@@ -440,9 +440,20 @@ try {
   await publication.getByLabel('Publication approval reference', { exact: true }).fill('SYNTHETIC:046:PUBLIC-FACT')
   await publication.getByRole('checkbox', { name: 'Allow public disclosure of this applicability fact', exact: true }).check()
   await postForm(edit, 'Allow fact publication')
+  await rpc('fact_published')
   for (const buyer of buyers) {
     await buyer.page.goto(config.origin)
+    const filteredResponse = buyer.page.waitForResponse(r => {
+      const url = new URL(r.url())
+      return url.pathname === '/api/v1/catalog/items' && url.searchParams.get('model_id') === config.model_id
+    })
     await buyer.page.getByRole('main').getByLabel('Модель оборудования', { exact: true }).selectOption(config.model_id)
+    const filtered = await filteredResponse
+    stage = 'D.catalog-http.' + buyer.name + '.' + filtered.status()
+    safe(filtered.status() === 200, 'Actual model-filtered catalog response')
+    const filteredBody = await filtered.json()
+    stage = 'D.catalog-total.' + buyer.name + '.' + (Number.isInteger(filteredBody.total) ? filteredBody.total : 'invalid')
+    safe(filteredBody.total === 1 && filteredBody.items.length === 1, 'One committed confirmed result')
     const results = buyer.page.getByRole('region', { name: 'Результаты каталога' })
     await expect(results.getByRole('article')).toHaveCount(1)
     await results.getByText('Применимость подтверждена', { exact: true }).waitFor()

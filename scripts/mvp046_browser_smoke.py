@@ -205,6 +205,22 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                         == "1"
                     )
                 result = counts()
+            elif action == "fact_published":
+                assert (
+                    stack.sql("""SELECT count(*) FROM app.catalog_item_models l
+                    JOIN app.catalog_items i ON i.id=l.item_id
+                    JOIN app.equipment_models m ON m.id=l.model_id
+                    JOIN app.document_sections s ON s.id=l.evidence_section_id
+                    JOIN app.document_versions v ON v.id=s.document_version_id
+                    JOIN app.documents d ON d.id=v.document_id
+                    JOIN app.staff_users u ON u.id=l.published_by
+                    WHERE i.sku='DEMO-P-001' AND i.status='published' AND m.code='SYNTHETIC035'
+                    AND m.status='published' AND d.visibility='internal' AND d.status='active'
+                    AND v.status='published' AND l.public_allowed
+                    AND l.approved_at <= l.published_at AND l.published_at <= clock_timestamp()
+                    AND u.login='browser-admin' AND u.role='admin'""")
+                    == "1"
+                ), "Committed fact prerequisites"
             elif action == "image_state":
                 result = json.loads(
                     stack.sql(
