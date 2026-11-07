@@ -14,6 +14,7 @@ try {
   const intake = await browser.newContext({ ignoreHTTPSErrors: false });
   const catalogResponse = await intake.request.get(`${config.origin}/api/v1/catalog/items`);
   assert.equal(catalogResponse.status(), 200);
+  assert.equal(catalogResponse.headers()['x-content-type-options'], 'nosniff');
   const catalog = (await catalogResponse.json()).items;
   const selected = ['DEMO-P-001', 'DEMO-S-001'].map(sku => catalog.find(item => item.sku === sku));
   assert(selected.every(Boolean));

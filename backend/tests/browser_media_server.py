@@ -16,8 +16,11 @@ import uvicorn
 # Executed from a read-only test bind at /tmp, outside the application package.
 sys.path.insert(0, "/app")
 
+from contextlib import ExitStack
+
 from app.main import app  # noqa: E402
 from app.modules.catalog.images.pipeline import ImagePipeline  # noqa: E402
+from app.modules.kb.files import FilePipeline  # noqa: E402
 from app.modules.kb.files.scanner import ClamAV  # noqa: E402
 
 
@@ -37,7 +40,21 @@ if __name__ == "__main__":
         pipeline = ImagePipeline(
             Path(os.environ["APP_FILES_DIR"]), _scanner=SyntheticClamAV(signatures)
         )
-        with patch.object(ImagePipeline, "from_environment", return_value=pipeline):
+        assert sys.argv[1:] in ([], ["--documents"])
+        with ExitStack() as composition:
+            composition.enter_context(
+                patch.object(ImagePipeline, "from_environment", return_value=pipeline)
+            )
+            if sys.argv[1:] == ["--documents"]:
+                documents = FilePipeline(
+                    Path(os.environ["APP_FILES_DIR"]),
+                    _scanner=SyntheticClamAV(signatures),
+                )
+                composition.enter_context(
+                    patch.object(
+                        FilePipeline, "from_environment", return_value=documents
+                    )
+                )
             uvicorn.run(
                 app, host="0.0.0.0", port=8000, access_log=False, proxy_headers=False
             )

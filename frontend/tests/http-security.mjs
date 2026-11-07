@@ -20,6 +20,14 @@ const rateError = async (response, maximum) => {
 try {
   const context = await browser.newContext({ ignoreHTTPSErrors: false });
   const page = await context.newPage();
+  for (const origin of [config.httpOrigin, config.origin]) {
+    for (const path of ['/', '/healthz', '/readyz', '/api/v1/catalog/items', '/admin/login', '/files/blocked']) {
+      const response = await context.request.get(origin + path);
+      const headers = (await response.headersArray()).filter(h => h.name.toLowerCase() === 'x-content-type-options');
+      assert(headers.length === 1 && headers[0].value === 'nosniff', 'Exactly one effective nosniff on static/proxied/error HTTP and HTTPS responses');
+    }
+  }
+
   const root = await page.goto(config.origin);
   assert.equal(root.status(), 200);
   const scriptPolicy = root.headers()['content-security-policy'].split('script-src ')[1].split(';')[0];

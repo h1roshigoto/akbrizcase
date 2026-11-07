@@ -179,3 +179,7 @@ backup-rehearsal:
 .PHONY: operator-rehearsal
 operator-rehearsal:
 	python3 scripts/operator_rehearsal.py
+
+.PHONY: mvp046-browser-e2e
+mvp046-browser-e2e:
+	python3 scripts/mvp046_browser_smoke.py

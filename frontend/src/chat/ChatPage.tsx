@@ -126,8 +126,12 @@ export function ChatPage({
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (disabled || !text.trim() || text.length > 1000) return
-    void controller.send({ type: 'text', value: text })
-    setText('')
+    const submitted = text
+    void controller.send({ type: 'text', value: submitted }).then(() => {
+      const result = controller.snapshot()
+      if (!result.error && !result.pending && !result.notice)
+        setText((current) => (current === submitted ? '' : current))
+    })
   }
   return (
     <main className="page-shell chat-page" id="chat">
