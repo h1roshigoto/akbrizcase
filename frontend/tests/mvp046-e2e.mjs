@@ -381,13 +381,22 @@ try {
     secrets.push(wire.headers()['x-chat-token'])
   }
   stage = 'E.429'
-  const limited = knowledge[0]
+  const quotaContext = await newContext()
+  const quotaPage = await quotaContext.newPage()
+  await quotaPage.goto(config.origin + '/#chat')
+  await current(quotaPage).waitFor()
+  await quotaPage.getByRole('button', { name: 'Документация', exact: true }).click()
+  await expect(quotaPage.getByLabel('Запрос по документации')).toBeEnabled()
+  const limited = { context: quotaContext, page: quotaPage }
   const own = await owner(limited.page)
   let state = await (await limited.context.request.get(`${config.origin}/api/v1/chat/sessions/${own.session_id}`, { headers: { 'X-Chat-Token': own.session_token } })).json()
   // Fill this actual session's 30/minute quota through HTTPS, no configuration
   // switch or forged client IP. Bound the number of calls, never retry-to-PASS.
   let throttled
   for (let i = 0; i <= 30; i++) {
+    // Bounded client pacing under the unchanged 120/minute ingress budget.
+    // Fresh session keeps this whole message window below its fixed 60 seconds.
+    await new Promise(resolve => setTimeout(resolve, 650))
     const response = await limited.context.request.post(config.origin + '/api/v1/chat/messages', { headers: { 'X-Chat-Token': own.session_token, 'X-Forwarded-For': '198.51.100.46' }, data: { session_id: own.session_id, request_id: randomUUID(), expected_version: state.state_version, input: { type: 'select_mode', mode: 'knowledge' } } })
     if (response.status() === 429) { throttled = response; break }
     safe(response.status() === 200, 'Quota fill is a genuine committed message')
@@ -395,7 +404,12 @@ try {
   }
   safe(throttled && Number(throttled.headers()['retry-after']) >= 1 && Number(throttled.headers()['retry-after']) <= 60 && throttled.headers()['cache-control'] === 'no-store', 'Real 429 and Retry-After')
   safe((await throttled.json()).error.code === 'RATE_LIMITED', 'Actual quota envelope')
+  await rpc('quota_saturated', { session_id: own.session_id })
+  const refresh = limited.page.waitForResponse(r => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/v1/chat/sessions/${own.session_id}`)
   await limited.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+  const refreshed = await refresh
+  stage = 'E.429.refresh.' + refreshed.status()
+  safe(refreshed.status() === 200, 'Current session read remains available')
   await expect(limited.page.getByRole('main').getByLabel('Запрос по документации')).toBeEnabled()
   await limited.page.getByRole('main').getByLabel('Запрос по документации').fill('SYNTHETIC046 preserved rate query')
   let attempts = 0

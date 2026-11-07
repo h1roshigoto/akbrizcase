@@ -205,6 +205,14 @@ def run_browser(environment, config, compose, stack, prefix, temporary):
                         == "1"
                     )
                 result = counts()
+            elif action == "quota_saturated":
+                subject = hashlib.sha256(UUID(event["session_id"]).bytes).hexdigest()
+                assert (
+                    stack.sql(
+                        f"SELECT count(*) FROM app.rate_limit_buckets WHERE scope='message' AND subject_hash='{subject}' AND used=30 AND expires_at>clock_timestamp()"
+                    )
+                    == "1"
+                ), "Real committed session quota must be saturated"
             elif action == "fact_published":
                 assert (
                     stack.sql("""SELECT count(*) FROM app.catalog_item_models l

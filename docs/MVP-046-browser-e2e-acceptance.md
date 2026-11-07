@@ -184,3 +184,14 @@ Fifth attempt (`76145e38216b9b2bad5e276c4111d98e6f7f6bea`,
 real quota, retained text and explicit continuation now passed. Next diagnostic
 adds a committed prerequisite join and observes the actual browser model-filter
 HTTP response before asserting its rendering, retaining the one-item requirement.
+
+Sixth attempt (`da3d5fa203b7709af0d2e0c1c3068ac576f22686`,
+[run 42361803015](https://github.com/h1roshigoto/akbrizcase/actions/runs/42361803015)):
+**FAIL**, E.429 refresh control availability, 101.85 s; prior A/C checkpoints
+passed. The unpaced quota burst mixed the session quota with the unchanged shared
+Nginx budget and reused a window opened earlier in B. The quota case now owns a
+fresh session and paces each real request at 650 ms, below 120/minute ingress,
+within the original 60-second message window. A new direct PG assertion requires
+used=30 with a live window, so an edge 429 cannot masquerade as message quota.
+The UI refresh's actual HTTP status is asserted before further actions. This is
+bounded request scheduling, not retry-until-success or a timeout/rate change.
