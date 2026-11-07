@@ -119,6 +119,13 @@ reconciliation rather than `edit_section`; the TCP harness needed the real
 runtime IP-security initialization; wire resolution is `results` rather than
 the internal node type `result`. Those test-preparation mistakes were corrected
 without changing domain guards or weakening assertions.
+The first staff-disable CLI race also exposed a harness synchronization error:
+process/import startup consumed the two-second lock-observation window. The
+existing PTY helper now has an optional password-prompt callback. The contender
+is ready for authentication before disable takes its lock; only then are the
+password and lock probe released. The same exact blocker PID and original
+two-second observation/three-second DB lock bounds remain mandatory. No retry
+or timeout inflation substitutes for observed overlap.
 
 Open external gates: actual content rights/expert approvals, production signed
 CVD delivery/update monitoring, legal/privacy/operations/pilot acceptance from

@@ -1203,23 +1203,38 @@ def test_staff_disable_overlaps_actual_cli_before_authentication_completes(
     with database.unit_of_work() as session:
         target = admin(session)
         target_id, name = target.id, target.login
+    credentials_ready, release = Event(), Event()
+
+    def ready() -> None:
+        credentials_ready.set()
+        assert release.wait(5)
+
     with ThreadPoolExecutor(max_workers=1) as pool:
-        with database.unit_of_work() as holder:
-            assert (
-                disable_staff(
-                    holder,
-                    admin_login=graph.c.login,
-                    admin_password=PASSWORD,
-                    user_id=target_id,
-                ).result
-                == "success"
-            )
-            pid = holder.scalar(text("SELECT pg_backend_pid()"))
-            assert pid is not None
-            pending = pool.submit(
-                cli_request, pipeline, name, ["tree-revoke", "--tree", str(graph.tree)]
-            )
-            wait_for_blocker(database, pid)
+        pending = pool.submit(
+            cli_request,
+            pipeline,
+            name,
+            ["tree-revoke", "--tree", str(graph.tree)],
+            before_password=ready,
+        )
+        try:
+            assert credentials_ready.wait(5)
+            with database.unit_of_work() as holder:
+                assert (
+                    disable_staff(
+                        holder,
+                        admin_login=graph.c.login,
+                        admin_password=PASSWORD,
+                        user_id=target_id,
+                    ).result
+                    == "success"
+                )
+                pid = holder.scalar(text("SELECT pg_backend_pid()"))
+                assert pid is not None
+                release.set()
+                wait_for_blocker(database, pid)
+        finally:
+            release.set()
         code, output = pending.result(timeout=10)
     assert code == 1 and b"AUTHENTICATION_DENIED" in output
     with database.unit_of_work() as session:
