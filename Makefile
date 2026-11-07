@@ -82,6 +82,10 @@ integration:
 commercial-regression:
 	python3 scripts/db_integration.py --suite commercial-regression
 
+.PHONY: acl-publication-regression
+acl-publication-regression:
+	python3 scripts/db_integration.py --suite acl-publication-regression
+
 .PHONY: integration-ci compose-smokes
 # CI includes real file acceptance in the same two-stack concurrency budget.
 integration-ci: check-secrets

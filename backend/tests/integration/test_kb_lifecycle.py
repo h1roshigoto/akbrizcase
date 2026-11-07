@@ -15,7 +15,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -99,6 +99,7 @@ def draft(
     *,
     visibility: str = "internal",
     extension: str = "txt",
+    title: str = "Synthetic",
 ) -> tuple[str, UUID, UUID]:
     # Trusted synthetic fixture setup through the draft service. The actual
     # import/check/hidden-input path is separately exercised by the PTY test;
@@ -113,7 +114,7 @@ def draft(
     user = admin(session)
     service = DraftEditService(session, AuthenticatedStaff(user))
     version = service.import_draft(
-        DraftDocument("SYNTHETIC-023-" + uuid4().hex, "Synthetic", "other", visibility),
+        DraftDocument("SYNTHETIC-023-" + uuid4().hex, title, "other", visibility),
         1,
         DraftFile(
             accepted.file_key,
@@ -1063,6 +1064,7 @@ def cli_request(
     arguments: list[str],
     *,
     commit_error: bool = False,
+    before_password: Callable[[], None] | None = None,
 ) -> tuple[int, bytes]:
     script = (
         "import sys,runpy;sys.path.insert(0,'/app/tests/integration');"
@@ -1105,6 +1107,8 @@ def cli_request(
                     os.write(master, (login + "\n").encode())
                     sent_login = True
                 if b"Acting admin password:" in output and not sent_password:
+                    if before_password is not None:
+                        before_password()
                     os.write(master, (PASSWORD + "\n").encode())
                     sent_password = True
         status = child.wait(timeout=2)

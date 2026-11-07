@@ -211,7 +211,10 @@ jobs:
   database:
     name: PostgreSQL 16 integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # MVP-045 adds 65 real publication/HTTP/CLI cases. The measured full run
+    # passed at the old 15-minute boundary, before inventory could upload.
+    # Domain, scanner/parser and lock deadlines remain unchanged.
+    timeout-minutes: 20
     env:
       COMMERCIAL_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -227,7 +230,7 @@ jobs:
           echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
           cp .env.example .env
           make init-secrets
-      - name: Full PG16 suites including MVP-044 commercial regression and real files
+      - name: Full PG16 suites including MVP-044, MVP-045 ACL/publication and real files
         run: make integration-ci
       - name: Recover interrupted test stack
         if: always()

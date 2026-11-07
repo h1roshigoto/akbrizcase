@@ -42,6 +42,8 @@ def inventory(directory):
     result = {}
     for job in ("backend", "frontend", "database", "compose"):
         entries = []
+        log = (directory / (job + ".log")).read_text()
+        announced = set()
         names = (
             ["backend"]
             if job == "backend"
@@ -57,9 +59,21 @@ def inventory(directory):
             if job == "database"
             else []
         )
+        if job == "database":
+            # Keep historical inventories comparable, but never discard newer
+            # dispatcher groups just because the original list predates them.
+            announced = set(
+                re.findall(r"\bCI_INVENTORY (db-[a-z-]+|files):", ANSI.sub("", log))
+            )
+            discovered = {
+                path.stem
+                for path in directory.glob("db-*.json")
+                if re.fullmatch(r"db-[a-z-]+", path.stem)
+            }
+            names = sorted(set(names) | announced | discovered)
         paths = [directory / (name + ".json") for name in names]
         artifact_records = []
-        if any(path.exists() for path in paths):
+        if announced or any(path.exists() for path in paths):
             for path in paths:
                 if not path.is_file():
                     raise ValueError("Missing inventory artifact: " + path.name)
@@ -68,7 +82,6 @@ def inventory(directory):
                     (normalize_id(n), outcome) for n, outcome in data["tests"]
                 )
         collected = []
-        log = (directory / (job + ".log")).read_text()
         cleaned = []
         for line in log.splitlines():
             line = TIMESTAMP.sub("", ANSI.sub("", line)).strip()

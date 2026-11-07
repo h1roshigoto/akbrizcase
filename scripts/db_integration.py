@@ -23,6 +23,9 @@ from synthetic_stack import SyntheticStack, isolated_environment
 
 LABEL = "com.akbrizcase.db-integration"
 SUITES = {
+    "acl-publication-regression": [
+        "tests/integration/test_acl_publication_regression.py",
+    ],
     "commercial-regression": ["tests/integration/test_commercial_regression.py"],
     "http-security": ["tests/integration/test_http_limits.py"],
     "clean-upgrade": ["tests/integration/test_kb_clean_upgrade.py"],
@@ -273,6 +276,7 @@ def main() -> None:
                 "chat",
                 "http-security",
                 "commercial-regression",
+                "acl-publication-regression",
             )
         )
         parallel(checks)
