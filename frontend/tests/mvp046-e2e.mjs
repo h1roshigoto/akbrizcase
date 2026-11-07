@@ -105,6 +105,7 @@ async function keyboard(page, support, before, comment = null) {
   await page.keyboard.type('SYNTHETIC046 Buyer')
   await page.keyboard.press('Enter')
   safe(before() === 0, 'Enter while unconfirmed cannot submit')
+  await expect(page.getByRole('alert').first()).toBeVisible()
   const email = page.getByRole('main').getByLabel('Email', { exact: true })
   // Reach email using actual Tab traversal, allowing the optional phone field.
   for (let i = 0; i < 5 && !await email.evaluate(el => el === document.activeElement); i++)
@@ -399,11 +400,16 @@ try {
     safe(file.status() === 200 && file.headers()['content-type'].startsWith('text/plain') && file.headers()['content-disposition'].startsWith('attachment') && file.headers()['x-content-type-options'] === 'nosniff', 'File delivery security headers')
     safe(createHash('sha256').update(await file.body()).digest('hex') === config.checksum, 'HTTP bytes checksum')
     stage = 'B.download.' + name
+    const downloadPopups = []
+    const rememberDownloadPopup = popup => downloadPopups.push(popup)
+    context.on('page', rememberDownloadPopup)
     const downloadEvent = kb.waitForEvent('download')
     await link.click()
     const download = await downloadEvent
     const bytes = await readFile(await download.path())
     safe(createHash('sha256').update(bytes).digest('hex') === config.checksum, 'Actual browser downloaded exact file bytes')
+    context.off('page', rememberDownloadPopup)
+    for (const popup of downloadPopups) await popup.close()
     stage = 'B.internal-acl.' + name
     const privateUrl = `/api/v1/documents/${config.internal_document_id}/versions/${config.internal_version_id}/file`
     safe((await context.request.get(config.origin + privateUrl)).status() === 404, 'Internal file denied')
@@ -633,6 +639,14 @@ try {
   await checkpoint('D.images')
 
   stage = 'B.withdrawal'
+  // Restore the actual citation as the current answer after the commerce
+  // checks, so withdrawal is visible in current reply as well as history.
+  for (const kb of knowledge) {
+    await kb.page.getByRole('button', { name: 'Документация', exact: true }).click()
+    await kb.page.getByLabel('Запрос по документации').fill('Синтетическийквантопылесос')
+    await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
+    await expect(current(kb.page).locator('.chat-text')).toHaveText('Цитаты из опубликованных материалов (не диагноз):\n\n[1] Синтетическийквантопылесос: точная цитата для проверки.')
+  }
   await rpc('revoke_public')
   for (const item of knowledge) {
     await item.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
@@ -698,9 +712,15 @@ try {
   safe(pageErrors.length === 0 && routingFailures === 0, 'No uncaught browser or routing errors')
   for (const value of [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'])
     safe(!consoles.join('\n').includes(value), 'No contacts/secrets in browser console')
-  for (const context of contexts)
-    for (const tab of context.pages())
+  let checkedApplicationTabs = 0
+  for (const context of contexts) {
+    for (const tab of context.pages()) {
+      safe(new URL(tab.url()).origin === config.origin, 'Every remaining tab belongs to this application')
       safe(await tab.evaluate(() => localStorage.length) === 0, 'No persistent browser storage')
+      checkedApplicationTabs++
+    }
+  }
+  safe(checkedApplicationTabs === 8, 'All eight application tabs checked for persistent storage')
   process.stdout.write(JSON.stringify({ action: 'done', proof: { result: 'PASS: MVP-046 linked browser acceptance A–E, desktop/mobile/keyboard, real TLS/HTTP/PostgreSQL', ingress_requests: ingressRequests, ingress_interval_ms: ingressInterval, secrets: [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'] } }) + '\n')
 } catch (error) {
   // Closed stage names only; Playwright errors can include contacts and HTML.

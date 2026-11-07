@@ -2,7 +2,7 @@
 
 Base: `465c1da68b3cede8bdd7434161f86fe9737473d5`. Branch:
 `mvp-046-browser-e2e-acceptance`. Exact final HEAD and workflow URLs belong
-in the Draft PR (a commit cannot contain its own SHA).
+in [Draft PR #59](https://github.com/h1roshigoto/akbrizcase/pull/59) and each `MVP046_EVIDENCE` record (a commit cannot contain its own SHA).
 
 ## Inventory before implementation
 
@@ -22,7 +22,8 @@ as a substitute for these links. Existing standalone smokes remain mandatory.
 
 ## Admission boundaries
 
-`LOCAL_SYNTHETIC_E2E: NOT RUN` (implementation in progress).
+`LOCAL_SYNTHETIC_E2E: BLOCKED` — Docker VFS ENOSPC before browser startup.
+`CI_SYNTHETIC_E2E: PENDING` — final exact-HEAD outcome will be recorded below and in the PR.
 `TARGET_STAGING_E2E: BLOCKED`: no target server/domain/TLS, authorized full
 profile, operator access or customer/expert approvals supplied. Reduced
 MVP-041 release mode remains unchanged. Real PII, production SMTP, deployment,
@@ -73,7 +74,7 @@ This is application acceptance, not a formal WCAG audit.
 The message quota is filled using real authenticated requests behind Nginx;
 forged X-Forwarded-For does not grant capacity. Recovery advances only the owned
 synthetic session's existing quota window after the observed 429. Rates and
-production configuration are unchanged; resubmission remains explicit.
+production rate-limit configuration are unchanged; resubmission remains explicit.
 
 Actual API boundary inherited from MVP-045: commerce has no model input and
 returns applicability=null. Model-specific confirmed/unknown and total are
@@ -219,3 +220,16 @@ both confirmations to become enabled, preserving the existing fail-closed UI.
 Unexpected asynchronous routing failures are sanitized and counted as failures;
 normal navigation aborts/cleanup cannot print raw transport diagnostics. No
 browser form success or certificate/CSRF/publication predicate is substituted.
+
+Ninth attempt (`4c241e4cc1d045c6a891fc06156402205267ec08`,
+[run 42363227785](https://github.com/h1roshigoto/akbrizcase/actions/runs/42363227785)):
+**FAIL at final storage guard**, 373.52 s. All 15 mandatory checkpoint actions
+and final 5/5/4/5/7 business counts actually passed, including D images/archive,
+current commerce/replay, B withdrawal and E expiry/pre-send retry. There is still
+no overall PASS. Root cause: attachment links with target=_blank leave an opaque
+about:blank download popup; reading localStorage there raises SecurityError.
+The harness now closes only popups created by that exact completed download,
+then requires all eight application tabs to have the expected origin and empty
+localStorage. It does not skip any application tab's storage check. The final
+candidate also restores a current knowledge citation before revoke, in addition
+to checking history/replay, and explicitly observes visible keyboard validation.
