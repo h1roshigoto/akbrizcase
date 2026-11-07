@@ -195,3 +195,17 @@ within the original 60-second message window. A new direct PG assertion requires
 used=30 with a live window, so an edge 429 cannot masquerade as message quota.
 The UI refresh's actual HTTP status is asserted before further actions. This is
 bounded request scheduling, not retry-until-success or a timeout/rate change.
+
+Seventh attempt (`49828405a2100b613427bac8becb9065c0ee743d`,
+[run 42362173992](https://github.com/h1roshigoto/akbrizcase/actions/runs/42362173992)):
+**FAIL**, archive public HTTP assertion, 179.33 s. E.429 and D.applicability now
+passed, including committed prerequisites, one model-filtered HTTP/UI result,
+internal privacy, revoke/unknown and zero total. JPEG/PNG, replace, invalid-upload
+rollback and list/detail fallback were exercised before the archive read failed.
+To keep this acceptance distinct from a multi-client load test, every synthetic
+actor's initial API/admin request now shares a 650-ms ingress scheduler. Browser
+requests continue to the real backend; APIRequestContext uses the same scheduler.
+No rejected request is automatically retried, no status is replaced and no rate
+or timeout changes. Archive DB state is checked before the actual public status,
+whose closed numeric code is included in failure stage diagnostics. Current
+commerce/replay is also checked after evidence revoke and product archive.

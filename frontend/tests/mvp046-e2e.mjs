@@ -23,10 +23,36 @@ const safe = (condition, message) => assert(condition, message)
 const current = page => page.getByRole('article', { name: 'Актуальный ответ', exact: true })
 const send = page => page.getByRole('button', { name: 'Подтвердить и отправить заявку', exact: true })
 const orderResponse = page => page.waitForResponse(r => new URL(r.url()).pathname === ordersPath && r.request().method() === 'POST')
+// All synthetic actors share one ingress IP. Schedule initial HTTP requests
+// below the unchanged 120/minute Nginx budget; never retry a rejected request.
+let nextIngress = 0, ingressRequests = 0
+const ingressInterval = 650
+async function paceIngress() {
+  const now = performance.now()
+  const turn = Math.max(now, nextIngress)
+  nextIngress = turn + ingressInterval
+  ingressRequests++
+  if (turn > now) await new Promise(resolve => setTimeout(resolve, turn - now))
+}
+
 const owner = page => page.evaluate(() => JSON.parse(sessionStorage.getItem('akbrizcase.chat.v1')))
 async function newContext(viewport = { width: 1280, height: 800 }) {
   const context = await browser.newContext({ viewport, ignoreHTTPSErrors: false, acceptDownloads: true })
   contexts.push(context)
+  await context.route('**/*', async route => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const exempt = ['GET', 'HEAD'].includes(request.method()) && url.pathname.startsWith('/admin/statics/')
+    if (url.origin === config.origin && !exempt && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin/'))) await paceIngress()
+    await route.continue()
+  })
+  for (const method of ['get', 'post']) {
+    const original = context.request[method].bind(context.request)
+    context.request[method] = async (...args) => {
+      await paceIngress()
+      return original(...args)
+    }
+  }
   context.on('page', page => {
     page.on('console', message => consoles.push(message.text()))
     page.on('pageerror', () => pageErrors.push('pageerror'))
@@ -394,9 +420,7 @@ try {
   // switch or forged client IP. Bound the number of calls, never retry-to-PASS.
   let throttled
   for (let i = 0; i <= 30; i++) {
-    // Bounded client pacing under the unchanged 120/minute ingress budget.
-    // Fresh session keeps this whole message window below its fixed 60 seconds.
-    await new Promise(resolve => setTimeout(resolve, 650))
+    // APIRequestContext shares the same bounded ingress scheduler as the UI.
     const response = await limited.context.request.post(config.origin + '/api/v1/chat/messages', { headers: { 'X-Chat-Token': own.session_token, 'X-Forwarded-For': '198.51.100.46' }, data: { session_id: own.session_id, request_id: randomUUID(), expected_version: state.state_version, input: { type: 'select_mode', mode: 'knowledge' } } })
     if (response.status() === 429) { throttled = response; break }
     safe(response.status() === 200, 'Quota fill is a genuine committed message')
@@ -480,14 +504,39 @@ try {
     await buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByText('Применимость подтверждена', { exact: true }).waitFor()
     await visible(buyer.page)
   }
+  // Commerce deliberately has no model input: verify its current public
+  // projection/revision and source privacy, rather than inventing confirmed.
+  for (const kb of knowledge) {
+    await kb.page.getByRole('button', { name: 'Товары и услуги', exact: true }).click()
+    await kb.page.getByLabel('Поиск товаров и услуг', { exact: true }).fill(product.sku)
+    const exchange = kb.page.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
+    await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
+    const response = await exchange
+    safe(response.status() === 200, 'Actual commerce response')
+    const reply = (await response.json()).reply
+    safe(reply.items.length === 1 && reply.items[0].id === product.id && reply.items[0].applicability === null, 'Commerce preserves its model-free contract')
+    safe(!JSON.stringify(reply).includes(config.internal_document_id), 'Commerce does not expose internal evidence')
+    kb.commerce = { body: response.request().postData(), token: response.request().headers()['x-chat-token'] }
+    await current(kb.page).getByText(product.sku, { exact: true }).waitFor()
+  }
   await rpc('revoke_internal')
   for (const buyer of buyers) {
     await buyer.page.reload()
     await buyer.page.getByRole('main').getByLabel('Модель оборудования', { exact: true }).selectOption(config.model_id)
     await expect(buyer.page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article')).toHaveCount(0)
+    await buyer.page.getByRole('heading', { name: 'Позиции не найдены', exact: true }).waitFor()
     const result = await (await buyer.context.request.get(`${config.origin}/api/v1/catalog/items/${product.id}?model_id=${config.model_id}`)).json()
     safe(result.applicability.status === 'unknown' && result.applicability.sources.length === 0, 'Revoked evidence invalidates applicability')
     safe((await (await buyer.context.request.get(`${config.origin}/api/v1/catalog/items?model_id=${config.model_id}`)).json()).total === 0, 'Filter total after revoke')
+  }
+  for (const kb of knowledge) {
+    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await current(kb.page).getByText(product.sku, { exact: true }).waitFor()
+    const credentials = await owner(kb.page)
+    const session = await (await kb.context.request.get(`${config.origin}/api/v1/chat/sessions/${credentials.session_id}`, { headers: { 'X-Chat-Token': credentials.session_token } })).json()
+    const latest = await (await kb.context.request.get(`${config.origin}/api/v1/catalog/items/${product.id}`)).json()
+    safe(session.reply.items[0].revision === latest.revision && session.reply.items[0].applicability === null, 'Current commerce reflects revoked-evidence revision without invented applicability')
+    safe(!JSON.stringify(session).includes(config.internal_document_id), 'History does not expose internal source')
   }
   await rpc('unchanged')
   await checkpoint('D.applicability')
@@ -547,17 +596,27 @@ try {
   const archivedImage = (await (await admin.request.get(`${config.origin}/api/v1/catalog/items/${product.id}`)).json()).image_url
   await edit.goto(config.origin + path)
   await postForm(edit, 'Archive')
+  const imageState = await rpc('image_state')
+  safe(imageState[0].status === 'archived' && imageState[0].image_key !== null && imageState[1].image_key === null, 'Database current image bindings and archive')
   for (const buyer of buyers) {
-    safe((await buyer.context.request.get(`${config.origin}/api/v1/catalog/items/${product.id}`)).status() === 404, 'Archived card denied')
+    const archived = await buyer.context.request.get(`${config.origin}/api/v1/catalog/items/${product.id}`)
+    stage = 'D.archived-card.' + buyer.name + '.' + archived.status()
+    safe(archived.status() === 404, 'Archived card denied')
     safe((await buyer.context.request.get(config.origin + archivedImage)).status() === 404, 'Archived image denied')
     await buyer.page.reload()
     await buyer.page.getByRole('searchbox').fill(product.sku)
     await buyer.page.getByRole('button', { name: 'Найти', exact: true }).click()
     await expect(buyer.page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article')).toHaveCount(0)
+    await buyer.page.getByRole('heading', { name: 'Позиции не найдены', exact: true }).waitFor()
   }
-  const imageState = await rpc('image_state')
-  safe(imageState[0].status === 'archived' && imageState[0].image_key !== null && imageState[1].image_key === null, 'Database current image bindings and archive')
+
   await rpc('unchanged')
+  for (const kb of knowledge) {
+    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await expect(current(kb.page).getByText(product.sku, { exact: true })).toHaveCount(0)
+    const projected = await kb.context.request.post(config.origin + '/api/v1/chat/messages', { data: kb.commerce.body, headers: { 'Content-Type': 'application/json', 'X-Chat-Token': kb.commerce.token } })
+    safe(projected.status() === 200 && (await projected.json()).reply.items.length === 0, 'Archived product removed from current commerce/replay')
+  }
   for (const original of commercialReplays) await replay(original.context, original.wire, original.receipt)
   await rpc('unchanged')
   await checkpoint('D.images')
@@ -631,7 +690,7 @@ try {
   for (const context of contexts)
     for (const tab of context.pages())
       safe(await tab.evaluate(() => localStorage.length) === 0, 'No persistent browser storage')
-  process.stdout.write(JSON.stringify({ action: 'done', proof: { result: 'PASS: MVP-046 linked browser acceptance A–E, desktop/mobile/keyboard, real TLS/HTTP/PostgreSQL', secrets: [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'] } }) + '\n')
+  process.stdout.write(JSON.stringify({ action: 'done', proof: { result: 'PASS: MVP-046 linked browser acceptance A–E, desktop/mobile/keyboard, real TLS/HTTP/PostgreSQL', ingress_requests: ingressRequests, ingress_interval_ms: ingressInterval, secrets: [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'] } }) + '\n')
 } catch (error) {
   // Closed stage names only; Playwright errors can include contacts and HTML.
   const location = [...(error?.stack?.matchAll(/mvp046-e2e\.mjs:(\d+):\d+/g) ?? [])].at(-1)?.[1] ?? 'unknown'
