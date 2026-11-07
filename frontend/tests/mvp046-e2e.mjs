@@ -18,7 +18,7 @@ const checkpoint = async name => rpc('checkpoint', { case: name })
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined })
 const contexts = [], secrets = [], consoles = [], pageErrors = [], knowledge = [], commercialReplays = []
 const ordersPath = '/api/v1/orders'
-let stage = 'setup'
+let stage = 'setup', routingFailures = 0, closing = false
 const safe = (condition, message) => assert(condition, message)
 const current = page => page.getByRole('article', { name: 'Актуальный ответ', exact: true })
 const send = page => page.getByRole('button', { name: 'Подтвердить и отправить заявку', exact: true })
@@ -36,16 +36,24 @@ async function paceIngress() {
 }
 
 const owner = page => page.evaluate(() => JSON.parse(sessionStorage.getItem('akbrizcase.chat.v1')))
+const safeRoute = handler => async route => {
+  try { await handler(route) }
+  catch {
+    if (!closing && route.request().failure()?.errorText !== 'net::ERR_ABORTED') routingFailures++
+    await route.abort('failed').catch(() => {})
+  }
+}
+
 async function newContext(viewport = { width: 1280, height: 800 }) {
   const context = await browser.newContext({ viewport, ignoreHTTPSErrors: false, acceptDownloads: true })
   contexts.push(context)
-  await context.route('**/*', async route => {
+  await context.route('**/*', safeRoute(async route => {
     const request = route.request()
     const url = new URL(request.url())
     const exempt = ['GET', 'HEAD'].includes(request.method()) && url.pathname.startsWith('/admin/statics/')
     if (url.origin === config.origin && !exempt && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin/'))) await paceIngress()
-    await route.continue()
-  })
+    if (!closing) await route.continue()
+  }))
   for (const method of ['get', 'post']) {
     const original = context.request[method].bind(context.request)
     context.request[method] = async (...args) => {
@@ -86,6 +94,11 @@ async function approve(page, support = false) {
   await page.getByRole('checkbox', { name: support ? /Подтверждаю окончательное/ : /Подтверждаю показанные/ }).check()
 }
 async function keyboard(page, support, before, comment = null) {
+  const consent = page.getByRole('checkbox', { name: /Я прочитал/ })
+  const confirmation = page.getByRole('checkbox', { name: support ? /Подтверждаю окончательное/ : /Подтверждаю показанные/ })
+  // Consent text alone does not establish current policy/catalog readiness.
+  await expect(consent).toBeEnabled()
+  await expect(confirmation).toBeEnabled()
   const name = page.getByRole('main').getByLabel('Контактное имя', { exact: false })
   await name.focus()
   await page.keyboard.press('ControlOrMeta+A')
@@ -107,13 +120,11 @@ async function keyboard(page, support, before, comment = null) {
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.type(comment)
   }
-  const consent = page.getByRole('checkbox', { name: /Я прочитал/ })
   for (let i = 0; i < 20 && !await consent.evaluate(el => el === document.activeElement); i++)
     await page.keyboard.press('Tab')
   safe(await consent.evaluate(el => el === document.activeElement), 'Consent reachable by Tab')
   await page.keyboard.press('Space')
   await page.keyboard.press('Tab')
-  const confirmation = page.getByRole('checkbox', { name: support ? /Подтверждаю окончательное/ : /Подтверждаю показанные/ })
   safe(await confirmation.evaluate(el => el === document.activeElement), 'Confirmation follows consent')
   await page.keyboard.press('Space')
   await page.keyboard.press('Shift+Tab')
@@ -238,13 +249,13 @@ try {
     if (index === 0) {
       // route.fetch receives the real committed 201; discard it only at the
       // client boundary. DB joins below are read before any manual retry.
-      await page.route('**/api/v1/orders', async route => {
+      await page.route('**/api/v1/orders', safeRoute(async route => {
         const delivered = await route.fetch()
         safe(delivered.status() === 201, 'Actual first 201')
         receipt = await delivered.json()
         await rpc('committed', { number: receipt.number })
         await route.abort('failed')
-      }, { times: 1 })
+      }), { times: 1 })
       await send(page).evaluate(button => { button.click(); button.click() })
       await page.getByText(/Результат отправки пока неизвестен/).waitFor()
       safe(requests.length === 1, 'Double click cannot duplicate POST')
@@ -684,7 +695,7 @@ try {
   await replay(expiry, requests[2], receipt)
   await visible(page)
   await checkpoint('E.network-before')
-  safe(pageErrors.length === 0, 'No uncaught browser errors')
+  safe(pageErrors.length === 0 && routingFailures === 0, 'No uncaught browser or routing errors')
   for (const value of [...secrets.filter(Boolean), 'buyer046@example.invalid', 'SYNTHETIC046 Buyer'])
     safe(!consoles.join('\n').includes(value), 'No contacts/secrets in browser console')
   for (const context of contexts)
@@ -694,9 +705,11 @@ try {
 } catch (error) {
   // Closed stage names only; Playwright errors can include contacts and HTML.
   const location = [...(error?.stack?.matchAll(/mvp046-e2e\.mjs:(\d+):\d+/g) ?? [])].at(-1)?.[1] ?? 'unknown'
-  process.stderr.write('MVP046_BROWSER_FAILED stage=' + stage + ' line=' + location + '\n')
+  const assertion = error?.code === 'ERR_ASSERTION' && error?.stack?.includes('at safe ') ? ' assertion=' + error.message.replace(/[\r\n]/g, ' ') : ''
+  process.stderr.write('MVP046_BROWSER_FAILED stage=' + stage + ' line=' + location + assertion + '\n')
   process.exitCode = 1
 } finally {
+  closing = true
   for (const context of contexts) await context.close()
   await browser.close()
   input.close()

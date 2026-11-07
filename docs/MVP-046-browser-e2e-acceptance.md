@@ -209,3 +209,13 @@ No rejected request is automatically retried, no status is replaced and no rate
 or timeout changes. Archive DB state is checked before the actual public status,
 whose closed numeric code is included in failure stage diagnostics. Current
 commerce/replay is also checked after evidence revoke and product archive.
+
+Eighth attempt (`a096a18110d2020ad368224476d785ab4d0eb419`,
+[run 42362833582](https://github.com/h1roshigoto/akbrizcase/actions/runs/42362833582)):
+**FAIL**, first keyboard helper, 65.27 s, zero orders. Scheduling exposed a
+harness assumption: visible consent text was treated as readiness although
+policy/catalog requests could still be queued. Keyboard traversal now waits for
+both confirmations to become enabled, preserving the existing fail-closed UI.
+Unexpected asynchronous routing failures are sanitized and counted as failures;
+normal navigation aborts/cleanup cannot print raw transport diagnostics. No
+browser form success or certificate/CSRF/publication predicate is substituted.
