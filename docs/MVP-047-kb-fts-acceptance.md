@@ -336,3 +336,21 @@ R05 выведен из текущего набора. Новый ID **R21**: «
 исправление устраняет повторное измерение близкой потребности, не подбирает вопросы
 для роста процента. Это по-прежнему только SYNTHETIC ONLY. Второй/CI прогон на
 точном commit текущей версии и полный eight-job результат фиксируются в Draft PR.
+
+## Exact-HEAD delivery evidence
+
+[Draft PR #60](https://github.com/h1roshigoto/akbrizcase/pull/60) содержит актуальный
+final HEAD, таблицу восьми jobs и ссылки на фактические run/job URLs. Начальный
+[workflow 42441607578](https://github.com/h1roshigoto/akbrizcase/actions/runs/42441607578)
+создан для implementation commit
+`1cf2cf977223b2942f0b8a77112453d15d8801c1`; последующий report-only commit не меняет
+код/корпус и получает обязательный отдельный exact-HEAD CI. Его окончательные
+conclusions публикуются в PR без дальнейшего изменения проверенного HEAD.
+Незавершённый или отменённый workflow не считается PASS.
+
+Clean exact-HEAD локальный повтор implementation commit выше:
+`dirty=false`, PostgreSQL 16.13, corpus **1.1.0**, **16/16 PASS**, полный 20+20,
+18/20 = 90%, MRR@5 0.875, negatives 20/20, ACL 0; runner **50.61 s**. UUID mapping
+разрешён заново на собственном fresh stack. В сочетании с первым 52.54 s прогоном
+это два независимых полных измерения версии 1.1.0. Синтетический score не закрывает
+внешние экспертный, правовой, staging и production gates.
