@@ -408,3 +408,18 @@ def test_synthetic_review_cannot_be_relabelled_as_real_approval(corpus: Corpus) 
     )
     with pytest.raises(CorpusRejected, match="SYNTHETIC_IS_NOT_REAL_EVIDENCE"):
         verify_decision(packet)
+
+
+@pytest.mark.parametrize("kind", ["db", "http"])
+def test_error_counters_and_fixed_denominator(corpus: Corpus, kind: str) -> None:
+    mapping, records = sample(corpus)
+    records[0] = Observation("R01", error=True, error_kind=kind)  # type: ignore[arg-type]
+    result = measure(corpus, mapping, records)
+    assert result["total_relevant"] == 20
+    assert result["hit_at_5_count"] == 19
+    assert result["miss_at_5_count"] == 1
+    assert result["total_negative"] == result["negative_safe_count"] == 20
+    assert result["negative_unsafe_count"] == 0
+    assert result[f"{kind}_error_count"] == result["query_error_count"] == 1
+    assert result["failed_query_ids"] == ["R01"]
+    assert result["technical_result"] == "FAIL"

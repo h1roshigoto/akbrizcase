@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from test_kb_import import PASSWORD, SyntheticClamAV, admin
 
@@ -220,6 +221,10 @@ def browser(prepared: Prepared) -> Iterator[TestClient]:
         app.dependency_overrides.clear()
 
 
+class ChatHTTPError(Exception):
+    pass
+
+
 def chat(
     client: TestClient,
     query: str,
@@ -228,7 +233,8 @@ def chat(
 ) -> tuple[ChatReply, dict[str, Any], dict[str, Any]]:
     if owner is None:
         response = client.post("/api/v1/chat/sessions", json={"mode": "knowledge"})
-        assert response.status_code == 201
+        if response.status_code != 201:
+            raise ChatHTTPError
         owner = response.json()
     assert owner is not None
     request = {
@@ -242,7 +248,8 @@ def chat(
         json=request,
         headers={"X-Chat-Token": owner["session_token"]},
     )
-    assert response.status_code == 200
+    if response.status_code != 200:
+        raise ChatHTTPError
     return ChatReply.model_validate(response.json()["reply"]), owner, request
 
 
@@ -255,15 +262,31 @@ def collect(
         if index % 20 == 0:
             owner = None
         # Error is an invalid observation, never a successful empty search.
-        with prepared.database.unit_of_work() as session:
-            page = KnowledgeReadService(session, PUBLIC_VIEWER).search(
-                KnowledgeQuery(q=query.text)
+        try:
+            with prepared.database.unit_of_work() as session:
+                page = KnowledgeReadService(session, PUBLIC_VIEWER).search(
+                    KnowledgeQuery(q=query.text)
+                )
+        except SQLAlchemyError:
+            observations.append(
+                Observation(query.query_id, error=True, error_kind="db")
             )
+            continue
         response = browser.get("/api/v1/knowledge/search", params={"q": query.text})
-        assert response.status_code == 200
+        if response.status_code != 200:
+            observations.append(
+                Observation(query.query_id, page, error=True, error_kind="http")
+            )
+            continue
         assert set(response.json()) == {"items", "total", "limit", "offset"}
         assert response.headers["cache-control"] == "no-store"
-        reply, owner, _ = chat(browser, query.text, owner, index % 20)
+        try:
+            reply, owner, _ = chat(browser, query.text, owner, index % 20)
+        except ChatHTTPError:
+            observations.append(
+                Observation(query.query_id, page, error=True, error_kind="http")
+            )
+            continue
         tokens.append(owner["session_token"])
         observations.append(
             Observation(
@@ -305,6 +328,9 @@ def test_complete_locked_synthetic_corpus(
     report = measure(prepared.corpus, prepared.mapping, observations)
     with prepared.database.unit_of_work() as session:
         report["postgresql_version"] = session.scalar(text("SHOW server_version"))
+        report["measured_schema_revisions"] = [
+            session.scalar(text("SELECT version_num FROM app.alembic_version"))
+        ]
     report["head_sha"] = os.environ.get("KB_ACCEPTANCE_HEAD", "UNRECORDED")
     report["dirty"] = os.environ.get("KB_ACCEPTANCE_DIRTY", "unknown")
     report["environment"] = prepared.corpus.manifest.environment.model_dump()
@@ -350,6 +376,22 @@ def test_complete_locked_synthetic_corpus(
     aggregate = {key: report[key] for key in fields}
     # Synthetic query IDs and logical keys are public fixture evidence.
     aggregate["queries"] = report["queries"]
+    for key in (
+        "total_relevant",
+        "hit_at_5_count",
+        "miss_at_5_count",
+        "total_negative",
+        "negative_safe_count",
+        "negative_unsafe_count",
+        "failed_query_ids",
+        "http_error_count",
+        "db_error_count",
+        "query_error_count",
+        "missing_result_count",
+        "measured_corpus_versions",
+        "measured_schema_revisions",
+    ):
+        aggregate[key] = report[key]
     for protected in (
         *tokens,
         PASSWORD,
@@ -584,6 +626,13 @@ def test_postgresql_failure_is_not_a_successful_empty_result(
 
     event.listen(prepared.database.engine, "before_cursor_execute", fault)
     try:
+        failed = measure(
+            prepared.corpus, prepared.mapping, collect(prepared, browser, [])
+        )
+        assert failed["db_error_count"] == len(prepared.corpus.queries)
+        assert failed["total_relevant"] == 20
+        assert failed["negative_unsafe_count"] == 20
+        assert failed["technical_result"] == "FAIL" and not failed["complete"]
         with pytest.raises(DBAPIError), prepared.database.unit_of_work() as session:
             KnowledgeReadService(session, PUBLIC_VIEWER).search(
                 KnowledgeQuery(q="учебный указатель")

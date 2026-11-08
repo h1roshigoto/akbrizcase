@@ -21,6 +21,10 @@ def emit(output, head, dirty):
         "REAL_TOP5_ACCEPTANCE", "REAL_HIT_RATE_AT_5", "REAL_NEGATIVE_SAFETY",
         "EXPERT_REVIEW", "TARGET_STAGING", "PRODUCTION_ADMISSION",
         "postgresql_version", "head_sha", "dirty", "queries",
+        "total_relevant", "hit_at_5_count", "miss_at_5_count", "total_negative",
+        "negative_safe_count", "negative_unsafe_count", "failed_query_ids",
+        "http_error_count", "db_error_count", "query_error_count",
+        "missing_result_count", "measured_corpus_versions", "measured_schema_revisions",
     }
     query_fields = {
         "query_id", "group", "subclass", "expected_section_count", "total",

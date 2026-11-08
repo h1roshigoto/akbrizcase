@@ -273,7 +273,7 @@ Timeouts CI/DB/HTTP не увеличены. CI inventory сохраняет в�
 | Frontend typecheck/build, 219 UI tests | PASS |
 | Export API contracts / TypeScript DTO --check | PASS |
 | acceptance-guards | 51 PASS |
-| Targeted measurement unit tests | 37 PASS |
+| Targeted measurement unit tests | 39 PASS |
 | Полный backend test/lint/types | Финальный прогон ниже / в Draft PR |
 | Первый валидный PG16 corpus suite | 16 PASS, 90%, negatives 20/20 |
 | Commercial / ACL / full integration / Compose | Итоги ниже / в Draft PR; незавершённые не считаются PASS |
@@ -289,7 +289,7 @@ Timeouts CI/DB/HTTP не увеличены. CI inventory сохраняет в�
 
 | Проверка | Фактический результат |
 | --- | --- |
-| `make backend-test backend-lint backend-types` | **1046 PASS**, Ruff/format и strict Mypy PASS |
+| `make backend-test backend-lint backend-types` | **1048 PASS**, Ruff/format и strict Mypy PASS |
 | `make frontend-typecheck frontend-build`, `npm --prefix frontend test` | PASS, **219 PASS** |
 | API contracts export `--check` | PASS |
 | `make acceptance-guards` | **51 PASS** |
@@ -368,3 +368,21 @@ build context и потому не выявил его. В allowlist добав�
 Уточнение упаковки: API runtime image не содержит acceptance package. Помимо
 integration target, существующий одноразовый backup target копирует весь
 разрешённый backend context; это не production API и не новая точка доступа.
+
+
+Отчёт дополнен точными полями §9: `total_relevant`, `hit_at_5_count`,
+`miss_at_5_count`, `hit_rate_at_5`, `total_negative`, `negative_safe_count`,
+`negative_unsafe_count`, `failed_query_ids`, `http_error_count`, `db_error_count`,
+`query_error_count`, `missing_result_count`, `measured_corpus_versions` и
+`measured_schema_revisions` (настоящий SELECT из app.alembic_version).
+Сервисные/HTTP ошибки учитываются для каждого вопроса и не исключаются из
+знаменателя. Инъекция настоящего PostgreSQL division-by-zero отдельно требует
+40 DB errors / 20 relevant / FAIL, а не успешные пустые результаты.
+
+После добавления полей полный corpus run: **16 PASS**, 18/20, 20/20 safety,
+0 HTTP/DB errors, runner 51.30 s; corpus **1.1.0**, SHA неизменён. Measurement
+units: **39 PASS**. Packaging исправлен настоящей сборкой context; следующий
+[workflow 42441796251](https://github.com/h1roshigoto/akbrizcase/actions/runs/42441796251)
+подтвердил сборку и ряд jobs, но superseded последним изменением отчётности и
+не заменяет полный exact-HEAD прогон. Актуальный окончательный run/job URLs —
+в таблице [PR #60](https://github.com/h1roshigoto/akbrizcase/pull/60).

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from fractions import Fraction
+from typing import Literal
 from uuid import UUID
 
 from app.modules.chat.diagnosis import HANDOFF_TEXT
@@ -35,6 +36,7 @@ class Observation:
     reply: ChatReply | None = None
     error: bool = False
     http_matches: bool = True
+    error_kind: Literal["db", "http"] | None = None
 
 
 def check_mapping(corpus: Corpus, mapping: dict[str, Binding]) -> None:
@@ -142,6 +144,7 @@ def measure(
         valid = bool(
             found
             and not found.error
+            and found.error_kind is None
             and found.http_matches
             and found.page is not None
             and found.reply is not None
@@ -252,10 +255,14 @@ def measure(
         "sections_sha256": corpus.manifest.sections_sha256,
         "corpus_status": corpus.manifest.status,
         "relevant_count": denominator,
+        "total_relevant": denominator,
         "negative_count": negative_count,
+        "total_negative": negative_count,
         "expected_section_count": sum(len(q.expected_sections) for q in corpus.queries),
         "hits": hits,
+        "hit_at_5_count": hits,
         "misses": denominator - hits,
+        "miss_at_5_count": denominator - hits,
         "hit_rate_at_5": float(Fraction(hits, denominator)),
         "SYNTHETIC_HIT_RATE_AT_5": float(Fraction(hits, denominator))
         if corpus.manifest.status == "synthetic"
@@ -263,6 +270,26 @@ def measure(
         "minimum_hits": (4 * denominator + 4) // 5,
         "mrr_at_5": float(reciprocal / denominator),
         "negative_passed": negatives,
+        "negative_safe_count": negatives,
+        "negative_unsafe_count": negative_count - negatives,
+        "failed_query_ids": [
+            row["query_id"]
+            for row in rows
+            if not row["execution_valid"]
+            or row["hit_at_5"] == 0
+            or (row["group"] != "relevant" and not row["safe"])
+        ],
+        "http_error_count": sum(
+            o.error_kind == "http" or not o.http_matches for o in observations
+        ),
+        "db_error_count": sum(o.error_kind == "db" for o in observations),
+        "query_error_count": sum(
+            o.error or o.error_kind is not None for o in observations
+        ),
+        "missing_result_count": len({q.query_id for q in corpus.queries} - set(by_id)),
+        "measured_corpus_versions": [
+            {"version": corpus.manifest.corpus_version, "sha256": corpus.checksum}
+        ],
         "acl_incidents": acl_incidents,
         "complete": complete,
         "faults": sorted(set(faults)),

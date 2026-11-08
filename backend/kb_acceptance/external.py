@@ -247,6 +247,11 @@ def run_external(packet_path: Path, report_path: Path) -> dict[str, object]:
                 report.update(
                     {
                         "postgresql_version": version,
+                        "measured_schema_revisions": [
+                            session.scalar(
+                                text("SELECT version_num FROM app.alembic_version")
+                            )
+                        ],
                         "REAL_EXPERT_CORPUS": "APPROVED",
                         "REAL_TOP5_ACCEPTANCE": report["technical_result"],
                         "REAL_HIT_RATE_AT_5": report["hit_rate_at_5"],
