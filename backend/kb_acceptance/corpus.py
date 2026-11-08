@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -154,6 +155,7 @@ def validate(manifest_data: bytes, queries_data: bytes, sections_data: bytes) ->
         for values in (
             [q.query_id for q in queries],
             [" ".join(q.text.casefold().split()) for q in queries],
+            [tuple(sorted(re.findall(r"[^\W_]+", q.text.casefold()))) for q in queries],
             [s.key for s in sections],
             [(s.document_key, s.version, s.section_key) for s in sections],
             [(d.key, d.version) for d in manifest.documents],

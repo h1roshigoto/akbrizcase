@@ -2,13 +2,13 @@
   "format": "kb-acceptance",
   "format_version": 1,
   "corpus_id": "mvp047-synthetic",
-  "corpus_version": "1.0.0",
+  "corpus_version": "1.1.0",
   "status": "synthetic",
   "label": "SYNTHETIC ONLY",
   "locked": true,
-  "previous_corpus_sha256": null,
-  "revision_reason": "Initial locked corpus before any FTS measurement; hand-authored judgements.",
-  "queries_sha256": "8f86f13f9d5b8e68388ed73d635f4a19a9314e413b9dc130aeb69e394596c46a",
+  "previous_corpus_sha256": "0ff0a4340c785a16fbb869361e748c8106f2e03382e83c6a169062c765686b7b",
+  "revision_reason": "Measurement validity correction: R05 and R12 reused the same word bag. Preserve v1.0.0 at commit 89cd7e2; retire R05 and lock new R21 before its first measurement. No source/ranking changes or score-based query selection.",
+  "queries_sha256": "6bacd2ef6c6260aa3c7e61fe781f3395ce6b1d97b641c487a3f2d5e36e57c747",
   "sections_sha256": "73c588e0ec5ac4544ce7becd119f68d7bc089551196a79d378125e2829e247ae",
   "documents": [
     {

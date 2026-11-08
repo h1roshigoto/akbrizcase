@@ -212,6 +212,7 @@ def test_safe_negative_quote_need_not_have_zero_total(corpus: Corpus) -> None:
         "missing",
         "duplicate_id",
         "duplicate_text",
+        "duplicate_permutation",
         "unknown_section",
         "wrong_version",
         "wrong_document",
@@ -230,6 +231,8 @@ def test_corrupt_corpus_rejected(corpus: Corpus, fault: str) -> None:
         queries[1]["query_id"] = queries[0]["query_id"]
     elif fault == "duplicate_text":
         queries[1]["text"] = "  " + str(queries[0]["text"]).upper() + " "
+    elif fault == "duplicate_permutation":
+        queries[1]["text"] = " ".join(reversed(str(queries[0]["text"]).split()))
     elif fault == "unknown_section":
         queries[0]["expected_sections"] = ["unknown"]
     elif fault == "wrong_version":

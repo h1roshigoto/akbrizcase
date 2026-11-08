@@ -51,19 +51,19 @@ target staging не используются; merge/deploy и MVP-048/049/050 н
 
 ## Формат, блокировка и воспроизведение
 
-`backend/tests/fixtures/kb_acceptance/` содержит original locked corpus **1.0.0**:
+`backend/tests/fixtures/kb_acceptance/` содержит текущий locked corpus **1.1.0**:
 20 relevant, 14 irrelevant, 6 unsafe; 35 разделов, 12 редакций 11 документов.
 Все материалы написаны для этого теста, не описывают настоящие модели и имеют
 маркировку **SYNTHETIC ONLY**. Контрольные права, эксперт и review существуют
 исключительно как явно синтетические fixtures; реальные согласования отсутствуют.
 
-Manifest SHA-256: `0ff0a4340c785a16fbb869361e748c8106f2e03382e83c6a169062c765686b7b`.
-Questions + ожидаемые ответы SHA-256: `8f86f13f9d5b8e68388ed73d635f4a19a9314e413b9dc130aeb69e394596c46a`.
+Manifest SHA-256: `903071740ae8518e36ae051115dfed99beb1cbd3a49f6a24be4541f1790d797d`.
+Questions + ожидаемые ответы SHA-256: `6bacd2ef6c6260aa3c7e61fe781f3395ce6b1d97b641c487a3f2d5e36e57c747`.
 Sections SHA-256: `73c588e0ec5ac4544ce7becd119f68d7bc089551196a79d378125e2829e247ae`.
 
 `manifest.sha256` закрепляет точные UTF-8 bytes manifest; manifest закрепляет
 точные bytes queries/sections и каждого исходного `.txt`. Проверка отклоняет
-неполный набор, повторные JSON keys/query IDs/нормализованные вопросы, неизвестные
+неполный набор, повторные JSON keys/query IDs/нормализованные вопросы и перестановки одного word bag, неизвестные
 или запрещённые expected keys, неправильный document/version mapping, несвежие
 checksums и отсутствие synthetic labels. `content/docs.yaml` остаётся техническим
 индексом, не разрешением публикации; закрытый корпус туда не добавляется.
@@ -103,7 +103,7 @@ minimum hits = ceil(4n/5); 16/20 PASS, 15/20 FAIL, 16/21 FAIL. MRR@5 — тол�
 дополнительная диагностическая метрика. Ни rank, ни HitRate не являются
 вероятностью/уверенностью ответа и не включаются в DTO.
 
-Первый полный валидный локальный прогон: **18 hits, 2 misses, 90%, MRR@5 0.875**;
+Полный локальный прогон текущей версии 1.1.0: **18 hits, 2 misses, 90%, MRR@5 0.875**;
 ожидаемых привязок relevant вопросов — **21** (R11 имеет два допустимых раздела).
 20/20 negative safe, 0 ACL incidents; 16 интеграционных cases PASS, без skip.
 Один case выполняет все 40 вопросов, а не один случай вместо полного корпуса.
@@ -114,7 +114,7 @@ minimum hits = ceil(4n/5); 16/20 PASS, 15/20 FAIL, 16/21 FAIL. MRR@5 — тол�
 | R02 | relevant / wordform | filters | 1 / 1 | PASS |
 | R03 | relevant / plural | passport | 1 / 1 | PASS |
 | R04 | relevant / declension | passport | 1 / 1 | PASS |
-| R05 | relevant / word-order | journal | 1 / 1 | PASS |
+| R21 | relevant / word-order | journal | 1 / 1 | PASS |
 | R06 | relevant / short | humidity | 1 / 1 | PASS |
 | R07 | relevant / natural | passport | — / 0 | PASS |
 | R08 | relevant / title | receipt | 1 / 1 | PASS |
@@ -155,9 +155,9 @@ R07 — естественный вопрос с дополнительными 
 все слова. R20 — «шильдик» не введён в словарь, размеченный «бирка» не находится.
 Эти два промаха сохраняются в знаменателе. Возможные будущие улучшения: отдельно
 экспертно утвердить предметный словарь/границы и заголовок, затем новая версия
-manifest с previous digest, revision_reason и новым внешним review. В этой работе
-не менялись вопросы, заголовки, словарь, rank или отбор после измерения; дельта
-качества корпуса не заявляется.
+manifest с previous digest, revision_reason и новым внешним review. Заголовки, словарь, rank и отбор не менялись. Единственное исправление
+набора вопросов связано с обнаруженным дублированием поисковой потребности,
+описано ниже и не основано на успешности нового запроса.
 
 R19 находит правильный раздел по полному тексту, но термин находится после
 600 символов. Hit@5 засчитывается по точному определению; это **не доказательство
@@ -273,7 +273,7 @@ Timeouts CI/DB/HTTP не увеличены. CI inventory сохраняет в�
 | Frontend typecheck/build, 219 UI tests | PASS |
 | Export API contracts / TypeScript DTO --check | PASS |
 | acceptance-guards | 51 PASS |
-| Targeted measurement unit tests | 36 PASS |
+| Targeted measurement unit tests | 37 PASS |
 | Полный backend test/lint/types | Финальный прогон ниже / в Draft PR |
 | Первый валидный PG16 corpus suite | 16 PASS, 90%, negatives 20/20 |
 | Commercial / ACL / full integration / Compose | Итоги ниже / в Draft PR; незавершённые не считаются PASS |
@@ -289,11 +289,11 @@ Timeouts CI/DB/HTTP не увеличены. CI inventory сохраняет в�
 
 | Проверка | Фактический результат |
 | --- | --- |
-| `make backend-test backend-lint backend-types` | **1045 PASS**, Ruff/format и strict Mypy PASS |
+| `make backend-test backend-lint backend-types` | **1046 PASS**, Ruff/format и strict Mypy PASS |
 | `make frontend-typecheck frontend-build`, `npm --prefix frontend test` | PASS, **219 PASS** |
 | API contracts export `--check` | PASS |
 | `make acceptance-guards` | **51 PASS** |
-| Два независимых полных свежих `make kb-acceptance` | **16/16 PASS** каждый, 18/20 = 90%, negatives 20/20, ACL 0; 41.37 s / 54.59 s runner |
+| Два независимых полных свежих `make kb-acceptance` версии 1.0.0 (до ручного обнаружения дубля) | **16/16 PASS** каждый, 18/20 = 90%, negatives 20/20, ACL 0; 41.37 s / 54.59 s runner |
 | Последний corpus run с private-log/aggregate scan и DB UUID mapping guards | PASS; initial implementation HEAD + dirty=true явно отражены, exact PR HEAD проверяется отдельно CI |
 | `make commercial-regression` | **64 PASS**, 99.35 s runner |
 | `make acl-publication-regression` повтор | **BLOCKED ENOSPC**, 10 PASS / 55 ERROR; не PASS |
@@ -307,3 +307,32 @@ SyntheticStack cleanup. Сохранились все synthetic volumes. Cache r
 только к созданным этой задачей build layers, не к данным. Все полные регрессии
 остаются обязательными в стандартных GitHub Actions; локальные ограничения не
 служат основанием пропускать их или повышать timeout.
+
+
+## Исправление валидности корпуса 1.0.0 → 1.1.0
+
+В финальной ручной проверке выявлено: R05 «наблюдений журнал» и R12 «журнал
+наблюдений» используют один набор слов и близкую потребность. Автоматический
+валидатор 1.0.0 проверял нормализованный порядок слов, но не их перестановку.
+Первоначальные 90% **не считаются окончательной приёмкой**: выявлен дефект
+измерительной валидности P2, исправленный в этом PR.
+
+Исходный полный корпус/результат сохранены в Git commit
+`89cd7e231da5a60825be6130bebe48ecfb228ae6`, manifest
+`0ff0a4340c785a16fbb869361e748c8106f2e03382e83c6a169062c765686b7b`.
+`git show 89cd7e2:backend/tests/fixtures/kb_acceptance/manifest.json` восстанавливает
+его точные bytes. Новый manifest **1.1.0** содержит `previous_corpus_sha256`
+и причину изменения; checksums источников/sections не менялись.
+
+R05 выведен из текущего набора. Новый ID **R21**: «индикации описание», отдельная
+потребность о поле описания видимой индикации в записи журнала. Он закреплён
+в manifest **до своего первого FTS измерения**. Теперь валидатор также отклоняет
+одинаковый word bag при перестановке слов; отдельный отрицательный unit test
+это проверяет. Семантическую уникальность всё равно обязан проверять эксперт.
+
+Первый полный свежий прогон 1.1.0: **16/16 cases PASS, 18/20 = 90%,
+20/20 negatives, 0 ACL incidents**, MRR@5 0.875, runner 52.54 s. R21 — позиция 1,
+всего 3 разрешённых совпадения. Промахи R07/R20 сохранены. Дельта HitRate — **0**;
+исправление устраняет повторное измерение близкой потребности, не подбирает вопросы
+для роста процента. Это по-прежнему только SYNTHETIC ONLY. Второй/CI прогон на
+точном commit текущей версии и полный eight-job результат фиксируются в Draft PR.

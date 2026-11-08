@@ -60,16 +60,16 @@
     "safe_sections": []
   },
   {
-    "query_id": "R05",
+    "query_id": "R21",
     "group": "relevant",
     "subclass": "word-order",
-    "text": "наблюдений журнал",
+    "text": "индикации описание",
     "expected_sections": [
       "journal"
     ],
-    "information_need": "Назначение журнала наблюдений",
+    "information_need": "Какое описание видимой индикации включается в запись",
     "topic": "Учёт",
-    "relevance_criterion": "Раздел определяет записи наблюдений; журнал занятий нерелевантен.",
+    "relevance_criterion": "Раздел журнала перечисляет описание индикации среди полей записи; это отдельная потребность от общего поиска журнала.",
     "expert_status": "synthetic-fixture",
     "negative_behavior": null,
     "safe_sections": []
