@@ -386,3 +386,28 @@ units: **39 PASS**. Packaging исправлен настоящей сборко
 подтвердил сборку и ряд jobs, но superseded последним изменением отчётности и
 не заменяет полный exact-HEAD прогон. Актуальный окончательный run/job URLs —
 в таблице [PR #60](https://github.com/h1roshigoto/akbrizcase/pull/60).
+
+Последующий exact-HEAD
+[workflow 42442016852](https://github.com/h1roshigoto/akbrizcase/actions/runs/42442016852)
+на `a2da814c6c0e0d385b358fe6b7645e20b1d9dd23`: **7 jobs SUCCESS, PG job FAIL**.
+Backend 1048, frontend 219, Compose, оба linked browser E2E, backup/restore,
+release/operator rehearsals прошли. Каждый browser run подтвердил все 15
+checkpoints и тот же HEAD. В PG job прошли clean upgrade, core (955 outcomes,
+включая прежние отдельные skips), images 58, lifecycle 43, applicability 75,
+trees 136, chat 174, HTTP security 11, commercial 64, ACL/publication 65 и files 119.
+
+Отказ нового suite произошёл **после успешного exit pytest**, в строгом
+`record_verbose`: `--capture=tee-sys` выводил JSON посередине строки текущего
+verbose test ID, поэтому число разобранных ID не совпало с summary. Этот run
+не считается PASS, даже при успешном pytest. Исправлен только capture:
+`-rP --show-capture=stdout` сохраняет обычные ID/outcome строки и выводит закрытый
+synthetic aggregate после завершения cases; captured runtime logs не печатаются.
+Строгая сверка inventory не ослаблена. CI timeout остался 20 минут; отказ не был
+превышением лимита.
+
+Локальный повтор с **реальным `CI_INVENTORY_DIR`**: runner **57.81 s, PASS**;
+`db-kb-acceptance.json` содержит ровно **16 PASSED identities**, отдельный
+`kb047-aggregate.json` — все 40 вопросов, 18 hits, 20 safe negatives, 0 HTTP/DB errors,
+правильный manifest digest. Это воспроизводит ранее не проверявшийся CI inventory
+path, а не заменяет его отсутствием переменной. Новый полный exact-HEAD workflow
+обязан подтвердить все восемь jobs; final HEAD/conclusions/URLs остаются в PR.

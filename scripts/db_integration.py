@@ -230,7 +230,10 @@ def run(
                         "-p",
                         "no:cacheprovider",
                         "-v",
-                        *(["--capture=tee-sys"] if suite == "kb-acceptance" else []),
+                        # Keep each verbose ID/outcome on one line for the
+                        # strict CI inventory. Show only captured stdout after
+                        # completion; live tee output splits the current ID.
+                        *(["-rP", "--show-capture=stdout"] if suite == "kb-acceptance" else []),
                         *(test_paths if test_paths is not None else SUITES[suite]),
                     )
             else:
