@@ -277,6 +277,7 @@ jobs:
     timeout-minutes: 20
     env:
       COMMERCIAL_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      KB_ACCEPTANCE_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -290,7 +291,7 @@ jobs:
           echo "CI_INVENTORY_DIR=$RUNNER_TEMP/tech001-inventory" >> "$GITHUB_ENV"
           cp .env.example .env
           make init-secrets
-      - name: Full PG16 suites including MVP-044, MVP-045 ACL/publication and real files
+      - name: Full PG16 suites including locked MVP-047 corpus, ACL/publication and real files
         run: make integration-ci
       - name: Recover interrupted test stack
         if: always()

@@ -39,7 +39,8 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
     uv sync --locked --no-install-project
 COPY tests ./tests
-RUN chmod -R a+rX /app/tests
+COPY kb_acceptance ./kb_acceptance
+RUN chmod -R a+rX /app/tests /app/kb_acceptance
 USER 10001:10001
 CMD ["python", "-m", "pytest", "-m", "integration", "-p", "no:cacheprovider", "-v"]
 

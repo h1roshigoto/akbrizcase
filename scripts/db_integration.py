@@ -19,10 +19,12 @@ from pathlib import Path
 from ci_inventory import record_verbose
 from ci_suites import command, measure, parallel
 from commercial_result import emit as commercial_result
+from kb_acceptance_result import emit as kb_acceptance_result
 from synthetic_stack import SyntheticStack, isolated_environment
 
 LABEL = "com.akbrizcase.db-integration"
 SUITES = {
+    "kb-acceptance": ["tests/integration/test_kb_acceptance.py"],
     "acl-publication-regression": [
         "tests/integration/test_acl_publication_regression.py",
     ],
@@ -121,6 +123,16 @@ def run(
             os.environ if environment is None else environment
         )
         environment["DB_TEST_SECRETS_DIR"] = temporary
+        source_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+        source_dirty = bool(subprocess.check_output(
+            ["git", "status", "--porcelain"], text=True
+        ).strip())
+        if suite == "kb-acceptance" and (
+            expected_head := environment.get("KB_ACCEPTANCE_EXPECTED_HEAD")
+        ) and (source_head != expected_head or source_dirty):
+            raise RuntimeError("MVP-047 requires a clean exact expected HEAD")
         prefix = [
             "docker",
             "compose",
@@ -164,6 +176,8 @@ def run(
                     ).strip()
                 )
                 commercial_result(result.stdout, head, dirty=dirty)
+            if args[0] == "run" and suite == "kb-acceptance":
+                kb_acceptance_result(result.stdout, source_head, source_dirty)
             return result.stdout or ""
 
         stack = SyntheticStack(project, compose, environment)
@@ -199,6 +213,14 @@ def run(
                     compose(
                         "run",
                         "--rm",
+                        *(
+                            [
+                                "-e",
+                                "KB_ACCEPTANCE_HEAD=" + source_head,
+                                "-e",
+                                "KB_ACCEPTANCE_DIRTY=" + str(source_dirty).lower(),
+                            ] if suite == "kb-acceptance" else []
+                        ),
                         "tests",
                         "python",
                         "-m",
@@ -208,6 +230,7 @@ def run(
                         "-p",
                         "no:cacheprovider",
                         "-v",
+                        *(["--capture=tee-sys"] if suite == "kb-acceptance" else []),
                         *(test_paths if test_paths is not None else SUITES[suite]),
                     )
             else:
@@ -277,6 +300,7 @@ def main() -> None:
                 "http-security",
                 "commercial-regression",
                 "acl-publication-regression",
+                "kb-acceptance",
             )
         )
         parallel(checks)
