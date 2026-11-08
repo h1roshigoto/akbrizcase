@@ -354,3 +354,17 @@ Clean exact-HEAD локальный повтор implementation commit выше:
 разрешён заново на собственном fresh stack. В сочетании с первым 52.54 s прогоном
 это два независимых полных измерения версии 1.1.0. Синтетический score не закрывает
 внешние экспертный, правовой, staging и production gates.
+
+Первый actual exact-HEAD CI
+[42441647350](https://github.com/h1roshigoto/akbrizcase/actions/runs/42441647350)
+на `e3885d454b9299c054ad2cab5269341cd3eb3a91` завершился отказом сборки нового
+integration package: `backend/.dockerignore` использовал deny-all allowlist и
+не включал `kb_acceptance`. DB suite не запускался; operator job отказал на той
+же сборке. Это P2 packaging defect, не PASS. Local bind mount раньше обходил
+build context и потому не выявил его. В allowlist добавлен ровно пакет с
+исключением pycache/pyc. Отдельная настоящая Docker COPY-сборка этого context
+прошла, затем полный стандартный CI повторяется на новом exact HEAD.
+
+Уточнение упаковки: API runtime image не содержит acceptance package. Помимо
+integration target, существующий одноразовый backup target копирует весь
+разрешённый backend context; это не production API и не новая точка доступа.
