@@ -126,6 +126,39 @@ def read_packet(path, head):
     return packet, hashlib.sha256(raw).hexdigest()
 
 
+def check_topology(services, project, networks):
+    expected = {
+        "api": {project + "_web", project + "_data"},
+        "worker": {project + "_data"},
+        "postgres": {project + "_data"},
+        "nginx": {project + "_web", project + "_ingress"},
+    }
+    for name, names in expected.items():
+        detail = services[name]
+        if set(detail["NetworkSettings"]["Networks"]) != names:
+            raise ValueError("TARGET_NETWORK_TOPOLOGY_BLOCKED")
+        for network in names:
+            actual = networks[network]
+            if (actual.get("Labels") or {}).get(
+                "com.docker.compose.project"
+            ) != project:
+                raise ValueError("TARGET_NETWORK_OWNER_BLOCKED")
+            if actual["Internal"] != (network != project + "_ingress"):
+                raise ValueError("TARGET_NETWORK_ISOLATION_BLOCKED")
+    for service in ("api", "worker"):
+        mounts = [
+            m
+            for m in services[service]["Mounts"]
+            if m["Destination"] == "/var/lib/akbrizcase/files"
+        ]
+        if (
+            len(mounts) != 1
+            or mounts[0]["Type"] != "volume"
+            or mounts[0]["Name"] != project + "_app_files"
+        ):
+            raise ValueError("TARGET_FILES_VOLUME_BLOCKED")
+
+
 def attach(path, *, head):
     packet, digest = read_packet(path, head)
     environment = isolated_environment(os.environ)
@@ -166,6 +199,11 @@ def attach(path, *, head):
         if len(ids) != 1:
             raise ValueError("TARGET_SERVICES_BLOCKED")
         services[name] = json.loads(docker("inspect", ids[0]))[0]
+    networks = {
+        name: json.loads(docker("network", "inspect", name))[0]
+        for name in (project + "_web", project + "_data", project + "_ingress")
+    }
+    check_topology(services, project, networks)
     if not all(services[s]["State"]["Running"] for s in ("api", "nginx", "postgres")):
         raise ValueError("TARGET_SERVICES_BLOCKED")
     if services["worker"]["State"]["Running"]:

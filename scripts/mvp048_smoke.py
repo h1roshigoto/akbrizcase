@@ -699,6 +699,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
                 )
             complete = True
     finally:
+        failure_in_flight = sys.exc_info()[0] is not None
         cleanup_ok = True
         if resources.thread.ident is not None:
             try:
@@ -734,8 +735,9 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             raise ValueError("MVP048_SOURCE_CHANGED_DURING_RUN")
         publish(result, samples, OPTIONS.report_dir, head)
         print("MVP048_STAGE complete=" + str(complete).lower(), flush=True)
-        if result["gates"]["SYNTHETIC_SMOKE"] != "PASS" or (
-            target and result["gates"]["TARGET_LOAD"] != "PASS"
+        if not failure_in_flight and (
+            result["gates"]["SYNTHETIC_SMOKE"] != "PASS"
+            or (target and result["gates"]["TARGET_LOAD"] != "PASS")
         ):
             raise ValueError("MVP048_EVIDENCE_NOT_PASS")
 
