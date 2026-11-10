@@ -26,6 +26,7 @@ from app.core.staff import authenticate_operator
 from app.core.staff_models import StaffSession, StaffUser
 from app.core.staff_sessions import token_hash
 from app.main import app
+from app.modules.chat.mode_router import mode_buttons, specialist
 from app.modules.kb.access import PUBLIC_VIEWER
 from app.modules.kb.draft_service import (
     DraftDocument,
@@ -39,11 +40,18 @@ from app.modules.kb.lifecycle_service import LifecycleService
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 from app.modules.kb.read_service import KnowledgeReadService, SourceNotFound, source_ref
 from app.modules.kb.router import file_pipeline
-from app.schemas.chat import ChatReply
+from app.schemas.chat import ChatReply, OpenDocumentAction
 from app.schemas.sources import KnowledgeHit, KnowledgePage, KnowledgeQuery
 from kb_acceptance.corpus import Corpus, CorpusRejected, load_synthetic
 from kb_acceptance.external import Link, existing_mapping
-from kb_acceptance.measure import Binding, Observation, measure, verify_public_source
+from kb_acceptance.measure import (
+    NO_MATCH,
+    Binding,
+    Observation,
+    measure,
+    quoted_text,
+    verify_public_source,
+)
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[1] / "fixtures" / "kb_acceptance"
@@ -528,6 +536,24 @@ def test_staff_session_loss_and_public_chat(
     assert chat(browser, params["q"])[0].resolution == "no_match"
 
 
+def measurement_reply(page: KnowledgePage) -> ChatReply:
+    """A consistent response for measurement fault injection, not FTS evidence."""
+    return ChatReply(
+        mode="knowledge",
+        text=quoted_text(page) if page.items else NO_MATCH,
+        buttons=mode_buttons(),
+        sources=[hit.source for hit in page.items],
+        items=[],
+        actions=[
+            OpenDocumentAction(type="open_document", payload=hit.source)
+            for hit in page.items
+        ]
+        if page.items
+        else [specialist()],
+        resolution="results" if page.items else "no_match",
+    )
+
+
 @pytest.fixture(scope="module")
 def public_competitor(
     prepared: Prepared, tmp_path_factory: pytest.TempPathFactory
@@ -582,8 +608,6 @@ def public_competitor(
 def test_external_unmapped_public_uses_snapshot_and_actual_fts_rank(
     prepared: Prepared, public_competitor: KnowledgeHit
 ) -> None:
-    from test_kb_acceptance_measurement import reply
-
     with prepared.database.unit_of_work() as session:
         session.execute(
             text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -620,9 +644,11 @@ def test_external_unmapped_public_uses_snapshot_and_actual_fts_rank(
             for q in prepared.corpus.queries
         ]
         observations = [
-            replace(o, reply=reply(o.page)) for o in observations if o.page is not None
+            replace(o, reply=measurement_reply(o.page))
+            for o in observations
+            if o.page is not None
         ]
-        observations[0] = Observation("R01", page, reply(page))
+        observations[0] = Observation("R01", page, measurement_reply(page))
         result = measure(
             prepared.corpus, prepared.mapping, observations, session=session
         )
@@ -638,8 +664,6 @@ def test_external_unmapped_public_uses_snapshot_and_actual_fts_rank(
 def test_unmapped_public_keeps_rank_relevance_and_negative_safety(
     prepared: Prepared, public_competitor: KnowledgeHit, placement: str
 ) -> None:
-    from test_kb_acceptance_measurement import reply
-
     expected = prepared.mapping["indicator"].hit
     items = {
         "before": [public_competitor, expected],
@@ -655,7 +679,7 @@ def test_unmapped_public_keeps_rank_relevance_and_negative_safety(
         result = measure(
             prepared.corpus,
             prepared.mapping,
-            [Observation(q.query_id, page, reply(page))],
+            [Observation(q.query_id, page, measurement_reply(page))],
             session=session,
         )
     rows: Any = result["queries"]
@@ -680,8 +704,6 @@ def test_unmapped_public_keeps_rank_relevance_and_negative_safety(
 def test_unmapped_forbidden_sources_count_page_and_reply_separately(
     prepared: Prepared, public_competitor: KnowledgeHit, state: str, tmp_path: Path
 ) -> None:
-    from test_kb_acceptance_measurement import reply
-
     with (
         prepared.database.unit_of_work() as session,
         session.begin_nested() as transaction,
@@ -755,7 +777,7 @@ def test_unmapped_forbidden_sources_count_page_and_reply_separately(
             observation = Observation(
                 "R01",
                 page if channel != "reply" else empty_page,
-                reply(page if channel != "page" else empty_page),
+                measurement_reply(page if channel != "page" else empty_page),
             )
             result = measure(
                 prepared.corpus, prepared.mapping, [observation], session=session
@@ -785,8 +807,6 @@ def test_unmapped_forbidden_sources_count_page_and_reply_separately(
 def test_unmapped_source_binding_and_missing_evidence_fail_closed(
     prepared: Prepared, public_competitor: KnowledgeHit, fault: str
 ) -> None:
-    from test_kb_acceptance_measurement import reply
-
     hit = public_competitor
     if fault == "excerpt":
         hit = hit.model_copy(update={"excerpt": "SYNTHETIC ONLY forged"})
@@ -802,7 +822,7 @@ def test_unmapped_source_binding_and_missing_evidence_fail_closed(
             update={"source": hit.source.model_copy(update={fault: value})}
         )
     page = KnowledgePage(items=[hit], total=1, limit=5, offset=0)
-    response = reply(page)
+    response = measurement_reply(page)
     if fault == "reply_source":
         response = response.model_copy(
             update={
