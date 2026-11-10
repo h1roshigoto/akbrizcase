@@ -157,6 +157,9 @@ def run(
                 or args[0] in ("config", "ps", "exec", "run"),
                 timeout=command_timeout,
             )
+            # Validate the full corpus before saving even the test inventory.
+            if args[0] == "run" and suite == "kb-acceptance":
+                kb_acceptance_result(result.stdout, source_head, source_dirty)
             # Keep verbose node IDs intact when independent suites overlap.
             if args[0] == "run" and (
                 not environment.get("CI_INVENTORY_DIR")
@@ -176,8 +179,6 @@ def run(
                     ).strip()
                 )
                 commercial_result(result.stdout, head, dirty=dirty)
-            if args[0] == "run" and suite == "kb-acceptance":
-                kb_acceptance_result(result.stdout, source_head, source_dirty)
             return result.stdout or ""
 
         stack = SyntheticStack(project, compose, environment)

@@ -423,3 +423,68 @@ def test_error_counters_and_fixed_denominator(corpus: Corpus, kind: str) -> None
     assert result[f"{kind}_error_count"] == result["query_error_count"] == 1
     assert result["failed_query_ids"] == ["R01"]
     assert result["technical_result"] == "FAIL"
+
+
+@pytest.mark.parametrize(
+    "placement", ["before", "after", "instead", "no_match", "safe_quote"]
+)
+def test_verified_public_competitor_preserves_positions_and_query_safety(
+    corpus: Corpus, monkeypatch: pytest.MonkeyPatch, placement: str
+) -> None:
+    from unittest.mock import Mock
+
+    from sqlalchemy.orm import Session
+
+    mapping, records = sample(corpus)
+    competitor = mapping["indicator"].hit.model_copy(
+        update={
+            "source": mapping["indicator"].hit.source.model_copy(
+                update={"section_id": uuid4()}
+            )
+        }
+    )
+    monkeypatch.setattr(
+        "kb_acceptance.measure.verify_public_source", lambda *_: "allowed"
+    )
+    index = 20 if placement == "no_match" else 39 if placement == "safe_quote" else 0
+    expected = mapping["safety" if placement == "safe_quote" else "indicator"].hit
+    items = (
+        [competitor, expected]
+        if placement == "before"
+        else [expected, competitor]
+        if placement in {"after", "safe_quote"}
+        else [competitor]
+    )
+    page = KnowledgePage(items=items, total=len(items), limit=5, offset=0)
+    records[index] = Observation(records[index].query_id, page, reply(page))
+    result = measure(corpus, mapping, records, session=Mock(spec=Session))
+    rows = result["queries"]
+    assert isinstance(rows, list)
+    row = rows[index]
+    assert row["execution_valid"] and result["acl_incidents"] == 0
+    if index == 0:
+        assert result["technical_result"] == "PASS"
+        rank = {"before": 2, "after": 1, "instead": None}[placement]
+        assert row["first_relevant_position"] == rank
+        assert row["hit_at_5"] == int(rank is not None)
+        assert result["hits"] == (19 if rank is None else 20)
+        assert result["mrr_at_5"] == (19 + (1 / rank if rank else 0)) / 20
+    else:
+        assert result["technical_result"] == "FAIL"
+        assert not row["safe"] and result["negative_passed"] == 19
+
+
+def test_unknown_source_without_independent_evidence_fails_closed(
+    corpus: Corpus,
+) -> None:
+    mapping, records = sample(corpus)
+    hit = mapping["indicator"].hit
+    hit = hit.model_copy(
+        update={"source": hit.source.model_copy(update={"section_id": uuid4()})}
+    )
+    page = KnowledgePage(items=[hit], total=1, limit=5, offset=0)
+    records[0] = Observation("R01", page, reply(page))
+    result = measure(corpus, mapping, records)
+    assert result["technical_result"] == "FAIL" and result["acl_incidents"] == 0
+    faults = result["faults"]
+    assert isinstance(faults, list) and "SOURCE_UNVERIFIED" in faults
