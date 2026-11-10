@@ -332,7 +332,9 @@ def emit(output, head, dirty):
         raise ValueError("Invalid synthetic corpus measurement") from None
     # All validation completes before either public channel is touched.
     if directory := os.environ.get("CI_INVENTORY_DIR"):
-        path = Path(directory) / "kb047-aggregate.json"
+        root = Path(directory)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = root / "kb047-aggregate.json"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
             json.dump(result, stream, ensure_ascii=False, indent=2)

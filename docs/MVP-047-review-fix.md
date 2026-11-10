@@ -51,7 +51,8 @@ miss, но сам по себе не делает execution invalid. Для no_m
 ## Новые проверки и воспроизведение старых дефектов
 
 - scripts/test_kb_acceptance_result.py: полный валидный результат и inventory
-  permissions; восемь групп негативных проверок со subtests: агрегаты, unsafe
+  permissions, включая создание inventory directory; группы негативных
+  проверок со subtests: агрегаты, unsafe
   negative, rank, identity/schema/types, provenance/statuses, strict JSON;
   каждый отказ проверяет отсутствие stdout и файлов inventory.
 - backend/tests/test_kb_acceptance_measurement.py: public competitor до/после/

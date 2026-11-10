@@ -120,14 +120,17 @@ class CorpusEvidenceTests(unittest.TestCase):
             good = self.record(hits)
             with self.subTest(hits=hits), tempfile.TemporaryDirectory() as directory:
                 with (
-                    patch.dict(os.environ, {"CI_INVENTORY_DIR": directory}),
+                    patch.dict(
+                        os.environ,
+                        {"CI_INVENTORY_DIR": str(Path(directory) / "inventory")},
+                    ),
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
                     self.assertEqual(
                         emit("KB_ACCEPTANCE_JSON " + json.dumps(good), "a" * 40, False),
                         good,
                     )
-                path = Path(directory) / "kb047-aggregate.json"
+                path = Path(directory) / "inventory" / "kb047-aggregate.json"
                 self.assertEqual(json.loads(path.read_text()), good)
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 

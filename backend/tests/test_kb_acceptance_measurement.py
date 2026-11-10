@@ -463,12 +463,14 @@ def test_verified_public_competitor_preserves_positions_and_query_safety(
     row = rows[index]
     assert row["execution_valid"] and result["acl_incidents"] == 0
     if index == 0:
+        assert result["technical_result"] == "PASS"
         rank = {"before": 2, "after": 1, "instead": None}[placement]
         assert row["first_relevant_position"] == rank
         assert row["hit_at_5"] == int(rank is not None)
         assert result["hits"] == (19 if rank is None else 20)
         assert result["mrr_at_5"] == (19 + (1 / rank if rank else 0)) / 20
     else:
+        assert result["technical_result"] == "FAIL"
         assert not row["safe"] and result["negative_passed"] == 19
 
 
