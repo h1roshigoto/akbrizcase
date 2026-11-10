@@ -496,9 +496,17 @@ class ResourceTimeline(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             patch("sys.stdout", new_callable=io.StringIO) as output,
         ):
-            publish(result, samples, directory, HEAD, resource_samples=points)
+            publish(
+                result,
+                samples,
+                directory,
+                HEAD,
+                resource_samples=points,
+                resource_origin_ns=1,
+            )
             saved = json.loads((Path(directory) / "measurement.json").read_text())
             self.assertEqual(saved["resource_samples"], points)
+            self.assertEqual(saved["resource_origin_ns"], 1)
             self.assertNotIn("at_seconds", output.getvalue())
 
     def test_missing_reversed_sensitive_or_invalid_timepoints_rejected(self):
@@ -515,7 +523,14 @@ class ResourceTimeline(unittest.TestCase):
                 tempfile.TemporaryDirectory() as directory,
                 self.assertRaises(ValueError),
             ):
-                publish(result, samples, directory, HEAD, resource_samples=points)
+                publish(
+                    result,
+                    samples,
+                    directory,
+                    HEAD,
+                    resource_samples=points,
+                    resource_origin_ns=1,
+                )
         result["resources"]["samples"] = 2
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
             publish(
@@ -524,7 +539,46 @@ class ResourceTimeline(unittest.TestCase):
                 directory,
                 HEAD,
                 resource_samples=[{"at_seconds": 2}, {"at_seconds": 1}],
+                resource_origin_ns=1,
             )
+
+
+class DiskSource(unittest.TestCase):
+    def source(self, disk):
+        from unittest.mock import Mock
+
+        data = {
+            "disk": disk,
+            "backup": {"status": "not_configured"},
+            "runtime": {"status": "unavailable"},
+            "database": {
+                "postgres_connections": 3,
+                "outbox": {
+                    "counts": dict.fromkeys(
+                        ("pending", "sending", "failed", "sent"), 0
+                    ),
+                    "oldest_pending_seconds": None,
+                },
+            },
+            "pg_active": 1,
+            "pg_max_connections": 100,
+            "outbox_attempts": 0,
+        }
+        resource = Resources(Mock(return_value=""), Mock(), Mock(return_value=data))
+        resource.snapshot()
+        return resource.report()
+
+    def test_files_disk_uses_protected_volume_observation(self):
+        report = self.source({"status": "low", "total_bytes": 1000, "free_bytes": 10})
+        self.assertEqual(report["metrics"]["files_disk_free_bytes"]["last"], 10)
+        self.assertEqual(report["metrics"]["files_disk_total_bytes"]["last"], 1000)
+
+    def test_missing_files_disk_does_not_fall_back_to_checkout_disk(self):
+        report = self.source({"status": "unavailable"})
+        self.assertEqual(
+            report["metrics"]["files_disk_free_bytes"]["status"], "unavailable"
+        )
+        self.assertIsNone(report["metrics"]["files_disk_total_bytes"]["last"])
 
 
 if __name__ == "__main__":

@@ -310,10 +310,11 @@ def derive_gates(r):
                 if any(op["gate"] == "FAIL" for op in r["operations"].values())
                 else "INCONCLUSIVE"
             )
-            disk = r["resources"]["metrics"]["host_disk_free_bytes"]["minimum"]
-            total = r["resources"]["metrics"]["host_disk_total_bytes"]["last"]
-            if disk < 100 * 1024 * 1024 or not total or disk / total < 0.05:
-                target = "FAIL"
+            for prefix in ("host", "files"):
+                disk = r["resources"]["metrics"][prefix + "_disk_free_bytes"]["minimum"]
+                total = r["resources"]["metrics"][prefix + "_disk_total_bytes"]["last"]
+                if disk < 100 * 1024 * 1024 or not total or disk / total < 0.05:
+                    target = "FAIL"
     return {
         "SYNTHETIC_SMOKE": smoke,
         "TARGET_LOAD": target,
@@ -551,6 +552,8 @@ def validate_resources(resources):
         "host_cpu_busy_percent",
         "host_disk_total_bytes",
         "host_disk_free_bytes",
+        "files_disk_total_bytes",
+        "files_disk_free_bytes",
         "container_cpu_percent",
         "container_ram_bytes",
         "container_oom",
@@ -606,9 +609,19 @@ def private_write(path, value):
         os.fsync(stream.fileno())
 
 
-def publish(result, samples, directory, expected_head, *, resource_samples=None):
+def publish(
+    result,
+    samples,
+    directory,
+    expected_head,
+    *,
+    resource_samples=None,
+    resource_origin_ns=None,
+):
     validate_result(result, expected_head=expected_head)
     points = resource_samples if resource_samples is not None else []
+    if points:
+        number(resource_origin_ns, 1, integer=True)
     if resource_samples is not None and len(points) != result["resources"]["samples"]:
         raise ValueError("EVIDENCE_RESOURCE_COUNT_INVALID")
     previous = 0
@@ -658,7 +671,12 @@ def publish(result, samples, directory, expected_head, *, resource_samples=None)
         raise ValueError("EVIDENCE_DIRECTORY_NOT_PRIVATE")
     private_write(
         directory / "measurement.json",
-        {"result": result, "attempts": samples, "resource_samples": points},
+        {
+            "result": result,
+            "attempts": samples,
+            "resource_samples": points,
+            "resource_origin_ns": resource_origin_ns,
+        },
     )
     private_write(directory / "summary.json", result)
     print(

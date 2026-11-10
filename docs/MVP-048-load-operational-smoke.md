@@ -128,10 +128,13 @@ Only the freshly owned synthetic project can enter fault injection:
    real catalog/order HTTP return safe 503, then reconnect/readiness recover after
    restart. Committed graph totals and snapshots remain intact. Target attachment
    cannot invoke this restart or any SMTP fault injection.
-4. A sampler records host CPU/RAM/vCPU/disk, app-container CPU/RAM/OOM, PG current
+4. A sampler records host CPU/RAM/vCPU/disk, protected files-volume disk, app-container CPU/RAM/OOM, PG current
    and active connections/max_connections/pool limits, outbox counts/attempts/oldest
    pending. Measurements have extrema and availability, not fabricated zeros.
-   Private evidence also preserves closed resource samples with monotonic offsets.
+   Private evidence also preserves closed resource samples with monotonic offsets
+   and their clock origin for correlation with the HTTP ledger. Host-checkout
+   and protected files-volume disk readings remain distinct. Missing/low volume
+   observations cannot borrow a successful host-disk result.
    Collection overhead is part of this smoke; peaks between samples may be missed.
 5. `app.core.operations` authorization and protected aggregates are reused. Missing
    backup receipts/runtime sources remain unavailable/BLOCKED. Synthetic backup

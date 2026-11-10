@@ -201,6 +201,9 @@ class Resources:
             pass
         try:
             data = self.probe("report")
+            if data["disk"]["status"] in {"observed", "low"}:
+                row["files_disk_total_bytes"] = data["disk"]["total_bytes"]
+                row["files_disk_free_bytes"] = data["disk"]["free_bytes"]
             backup = data["backup"]
             self.backup_status = (
                 "synthetic"
@@ -279,6 +282,8 @@ class Resources:
             "host_cpu_busy_percent",
             "host_disk_total_bytes",
             "host_disk_free_bytes",
+            "files_disk_total_bytes",
+            "files_disk_free_bytes",
             "container_cpu_percent",
             "container_ram_bytes",
             "container_oom",
@@ -426,7 +431,13 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
         )
         return json.loads(output)
 
-    probe("report")  # Authorization before the first HTTP session/load request.
+    initial = probe("report")  # Authorization before the first HTTP load request.
+    if target and (
+        initial["disk"]["status"] != "observed"
+        or initial["backup"].get("signal") != "BACKUP_CONFIRMATION_OBSERVED"
+        or initial["runtime"]["status"] != "observed"
+    ):
+        raise ValueError("TARGET_OPERATIONAL_SOURCES_BLOCKED")
     resources = Resources(compose, stack, probe)
     outcomes = {
         key: "NOT RUN"
@@ -750,6 +761,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             OPTIONS.report_dir,
             head,
             resource_samples=resources.samples,
+            resource_origin_ns=round(resources.started_monotonic * 1e9),
         )
         print("MVP048_STAGE complete=" + str(complete).lower(), flush=True)
         if not failure_in_flight and (
