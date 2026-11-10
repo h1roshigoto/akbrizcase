@@ -5,11 +5,16 @@ from fractions import Fraction
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.modules.chat.diagnosis import HANDOFF_TEXT
 from app.modules.chat.handoff import support_handoff
 from app.modules.chat.mode_router import mode_buttons, specialist
+from app.modules.kb.models import Document, DocumentSection, DocumentVersion
+from app.modules.kb.read_service import source_ref
 from app.schemas.chat import ChatReply
-from app.schemas.sources import KnowledgeHit, KnowledgePage
+from app.schemas.sources import KnowledgeHit, KnowledgePage, SourceRef
 from kb_acceptance.corpus import Corpus, CorpusRejected
 
 QUOTE_HEADING = "Цитаты из опубликованных материалов (не диагноз):\n\n"
@@ -121,13 +126,69 @@ def reply_matches(
     )
 
 
+def verify_public_source(
+    session: Session, source: SourceRef, excerpt: str | None = None
+) -> Literal["allowed", "forbidden", "mismatch", "unverified"]:
+    """Independent database evidence, never a caller-provided UUID allowlist.
+
+    The external runner supplies its read-only REPEATABLE READ session. Join
+    through the actual section binding before comparing the claimed SourceRef.
+    Missing evidence invalidates the run but does not prove an ACL incident.
+    """
+    row = session.execute(
+        select(Document, DocumentVersion, DocumentSection)
+        .select_from(DocumentSection)
+        .join(
+            DocumentVersion, DocumentVersion.id == DocumentSection.document_version_id
+        )
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(DocumentSection.id == source.section_id)
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    if row is None:
+        return "unverified"
+    document, version, section = row
+    if (
+        document.visibility != "public"
+        or document.status != "active"
+        or version.status != "published"
+        or section.assistant_allowed is not True
+    ):
+        return "forbidden"
+    if source != source_ref(document, version, section) or (
+        excerpt is not None and excerpt != section.text[:600]
+    ):
+        return "mismatch"
+    return "allowed"
+
+
 def measure(
     corpus: Corpus,
     mapping: dict[str, Binding],
     observations: list[Observation],
+    *,
+    session: Session | None = None,
 ) -> dict[str, object]:
     check_mapping(corpus, mapping)
     ids = {b.hit.source.section_id: key for key, b in mapping.items()}
+
+    def check_source(source: SourceRef, excerpt: str | None = None) -> str:
+        key = ids.get(source.section_id)
+        if session is not None:
+            state = verify_public_source(session, source, excerpt)
+            if state != "allowed":
+                return state
+        if key is None:
+            return "allowed" if session is not None else "unverified"
+        if not corpus.admissible(key):
+            return "forbidden"
+        expected = mapping[key].hit
+        if source != expected.source or (
+            excerpt is not None and excerpt != expected.excerpt
+        ):
+            return "mismatch"
+        return "allowed"
+
     by_id: dict[str, Observation] = {}
     faults: list[str] = []
     for observation in observations:
@@ -138,6 +199,7 @@ def measure(
         faults.append("UNKNOWN_RESULT")
     rows: list[dict[str, object]] = []
     hits, negatives, acl_incidents = 0, 0, 0
+    page_acl_incidents, reply_acl_incidents = 0, 0
     reciprocal = Fraction(0)
     for q in corpus.queries:
         found = by_id.get(q.query_id)
@@ -150,7 +212,11 @@ def measure(
             and found.reply is not None
         )
         rank = None
-        returned: list[str] = []
+        # None preserves an unmapped competitor's true position without
+        # exporting its UUID or treating it as an approved negative quote.
+        returned: list[str | None] = []
+        page_acl, reply_acl = 0, 0
+        reply_valid = False
         if found and found.page is not None:
             page = found.page
             valid &= (
@@ -163,26 +229,29 @@ def measure(
             )
             for hit in page.items:
                 key = ids.get(hit.source.section_id)
-                if key is None or not corpus.admissible(key):
-                    acl_incidents += 1
+                returned.append(key)
+                state = check_source(hit.source, hit.excerpt)
+                if state != "allowed":
                     valid = False
-                elif hit != mapping[key].hit:
-                    valid = False
-                    faults.append("SOURCE_OR_EXCERPT_MISMATCH")
-                else:
-                    returned.append(key)
+                    page_acl += int(state == "forbidden")
+                    faults.append("SOURCE_" + state.upper())
             if found.reply is not None:
-                valid &= reply_matches(
+                reply_valid = reply_matches(
                     page,
                     found.reply,
                     allow_handoff=q.negative_behavior == "handoff",
                 )
-                if any(
-                    s.section_id not in ids or not corpus.admissible(ids[s.section_id])
-                    for s in found.reply.sources
-                ):
-                    acl_incidents += 1
+                valid &= reply_valid
+        if found and found.reply is not None:
+            for source in found.reply.sources:
+                state = check_source(source)
+                if state != "allowed":
+                    reply_acl += int(state == "forbidden")
                     valid = False
+                    faults.append("SOURCE_" + state.upper())
+        acl_incidents += page_acl + reply_acl
+        page_acl_incidents += page_acl
+        reply_acl_incidents += reply_acl
         if q.group == "relevant":
             rank = (
                 next(
@@ -237,6 +306,20 @@ def measure(
                 hit_at_5=hit_at_5,
                 safe=safe,
                 execution_valid=valid,
+                reply_valid=reply_valid,
+                reply_resolution=found.reply.resolution
+                if found and found.reply
+                else None,
+                http_error=bool(
+                    found and (found.error_kind == "http" or not found.http_matches)
+                ),
+                db_error=bool(found and found.error_kind == "db"),
+                query_error=bool(
+                    found and (found.error or found.error_kind is not None)
+                ),
+                result_missing=found is None,
+                page_acl_incidents=page_acl,
+                reply_acl_incidents=reply_acl,
             )
         )
     denominator = sum(q.group == "relevant" for q in corpus.queries)
@@ -291,6 +374,8 @@ def measure(
             {"version": corpus.manifest.corpus_version, "sha256": corpus.checksum}
         ],
         "acl_incidents": acl_incidents,
+        "page_acl_incidents": page_acl_incidents,
+        "reply_acl_incidents": reply_acl_incidents,
         "complete": complete,
         "faults": sorted(set(faults)),
         "technical_result": "PASS" if passed else "FAIL",

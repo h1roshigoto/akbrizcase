@@ -5,7 +5,7 @@ import json
 import os
 import secrets
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -43,7 +43,7 @@ from app.schemas.chat import ChatReply
 from app.schemas.sources import KnowledgeHit, KnowledgePage, KnowledgeQuery
 from kb_acceptance.corpus import Corpus, CorpusRejected, load_synthetic
 from kb_acceptance.external import Link, existing_mapping
-from kb_acceptance.measure import Binding, Observation, measure
+from kb_acceptance.measure import Binding, Observation, measure, verify_public_source
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[1] / "fixtures" / "kb_acceptance"
@@ -87,6 +87,59 @@ def bind(
             ),
         )
     return result
+
+
+def publish_synthetic(
+    lifecycle: LifecycleService,
+    version: DocumentVersion,
+    directory: Path,
+    *,
+    public: bool,
+) -> None:
+    preview = lifecycle.execute("preview", version.document_id)
+    entries: Any = preview.technical["versions"]
+    entry = next(e for e in entries if e["version_id"] == str(version.id))
+    evidence = directory / (uuid4().hex + ".json")
+    evidence.write_text(
+        json.dumps(
+            {
+                **{
+                    k: entry[k]
+                    for k in (
+                        "version_id",
+                        "checksum_sha256",
+                        "file_binding_sha256",
+                        "sections_sha256",
+                    )
+                },
+                "expert_name": "SYNTHETIC ONLY Expert fixture",
+                "expert_reference": "SYNTHETIC-ONLY:047:FIXTURE",
+                "expert_approved_on": datetime.now(UTC).date().isoformat(),
+                "decision": "approved",
+                "content_checked": True,
+                "full_file_public_allowed": public,
+                **(
+                    {"public_release_reference": "SYNTHETIC-ONLY:047:FILE"}
+                    if public
+                    else {}
+                ),
+            }
+        )
+    )
+    evidence.chmod(0o600)
+    assert (
+        lifecycle.execute(
+            "review",
+            version.document_id,
+            version_id=version.id,
+            evidence_path=evidence,
+        ).code
+        == "REVIEWED"
+    )
+    assert (
+        lifecycle.execute("publish", version.document_id, version_id=version.id).code
+        == "PUBLISHED"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -149,51 +202,8 @@ def prepared(
             )
             versions[spec.key, spec.version] = version.id
             if spec.version_status != "draft":
-                preview = lifecycle.execute("preview", version.document_id)
-                entries: Any = preview.technical["versions"]
-                entry = next(e for e in entries if e["version_id"] == str(version.id))
-                evidence = directory / (uuid4().hex + ".json")
-                evidence.write_text(
-                    json.dumps(
-                        {
-                            **{
-                                k: entry[k]
-                                for k in (
-                                    "version_id",
-                                    "checksum_sha256",
-                                    "file_binding_sha256",
-                                    "sections_sha256",
-                                )
-                            },
-                            "expert_name": "SYNTHETIC ONLY Expert fixture",
-                            "expert_reference": "SYNTHETIC-ONLY:047:FIXTURE",
-                            "expert_approved_on": datetime.now(UTC).date().isoformat(),
-                            "decision": "approved",
-                            "content_checked": True,
-                            "full_file_public_allowed": spec.visibility == "public",
-                            **(
-                                {"public_release_reference": "SYNTHETIC-ONLY:047:FILE"}
-                                if spec.visibility == "public"
-                                else {}
-                            ),
-                        }
-                    )
-                )
-                evidence.chmod(0o600)
-                assert (
-                    lifecycle.execute(
-                        "review",
-                        version.document_id,
-                        version_id=version.id,
-                        evidence_path=evidence,
-                    ).code
-                    == "REVIEWED"
-                )
-                assert (
-                    lifecycle.execute(
-                        "publish", version.document_id, version_id=version.id
-                    ).code
-                    == "PUBLISHED"
+                publish_synthetic(
+                    lifecycle, version, directory, public=spec.visibility == "public"
                 )
                 if spec.version_status in {"retired", "revoked"}:
                     assert lifecycle.execute(
@@ -357,6 +367,8 @@ def test_complete_locked_synthetic_corpus(
         "mrr_at_5",
         "negative_passed",
         "acl_incidents",
+        "page_acl_incidents",
+        "reply_acl_incidents",
         "complete",
         "faults",
         "technical_result",
@@ -514,6 +526,303 @@ def test_staff_session_loss_and_public_chat(
     assert result.status_code == 200 and result.json()["total"] == 0
     assert browser.get(prepared.mapping["internal"].hit.source.url).status_code == 404
     assert chat(browser, params["q"])[0].resolution == "no_match"
+
+
+@pytest.fixture(scope="module")
+def public_competitor(
+    prepared: Prepared, tmp_path_factory: pytest.TempPathFactory
+) -> KnowledgeHit:
+    """Extra DB content, outside the unchanged locked corpus and its mapping."""
+    directory = tmp_path_factory.mktemp("kb047-extra-synthetic-only")
+    with prepared.database.unit_of_work() as session:
+        actor = authenticate_operator(session, prepared.admin_login, PASSWORD)
+        assert actor is not None
+        data = "SYNTHETIC ONLY. Постороннеметка постороннеметка.".encode()
+        accepted = prepared.pipeline.accept(
+            io.BytesIO(data), filename="extra-synthetic.txt", mime="text/plain"
+        )
+        drafts = DraftEditService(session, actor)
+        version = drafts.import_draft(
+            DraftDocument(
+                "SYNTHETIC-047-EXTRA", "SYNTHETIC ONLY extra", "other", "public"
+            ),
+            1,
+            DraftFile(
+                accepted.file_key,
+                accepted.mime,
+                accepted.size_bytes,
+                accepted.checksum_sha256,
+            ),
+        )
+        drafts.reconcile_sections(
+            version.id,
+            [
+                KeyedSection(
+                    "extra",
+                    SectionContent(
+                        "SYNTHETIC ONLY extra", data.decode(), None, None, True
+                    ),
+                )
+            ],
+        )
+        lifecycle = LifecycleService(session, actor, prepared.pipeline)
+        publish_synthetic(lifecycle, version, directory, public=True)
+        document = session.get(Document, version.document_id)
+        section = session.scalar(
+            select(DocumentSection).where(
+                DocumentSection.document_version_id == version.id
+            )
+        )
+        assert document is not None and section is not None
+        return KnowledgeHit(
+            source=source_ref(document, version, section), excerpt=section.text[:600]
+        )
+
+
+def test_external_unmapped_public_uses_snapshot_and_actual_fts_rank(
+    prepared: Prepared, public_competitor: KnowledgeHit
+) -> None:
+    from test_kb_acceptance_measurement import reply
+
+    with prepared.database.unit_of_work() as session:
+        session.execute(
+            text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        )
+        assert session.scalar(text("SHOW transaction_read_only")) == "on"
+        assert session.scalar(text("SHOW transaction_isolation")) == "repeatable read"
+        reader = KnowledgeReadService(session, PUBLIC_VIEWER)
+        # Real PostgreSQL FTS, using an extra public document outside the mapping.
+        page = reader.search(KnowledgeQuery(q="постороннеметка OR индикатор"))
+        assert public_competitor in page.items
+        expected = prepared.mapping["indicator"].hit
+        assert expected in page.items
+        actual_rank = page.items.index(expected) + 1
+        # Use actual persisted bindings, keeping other outcomes valid.
+        observations = [
+            Observation(
+                q.query_id,
+                KnowledgePage(
+                    items=[
+                        prepared.mapping[k].hit
+                        for k in (
+                            (
+                                q.expected_sections
+                                if q.group == "relevant"
+                                else q.safe_sections
+                            )[:1]
+                        )
+                    ],
+                    total=int(bool(q.expected_sections or q.safe_sections)),
+                    limit=5,
+                    offset=0,
+                ),
+            )
+            for q in prepared.corpus.queries
+        ]
+        observations = [
+            replace(o, reply=reply(o.page)) for o in observations if o.page is not None
+        ]
+        observations[0] = Observation("R01", page, reply(page))
+        result = measure(
+            prepared.corpus, prepared.mapping, observations, session=session
+        )
+        assert result["technical_result"] == "PASS" and result["acl_incidents"] == 0
+        rows: Any = result["queries"]
+        assert rows[0]["first_relevant_position"] == actual_rank
+        assert result["mrr_at_5"] == (19 + 1 / actual_rank) / 20
+
+
+@pytest.mark.parametrize(
+    "placement", ["before", "after", "instead", "no_match", "safe_quote"]
+)
+def test_unmapped_public_keeps_rank_relevance_and_negative_safety(
+    prepared: Prepared, public_competitor: KnowledgeHit, placement: str
+) -> None:
+    from test_kb_acceptance_measurement import reply
+
+    expected = prepared.mapping["indicator"].hit
+    items = {
+        "before": [public_competitor, expected],
+        "after": [expected, public_competitor],
+        "instead": [public_competitor],
+        "no_match": [public_competitor],
+        "safe_quote": [prepared.mapping["safety"].hit, public_competitor],
+    }[placement]
+    index = 20 if placement == "no_match" else 39 if placement == "safe_quote" else 0
+    q = prepared.corpus.queries[index]
+    page = KnowledgePage(items=items, total=len(items), limit=5, offset=0)
+    with prepared.database.unit_of_work() as session:
+        result = measure(
+            prepared.corpus,
+            prepared.mapping,
+            [Observation(q.query_id, page, reply(page))],
+            session=session,
+        )
+    rows: Any = result["queries"]
+    row = rows[index]
+    assert row["execution_valid"] and result["acl_incidents"] == 0
+    assert (
+        len(row["returned_sections"]) == len(items) and None in row["returned_sections"]
+    )
+    if placement in {"before", "after", "instead"}:
+        rank = {"before": 2, "after": 1, "instead": None}[placement]
+        assert row["first_relevant_position"] == rank
+        assert row["hit_at_5"] == int(rank is not None)
+        assert result["mrr_at_5"] == (1 / rank / 20 if rank else 0)
+        assert row["safe"]
+    else:
+        assert not row["safe"]
+
+
+@pytest.mark.parametrize(
+    "state", ["internal", "document_revoked", "draft", "retired", "revoked", "excluded"]
+)
+def test_unmapped_forbidden_sources_count_page_and_reply_separately(
+    prepared: Prepared, public_competitor: KnowledgeHit, state: str, tmp_path: Path
+) -> None:
+    from test_kb_acceptance_measurement import reply
+
+    with (
+        prepared.database.unit_of_work() as session,
+        session.begin_nested() as transaction,
+    ):
+        actor = authenticate_operator(session, prepared.admin_login, PASSWORD)
+        assert actor is not None
+        original = session.get(
+            DocumentVersion, public_competitor.source.document_version_id
+        )
+        assert original is not None
+        drafts = DraftEditService(session, actor)
+        version = drafts.import_draft(
+            DraftDocument(
+                "SYNTHETIC-047-" + uuid4().hex,
+                "SYNTHETIC ONLY forbidden",
+                "other",
+                "internal" if state == "internal" else "public",
+            ),
+            1,
+            DraftFile(
+                original.file_key,
+                original.mime,
+                original.size_bytes,
+                original.checksum_sha256,
+            ),
+        )
+        drafts.reconcile_sections(
+            version.id,
+            [
+                KeyedSection(
+                    "extra",
+                    SectionContent(
+                        "SYNTHETIC ONLY forbidden",
+                        public_competitor.excerpt,
+                        None,
+                        None,
+                        state != "excluded",
+                    ),
+                )
+            ],
+        )
+        lifecycle = LifecycleService(session, actor, prepared.pipeline)
+        if state != "draft":
+            publish_synthetic(lifecycle, version, tmp_path, public=state != "internal")
+            if state in {"retired", "revoked", "document_revoked"}:
+                assert lifecycle.execute(
+                    "retire" if state == "retired" else "revoke",
+                    version.document_id,
+                    version_id=version.id if state != "document_revoked" else None,
+                ).ok
+        document = session.get(Document, version.document_id)
+        section = session.scalar(
+            select(DocumentSection).where(
+                DocumentSection.document_version_id == version.id
+            )
+        )
+        assert document is not None and section is not None
+        source = source_ref(document, version, section)
+        forbidden_hit = KnowledgeHit(source=source, excerpt=section.text[:600])
+        assert (
+            verify_public_source(session, source, forbidden_hit.excerpt) == "forbidden"
+        )
+        actual = KnowledgeReadService(session, PUBLIC_VIEWER).search(
+            KnowledgeQuery(q="постороннеметка")
+        )
+        assert source.section_id not in [hit.source.section_id for hit in actual.items]
+        page = KnowledgePage(items=[forbidden_hit], total=1, limit=5, offset=0)
+        # A faulty adapter returns the forbidden source on one or both channels.
+        for channel in ("page", "reply", "both"):
+            empty_page = KnowledgePage(items=[], total=0, limit=5, offset=0)
+            observation = Observation(
+                "R01",
+                page if channel != "reply" else empty_page,
+                reply(page if channel != "page" else empty_page),
+            )
+            result = measure(
+                prepared.corpus, prepared.mapping, [observation], session=session
+            )
+            assert result["page_acl_incidents"] == int(channel != "reply")
+            assert result["reply_acl_incidents"] == int(channel != "page")
+            assert result["acl_incidents"] == (2 if channel == "both" else 1)
+            rows: Any = result["queries"]
+            assert not rows[0]["execution_valid"]
+        transaction.rollback()
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "section_id",
+        "document_id",
+        "document_version_id",
+        "title",
+        "section",
+        "url",
+        "page_from",
+        "excerpt",
+        "reply_source",
+    ],
+)
+def test_unmapped_source_binding_and_missing_evidence_fail_closed(
+    prepared: Prepared, public_competitor: KnowledgeHit, fault: str
+) -> None:
+    from test_kb_acceptance_measurement import reply
+
+    hit = public_competitor
+    if fault == "excerpt":
+        hit = hit.model_copy(update={"excerpt": "SYNTHETIC ONLY forged"})
+    elif fault != "reply_source":
+        value: Any = (
+            uuid4()
+            if fault.endswith("_id")
+            else 1
+            if fault == "page_from"
+            else "forged"
+        )
+        hit = hit.model_copy(
+            update={"source": hit.source.model_copy(update={fault: value})}
+        )
+    page = KnowledgePage(items=[hit], total=1, limit=5, offset=0)
+    response = reply(page)
+    if fault == "reply_source":
+        response = response.model_copy(
+            update={
+                "sources": [
+                    public_competitor.source.model_copy(update={"document_id": uuid4()})
+                ]
+            }
+        )
+    with prepared.database.unit_of_work() as session:
+        result = measure(
+            prepared.corpus,
+            prepared.mapping,
+            [Observation("R01", page, response)],
+            session=session,
+        )
+    rows: Any = result["queries"]
+    assert not rows[0]["execution_valid"] and result["technical_result"] == "FAIL"
+    # Missing rows and fabricated bindings are failures, not evidence of a
+    # confirmed disclosure. Confirmed ACL violations have their own test above.
+    assert result["acl_incidents"] == 0
 
 
 @pytest.mark.parametrize(

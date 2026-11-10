@@ -243,7 +243,7 @@ def run_external(packet_path: Path, report_path: Path) -> dict[str, object]:
                     )
                     for q in corpus.queries
                 ]
-                report = measure(corpus, mapping, observations)
+                report = measure(corpus, mapping, observations, session=session)
                 report.update(
                     {
                         "postgresql_version": version,
