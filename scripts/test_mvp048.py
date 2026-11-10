@@ -164,6 +164,14 @@ class Measurements(unittest.TestCase):
 
 
 class Evidence(unittest.TestCase):
+    def test_saved_json_key_order_cannot_change_percentile_validity(self):
+        result, _ = evidence()
+        for operation in result["operations"].values():
+            for kind in ("success_ms", "all_attempt_ms"):
+                operation[kind] = {"p50": 1, "p95": 2, "p99": 3, "maximum": 4}
+        saved = json.loads(json.dumps(result, sort_keys=True))
+        self.assertEqual(validate_result(saved, expected_head=HEAD), saved)
+
     def test_closed_complete_synthetic_is_never_target_admission(self):
         result, _ = evidence()
         self.assertEqual(result["gates"]["SYNTHETIC_SMOKE"], "PASS")

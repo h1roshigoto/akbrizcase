@@ -473,7 +473,9 @@ def validate_result(r, *, expected_head):
             ("success_ms", op["successes"]),
         ):
             closed(op[key], {"p50", "p95", "p99", "maximum"})
-            values = list(op[key].values())
+            values = [
+                op[key][quantile] for quantile in ("p50", "p95", "p99", "maximum")
+            ]
             if count == 0:
                 if values != [None] * 4:
                     raise ValueError("EVIDENCE_SAMPLE_INVALID")
