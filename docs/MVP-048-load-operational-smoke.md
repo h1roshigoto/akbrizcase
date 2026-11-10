@@ -131,6 +131,7 @@ Only the freshly owned synthetic project can enter fault injection:
 4. A sampler records host CPU/RAM/vCPU/disk, app-container CPU/RAM/OOM, PG current
    and active connections/max_connections/pool limits, outbox counts/attempts/oldest
    pending. Measurements have extrema and availability, not fabricated zeros.
+   Private evidence also preserves closed resource samples with monotonic offsets.
    Collection overhead is part of this smoke; peaks between samples may be missed.
 5. `app.core.operations` authorization and protected aggregates are reused. Missing
    backup receipts/runtime sources remain unavailable/BLOCKED. Synthetic backup

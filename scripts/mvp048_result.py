@@ -606,8 +606,25 @@ def private_write(path, value):
         os.fsync(stream.fileno())
 
 
-def publish(result, samples, directory, expected_head):
+def publish(result, samples, directory, expected_head, *, resource_samples=None):
     validate_result(result, expected_head=expected_head)
+    points = resource_samples if resource_samples is not None else []
+    if resource_samples is not None and len(points) != result["resources"]["samples"]:
+        raise ValueError("EVIDENCE_RESOURCE_COUNT_INVALID")
+    previous = 0
+    for point in points:
+        if (
+            type(point) is not dict
+            or "at_seconds" not in point
+            or set(point) - {"at_seconds", *result["resources"]["metrics"]}
+        ):
+            raise ValueError("EVIDENCE_RESOURCE_POINT_INVALID")
+        previous = number(
+            point["at_seconds"], previous, result["profile"]["total_timeout"] + 60
+        )
+        for key, value in point.items():
+            if key != "at_seconds":
+                number(value)
     for sample in samples:
         check_sample(sample)
         if sample["client"] >= result["profile"]["clients"]:
@@ -640,7 +657,8 @@ def publish(result, samples, directory, expected_head):
     if directory.is_symlink() or directory.stat().st_mode & 0o077:
         raise ValueError("EVIDENCE_DIRECTORY_NOT_PRIVATE")
     private_write(
-        directory / "measurement.json", {"result": result, "attempts": samples}
+        directory / "measurement.json",
+        {"result": result, "attempts": samples, "resource_samples": points},
     )
     private_write(directory / "summary.json", result)
     print(

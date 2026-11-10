@@ -131,6 +131,8 @@ class Resources:
         self.samples = []
         self.thread = threading.Thread(target=self.loop, daemon=True)
         self.previous_cpu = None
+        self.started_monotonic = time.monotonic()
+        self.sample_lock = threading.Lock()
         self.backup_status = "unavailable"
         self.runtime_status = "unavailable"
 
@@ -244,7 +246,16 @@ class Resources:
                 row["oldest_pending_seconds"] = age
         except (subprocess.SubprocessError, ValueError, KeyError):
             pass
-        self.samples.append(row)
+        self.record(row)
+
+    def record(self, row):
+        with self.sample_lock:
+            self.samples.append(
+                {
+                    "at_seconds": time.monotonic() - self.started_monotonic,
+                    **{key: value for key, value in row.items() if value is not None},
+                }
+            )
 
     def loop(self):
         while not self.stopping.is_set():
@@ -682,7 +693,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             assert runtime_observed
             runtime_summary = probe("report", runtime_events=runtime_events)["runtime"]
             if runtime_summary["status"] == "observed":
-                resources.samples.append(
+                resources.record(
                     {
                         "runtime_http_requests": runtime_summary["http_requests"],
                         "runtime_http_5xx": runtime_summary["http_5xx"],
@@ -733,7 +744,13 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
         )
         if source_state() != (head, dirty):
             raise ValueError("MVP048_SOURCE_CHANGED_DURING_RUN")
-        publish(result, samples, OPTIONS.report_dir, head)
+        publish(
+            result,
+            samples,
+            OPTIONS.report_dir,
+            head,
+            resource_samples=resources.samples,
+        )
         print("MVP048_STAGE complete=" + str(complete).lower(), flush=True)
         if not failure_in_flight and (
             result["gates"]["SYNTHETIC_SMOKE"] != "PASS"

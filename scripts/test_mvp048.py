@@ -484,5 +484,48 @@ class Cleanup(unittest.TestCase):
         self.assertFalse(cleanup_sources(stack, [], [process]))
 
 
+class ResourceTimeline(unittest.TestCase):
+    def test_private_timepoints_are_closed_and_never_in_public_summary(self):
+        result, samples = evidence()
+        result["resources"]["samples"] = 2
+        points = [
+            {"at_seconds": 1.0, "pg_connections": 2},
+            {"at_seconds": 3.5, "pg_connections": 4},
+        ]
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            publish(result, samples, directory, HEAD, resource_samples=points)
+            saved = json.loads((Path(directory) / "measurement.json").read_text())
+            self.assertEqual(saved["resource_samples"], points)
+            self.assertNotIn("at_seconds", output.getvalue())
+
+    def test_missing_reversed_sensitive_or_invalid_timepoints_rejected(self):
+        result, samples = evidence()
+        result["resources"]["samples"] = 1
+        for points in (
+            [],
+            [{"at_seconds": -1}],
+            [{"at_seconds": 9999}],
+            [{"at_seconds": 1, "contact": "canary@example.invalid"}],
+            [{"at_seconds": 1, "pg_connections": float("nan")}],
+        ):
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                self.assertRaises(ValueError),
+            ):
+                publish(result, samples, directory, HEAD, resource_samples=points)
+        result["resources"]["samples"] = 2
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
+            publish(
+                result,
+                samples,
+                directory,
+                HEAD,
+                resource_samples=[{"at_seconds": 2}, {"at_seconds": 1}],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
