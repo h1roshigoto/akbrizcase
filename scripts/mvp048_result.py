@@ -7,13 +7,36 @@ import os
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
 OPERATIONS = {"button": 300, "knowledge": 800, "catalog": 800, "order": 1000}
 PHASES = {"preflight", "prepare", "warmup", "measurement", "functional"}
 STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT RUN", "INCONCLUSIVE"}
 MIN_SAMPLES = 20
-SCHEMA = "MVP048_RESULT/v1"
+SCHEMA = "MVP048_RESULT/v2"
+
+
+def checked_outage(value):
+    closed(value, {"smtp_outage", "retry_seconds", "events"})
+    if (
+        value["smtp_outage"] != "PASS"
+        or type(value["retry_seconds"]) is not int
+        or value["retry_seconds"] != 300
+    ):
+        raise ValueError("EVIDENCE_SMTP_OUTAGE_INVALID")
+    if type(value["events"]) is not list or len(value["events"]) != 1:
+        raise ValueError("EVIDENCE_SMTP_FAILURE_MISSING")
+    event = value["events"][0]
+    closed(event, {"event_code", "at", "errors"})
+    if (
+        event["event_code"] != "SMTP_FAILURE"
+        or type(event["errors"]) is not int
+        or event["errors"] != 1
+        or datetime.fromisoformat(event["at"]).tzinfo is None
+    ):
+        raise ValueError("EVIDENCE_SMTP_FAILURE_MISSING")
+    return value["events"]
 
 
 @dataclass(frozen=True)
@@ -295,6 +318,8 @@ def derive_gates(r):
             and r["resources"]["runtime"] == "observed"
             and r["resources"]["backup"] == "observed"
             and r["resources"]["disk_medium"] == "operator_attested_ssd"
+            and r["resources"]["configuration"]["sqlalchemy_pool"]["status"]
+            == "configured"
         )
         if (
             good
@@ -386,7 +411,24 @@ def validate_result(r, *, expected_head):
         or r["network"]["client_pool_observed"] != profile.clients
     ):
         raise ValueError("EVIDENCE_NETWORK_INCOMPLETE")
-    closed(r["identities"], {"backend", "frontend", "postgres", "generator", "schema"})
+    closed(
+        r["identities"],
+        {
+            "backend",
+            "frontend",
+            "postgres",
+            "generator",
+            "schema",
+            "application_revision",
+            "backend_source_tree",
+            "frontend_source_tree",
+        },
+    )
+    if r["identities"]["application_revision"] != r["head"]:
+        raise ValueError("EVIDENCE_IMAGE_HEAD_INVALID")
+    for key in ("backend_source_tree", "frontend_source_tree"):
+        if not re.fullmatch("[0-9a-f]{40}", r["identities"][key]):
+            raise ValueError("EVIDENCE_IMAGE_TREE_INVALID")
     for key in ("backend", "frontend", "postgres", "generator"):
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", r["identities"][key]):
             raise ValueError("EVIDENCE_IMAGE_INVALID")
@@ -520,6 +562,10 @@ def validate_result(r, *, expected_head):
     if any(v not in STATUSES for v in r["outcomes"].values()):
         raise ValueError("EVIDENCE_OUTCOME_INVALID")
     validate_resources(r["resources"])
+    if r["outcomes"]["smtp"] == "PASS":
+        metric = r["resources"]["metrics"]["runtime_smtp_failures"]
+        if metric["status"] != "observed" or metric["last"] < 1:
+            raise ValueError("EVIDENCE_SMTP_FAILURE_MISSING")
     closed(
         r["gates"],
         {
@@ -562,8 +608,6 @@ def validate_resources(resources):
         "pg_connections",
         "pg_active",
         "pg_max_connections",
-        "pg_pool_size",
-        "pg_pool_overflow",
         "outbox_pending",
         "outbox_sending",
         "outbox_failed",
@@ -576,7 +620,27 @@ def validate_resources(resources):
         "runtime_smtp_failures",
         "runtime_db_errors",
     }
-    closed(resources, {"samples", "metrics", "runtime", "backup", "disk_medium"})
+    closed(
+        resources,
+        {"samples", "metrics", "runtime", "backup", "disk_medium", "configuration"},
+    )
+    closed(resources["configuration"], {"sqlalchemy_pool"})
+    pool = resources["configuration"]["sqlalchemy_pool"]
+    closed(pool, {"status", "source", "pool_size", "max_overflow", "timeout_seconds"})
+    if pool["source"] != "application_factory":
+        raise ValueError("EVIDENCE_POOL_CONFIG_INVALID")
+    if pool["status"] == "unavailable":
+        if any(
+            pool[k] is not None
+            for k in ("pool_size", "max_overflow", "timeout_seconds")
+        ):
+            raise ValueError("EVIDENCE_POOL_CONFIG_INVALID")
+    elif pool["status"] == "configured":
+        number(pool["pool_size"], 1, 1000, integer=True)
+        number(pool["max_overflow"], 0, 1000, integer=True)
+        number(pool["timeout_seconds"], 0, 300)
+    else:
+        raise ValueError("EVIDENCE_POOL_CONFIG_INVALID")
     number(resources["samples"], 0, 2400, integer=True)
     closed(resources["metrics"], fields)
     for metric in resources["metrics"].values():

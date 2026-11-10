@@ -104,26 +104,32 @@ def main(
             )
         )
         if mvp048:
+            from mvp048_images import build_services, source_trees
+            from mvp048_smoke import source_state
+
+            load_head, load_dirty = source_state()
+            if load_dirty:
+                raise ValueError("MVP048_CLEAN_IMAGE_SOURCE_REQUIRED")
+            load_trees = source_trees(load_head)
             override = json.loads(labels.read_text())
-            override["services"] = {"postgres": {"image": "postgres:16.13-alpine"}}
+            override["services"] = build_services(load_head, load_trees)
+            override["services"]["postgres"] = {"image": "postgres:16.13-alpine"}
             labels.write_text(json.dumps(override))
         if catalog_admin or mvp046 or mvp048:
             # Test-only dependency composition: real ClamAV with synthetic ndb,
             # never a production scanner bypass or runtime environment switch.
             override = json.loads(labels.read_text())
-            override.setdefault("services", {}).update(
+            override.setdefault("services", {}).setdefault("api", {}).update(
                 {
-                    "api": {
-                        "command": [
-                            "python",
-                            "/tmp/browser_media_server.py",
-                            *(["--documents"] if mvp046 or mvp048 else []),
-                        ],
-                        "volumes": [
-                            str(Path("backend/tests/browser_media_server.py").resolve())
-                            + ":/tmp/browser_media_server.py:ro"
-                        ],
-                    }
+                    "command": [
+                        "python",
+                        "/tmp/browser_media_server.py",
+                        *(["--documents"] if mvp046 or mvp048 else []),
+                    ],
+                    "volumes": [
+                        str(Path("backend/tests/browser_media_server.py").resolve())
+                        + ":/tmp/browser_media_server.py:ro"
+                    ],
                 }
             )
             labels.write_text(json.dumps(override))
@@ -150,9 +156,9 @@ def main(
                 "proxy_ca": {"file": environment["CODEX_PROXY_CERT"]}
             }
             for service in ("api", "nginx"):
-                override.setdefault("services", {}).setdefault(service, {})["build"] = {
-                    "secrets": ["proxy_ca"]
-                }
+                override.setdefault("services", {}).setdefault(service, {}).setdefault(
+                    "build", {}
+                ).update({"secrets": ["proxy_ca"]})
             labels.write_text(json.dumps(override))
         prefix = [
             "docker",
@@ -185,6 +191,10 @@ def main(
         stack = SyntheticStack(project, compose, environment)
         try:
             stack.claim()
+            if mvp048:
+                from mvp048_images import build_and_pin
+
+                build_and_pin(compose, stack, labels, load_head, load_trees)
             if mvp046:
                 compose("build")
             compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")

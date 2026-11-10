@@ -198,3 +198,7 @@ mvp048-smoke:
 
 mvp048-target-preflight:
 	python3 scripts/mvp048_smoke.py target $(MVP048_TARGET_ARGS)
+
+.PHONY: mvp048-image-guards
+mvp048-image-guards:
+	python3 scripts/mvp048_image_check.py

@@ -5,10 +5,12 @@ for production lease and retry deadlines on the real PostgreSQL clock.
 """
 
 import json
+import logging
 import os
 import sys
 import tempfile
 from datetime import UTC, datetime
+from logging.handlers import MemoryHandler
 from pathlib import Path
 
 from app.core.db import Database, DatabaseSettings
@@ -88,6 +90,15 @@ def main():
                         "pg_active": extra[0],
                         "pg_max_connections": extra[1],
                         "outbox_attempts": int(extra[2]),
+                        "configuration": {
+                            "sqlalchemy_pool": {
+                                "status": "configured",
+                                "source": "application_factory",
+                                "pool_size": database.engine.pool.size(),
+                                "max_overflow": database.engine.pool._max_overflow,
+                                "timeout_seconds": database.engine.pool.timeout(),
+                            }
+                        },
                     }
                 )
             )
@@ -137,7 +148,30 @@ def main():
             settings = SMTPSettings.from_environment()
             assert settings and settings.synthetic and settings.host == "smtp-test"
             if command["operation"] == "outage":
-                assert tick(database, settings, send_notification)
+                logger = logging.getLogger("akbrizcase.runtime")
+                capture = MemoryHandler(capacity=10)
+                previous_level, previous_propagate = logger.level, logger.propagate
+                try:
+                    logger.setLevel(logging.INFO)
+                    logger.propagate = False
+                    logger.addHandler(capture)
+                    assert tick(database, settings, send_notification)
+                    events = [
+                        checked_event(json.loads(record.msg))
+                        for record in capture.buffer
+                        if not record.args
+                    ]
+                finally:
+                    logger.removeHandler(capture)
+                    logger.setLevel(previous_level)
+                    logger.propagate = previous_propagate
+                    capture.close()
+                if (
+                    len(events) != 1
+                    or events[0]["event_code"] != "SMTP_FAILURE"
+                    or events[0].get("errors") != 1
+                ):
+                    raise ValueError("SMTP_FAILURE_EVIDENCE_UNAVAILABLE")
                 with database.unit_of_work() as session:
                     values = session.execute(
                         text(
@@ -149,7 +183,11 @@ def main():
                         )
                     ).one()
                     assert values[0] == 1 and 285 <= values[1] <= 300
-                print('{"smtp_outage":"PASS","retry_seconds":300}')
+                print(
+                    json.dumps(
+                        {"smtp_outage": "PASS", "retry_seconds": 300, "events": events}
+                    )
+                )
             else:
                 with database.unit_of_work() as session:
                     claim = claim_due(session)

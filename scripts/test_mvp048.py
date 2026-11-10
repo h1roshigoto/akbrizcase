@@ -52,6 +52,12 @@ def evidence():
         for i in range(200)
     ]
     resource = Resources(None, None, None).report()
+    resource["metrics"]["runtime_smtp_failures"] = {
+        "status": "observed",
+        "minimum": 1,
+        "maximum": 1,
+        "last": 1,
+    }
     result = make_result(
         head=HEAD,
         dirty=False,
@@ -64,6 +70,9 @@ def evidence():
                 for key in ("backend", "frontend", "postgres", "generator")
             },
             "schema": "0011_mvp039_http_security",
+            "application_revision": HEAD,
+            "backend_source_tree": "c" * 40,
+            "frontend_source_tree": "d" * 40,
         },
         corpus={"items": 54, "documents": 1, "versions": 1, "sections": 1, "trees": 1},
         resources=resource,
@@ -587,6 +596,197 @@ class DiskSource(unittest.TestCase):
             report["metrics"]["files_disk_free_bytes"]["status"], "unavailable"
         )
         self.assertIsNone(report["metrics"]["files_disk_total_bytes"]["last"])
+
+
+class ImageBinding(unittest.TestCase):
+    def setup_images(self):
+        from unittest.mock import Mock
+
+        from mvp048_images import REVISION, SOURCE_TREE
+
+        trees = {"backend": "c" * 40, "frontend": "d" * 40}
+        images = {
+            key: "sha256:" + char * 64
+            for key, char in [("api", "1"), ("nginx", "2"), ("worker", "1")]
+        }
+        services = {key: {"Image": value} for key, value in images.items()}
+        metadata = {
+            images["api"]: {
+                "Id": images["api"],
+                "Config": {"Labels": {REVISION: HEAD, SOURCE_TREE: trees["backend"]}},
+            },
+            images["nginx"]: {
+                "Id": images["nginx"],
+                "Config": {"Labels": {REVISION: HEAD, SOURCE_TREE: trees["frontend"]}},
+            },
+        }
+        docker = Mock(side_effect=lambda *args: json.dumps([metadata[args[-1]]]))
+        return trees, services, metadata, docker
+
+    def test_both_modes_share_verified_head_tree_and_worker_binding(self):
+        from mvp048_images import verify_application_images
+
+        trees, services, _, docker = self.setup_images()
+        result = verify_application_images(docker, services, HEAD, trees)
+        self.assertEqual(result["application_revision"], HEAD)
+        self.assertEqual(result["backend_source_tree"], trees["backend"])
+        self.assertEqual(result["backend"], services["worker"]["Image"])
+
+    def test_stale_unlabelled_context_or_worker_mismatch_blocks(self):
+        from mvp048_images import REVISION, SOURCE_TREE, verify_application_images
+
+        for kind in ("stale", "unlabelled", "context", "worker"):
+            trees, services, metadata, docker = self.setup_images()
+            if kind == "stale":
+                metadata[services["api"]["Image"]]["Config"]["Labels"][REVISION] = (
+                    "f" * 40
+                )
+            if kind == "unlabelled":
+                metadata[services["nginx"]["Image"]]["Config"]["Labels"] = {}
+            if kind == "context":
+                metadata[services["nginx"]["Image"]]["Config"]["Labels"][
+                    SOURCE_TREE
+                ] = "f" * 40
+            if kind == "worker":
+                services["worker"]["Image"] = "sha256:" + "f" * 64
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                verify_application_images(docker, services, HEAD, trees)
+
+    def test_synthetic_build_pins_all_consumers_and_refuses_cached_stale_images(self):
+        from unittest.mock import Mock
+
+        from mvp048_images import (
+            BACKEND_SERVICES,
+            REVISION,
+            build_and_pin,
+            build_services,
+        )
+
+        trees, services, metadata, _ = self.setup_images()
+        config = {"services": build_services(HEAD, trees)}
+        refs = {
+            config["services"][name]["image"]: services[name]["Image"]
+            for name in ("api", "nginx", "worker")
+        }
+
+        def docker(*args):
+            value = args[-1]
+            return json.dumps([metadata[refs.get(value, value)]])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "override.json"
+            path.write_text(json.dumps(config))
+            compose = Mock()
+            stack = Mock()
+            stack.docker.side_effect = docker
+            build_and_pin(compose, stack, path, HEAD, trees)
+            pinned = json.loads(path.read_text())
+            self.assertTrue(
+                all(
+                    pinned["services"][name]["image"] == services["api"]["Image"]
+                    for name in BACKEND_SERVICES
+                )
+            )
+            self.assertEqual(
+                pinned["services"]["nginx"]["image"], services["nginx"]["Image"]
+            )
+            path.write_text(json.dumps(config))
+            metadata[services["api"]["Image"]]["Config"]["Labels"][REVISION] = "f" * 40
+            with self.assertRaises(ValueError):
+                build_and_pin(compose, stack, path, HEAD, trees)
+            self.assertEqual(json.loads(path.read_text()), config)
+            self.assertTrue(
+                all(
+                    call.args == ("build", "api", "nginx")
+                    for call in compose.call_args_list
+                )
+            )
+
+
+class EvidenceCorrections(unittest.TestCase):
+    def test_one_shot_failure_survives_closed_protocol_and_public_statistics(self):
+        from mvp048_result import checked_outage
+
+        payload = {
+            "smtp_outage": "PASS",
+            "retry_seconds": 300,
+            "events": [
+                {
+                    "event_code": "SMTP_FAILURE",
+                    "at": "2026-01-01T00:00:00+00:00",
+                    "errors": 1,
+                }
+            ],
+        }
+        self.assertEqual(checked_outage(payload)[0]["errors"], 1)
+        for events in (
+            [],
+            [
+                {
+                    "event_code": "SMTP_SENT",
+                    "at": "2026-01-01T00:00:00+00:00",
+                    "errors": 1,
+                }
+            ],
+            [{**payload["events"][0], "token": "secret"}],
+        ):
+            with self.assertRaises(ValueError):
+                checked_outage({**payload, "events": events})
+
+    def test_outage_pass_cannot_publish_missing_or_zero_failure(self):
+        for status, value in [("observed", 0), ("unavailable", None)]:
+            result, _ = evidence()
+            result["resources"]["metrics"]["runtime_smtp_failures"] = dict(
+                status=status, minimum=value, maximum=value, last=value
+            )
+            with self.assertRaises(ValueError):
+                validate_result(result, expected_head=HEAD)
+
+    def test_configuration_is_not_pg_telemetry_and_legacy_schema_rejected(self):
+        result, _ = evidence()
+        pool = {
+            "status": "configured",
+            "source": "application_factory",
+            "pool_size": 5,
+            "max_overflow": 5,
+            "timeout_seconds": 3,
+        }
+        result["resources"]["configuration"]["sqlalchemy_pool"] = pool
+        validate_result(
+            json.loads(json.dumps(result, sort_keys=True)), expected_head=HEAD
+        )
+        self.assertNotIn("pg_pool_size", result["resources"]["metrics"])
+        result["resources"]["metrics"]["pg_pool_size"] = {
+            "status": "observed",
+            "minimum": 5,
+            "maximum": 5,
+            "last": 5,
+        }
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+        result, _ = evidence()
+        result["schema"] = "MVP048_RESULT/v1"
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_image_evidence_cannot_claim_another_revision(self):
+        result, _ = evidence()
+        result["identities"]["application_revision"] = "f" * 40
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_latency_gates_stay_separate_from_functional_smoke(self):
+        from mvp048_result import derive_gates
+
+        result, _ = evidence()
+        operation = result["operations"]["button"]
+        for key in ("all_attempt_ms", "success_ms"):
+            operation[key] = dict(p50=400, p95=500, p99=600, maximum=700)
+        operation["gate"] = "FAIL"
+        result["gates"] = derive_gates(result)
+        validate_result(result, expected_head=HEAD)
+        self.assertEqual(result["gates"]["SYNTHETIC_SMOKE"], "PASS")
+        self.assertEqual(operation["threshold_ms"], 300)
 
 
 if __name__ == "__main__":

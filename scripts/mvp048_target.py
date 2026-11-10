@@ -17,6 +17,7 @@ from getpass import GetPassWarning, getpass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from mvp048_images import source_trees, verify_application_images
 from mvp048_result import PROFILES, closed
 from synthetic_stack import SyntheticStack, isolated_environment
 
@@ -215,14 +216,7 @@ def attach(path, *, head):
     ):
         if services[service]["Image"] != packet["images"][image_key]:
             raise ValueError("TARGET_IMAGES_BLOCKED")
-        if service != "postgres":
-            image = json.loads(docker("image", "inspect", services[service]["Image"]))[
-                0
-            ]
-            if (image["Config"].get("Labels") or {}).get(
-                "org.opencontainers.image.revision"
-            ) != head:
-                raise ValueError("TARGET_IMAGE_REVISION_BLOCKED")
+    verify_application_images(docker, services, head, source_trees(head))
     from mvp048_smoke import GENERATOR_IMAGE
 
     if (
@@ -397,6 +391,7 @@ def attach(path, *, head):
         "document_id": document,
         "ca_file": packet["ca_file"],
         "authorization_digest": digest,
+        "expected_images": packet["images"],
         "ssd_attested": packet["ssd_attested"],
         "backup_receipt": packet["backup_receipt"],
         "runtime_journal": packet["runtime_journal"],

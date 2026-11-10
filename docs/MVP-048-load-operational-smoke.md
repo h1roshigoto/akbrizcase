@@ -15,10 +15,11 @@ or delete persistent volumes to make a benchmark pass.
 
 ```sh
 cp .env.example .env
-make init-secrets local-tls build
+make init-secrets local-tls
 # Standard-library generator; no application credentials or DB access.
 docker pull python:3.12.14-alpine
 make mvp048-guards
+make mvp048-image-guards
 make mvp048-smoke MVP048_ARGS='--report-dir /tmp/mvp048-evidence-NEW'
 ```
 
@@ -45,6 +46,17 @@ security limits, migrations and business services are unchanged. The reduced
 MVP-041 release Compose/modes are never used or modified. The PostgreSQL variant
 is explicit synthetic infrastructure, recorded by actual image content ID.
 Backend/frontend/PG/generator IDs and Alembic head accompany every report.
+
+The synthetic runner builds backend/frontend from the clean exact HEAD before
+starting or seeding the application. Both images must have OCI
+`org.opencontainers.image.revision=HEAD` and `com.akbrizcase.source-tree` equal to
+the committed build context (`git rev-parse HEAD:backend` or `HEAD:frontend`).
+All backend consumers, including the worker and SMTP sink, use the verified
+backend content ID; Nginx and generators also run by immutable ID. A stale,
+unlabelled or context-mismatched image blocks load. The Docker image guard tests
+those failures with tiny owned images, without starting load or touching volumes.
+Third-party PostgreSQL/Python images are recorded by content ID, without claiming
+an application Git revision.
 
 Existing `SyntheticStack` ownership/marker checks apply before seeding and
 fault injection. Cleanup stops the owned stack and **retains its labelled
@@ -118,7 +130,10 @@ Only the freshly owned synthetic project can enter fault injection:
 1. The SMTP sink is stopped while HTTP orders commit; the resident worker is
    quiesced to observe atomic pending rows. A normal worker tick against the
    unavailable sink records `SMTP_UNAVAILABLE`, attempt 1 and a real +300-second
-   `next_attempt_at`. No contacts or messages are exported.
+   `next_attempt_at`. The one-shot worker's actual closed `SMTP_FAILURE` event is
+   captured and merged into the runtime journal alongside resident process events.
+   Missing failure telemetry blocks the outage result; an observed zero cannot
+   represent a successful outage check. No contacts or messages are exported.
 2. After sink recovery, another process claims a due row, actually sends SMTP,
    then exits without finishing. The restarted resident worker waits out its real
    120-second lease, records `LEASE_EXPIRED`, waits the real 300-second retry, and
@@ -129,13 +144,17 @@ Only the freshly owned synthetic project can enter fault injection:
    restart. Committed graph totals and snapshots remain intact. Target attachment
    cannot invoke this restart or any SMTP fault injection.
 4. A sampler records host CPU/RAM/vCPU/disk, protected files-volume disk, app-container CPU/RAM/OOM, PG current
-   and active connections/max_connections/pool limits, outbox counts/attempts/oldest
+   and active connections/max_connections, outbox counts/attempts/oldest
    pending. Measurements have extrema and availability, not fabricated zeros.
    Private evidence also preserves closed resource samples with monotonic offsets
    and their clock origin for correlation with the HTTP ledger. Host-checkout
    and protected files-volume disk readings remain distinct. Missing/low volume
    observations cannot borrow a successful host-disk result.
    Collection overhead is part of this smoke; peaks between samples may be missed.
+   Static SQLAlchemy QueuePool settings are reported separately under
+   `resources.configuration.sqlalchemy_pool`, with source `application_factory`.
+   These describe the shared engine factory, not live API pool occupancy or a
+   measured PostgreSQL connection limit; they have no extrema/sample statistics.
 5. `app.core.operations` authorization and protected aggregates are reused. Missing
    backup receipts/runtime sources remain unavailable/BLOCKED. Synthetic backup
    rehearsal does not establish offsite custody, RPO<=24h or RTO<=4h. Disk low/error
@@ -201,7 +220,9 @@ The private regular authorization file must be owned by the invoking operator,
 
 This is a **schema illustration**, not usable approval. Backend/frontend images
 must carry OCI `org.opencontainers.image.revision` matching the clean exact HEAD;
-all running image IDs must match. Nginx policy must equal the checked-in HTTPS
+both must also carry the matching committed context `com.akbrizcase.source-tree`.
+The worker must use the same image as the API. All running image IDs must match
+the authorization packet and are rechecked before measurement. Nginx policy must equal the checked-in HTTPS
 policy. PG16/schema, empty commercial/chat/quota tables, synthetic document text,
 corpus cardinalities, protected admin authorization, TLS, readiness, collection
 and published diagnostic scenario are verified before mutating HTTP load.
@@ -227,7 +248,9 @@ recovery result cannot promote it. No actual target was supplied for this task.
 
 ## Evidence and regression matrix
 
-`MVP048_RESULT/v1` is closed and checked before publication. It binds exact HEAD,
+`MVP048_RESULT/v2` is closed and checked before publication; legacy v1 reports
+are rejected. It separates static pool configuration from measured resource
+metrics and requires positive failure evidence for SMTP outage PASS. It binds exact HEAD,
 dirty state, fixed profile hash, immutable image identities, schema, corpus,
 network cardinalities, actual overlap, phase counts, status totals, timeouts,
 RPS/distributions, resource availability and separate outcomes. Before emitting,
@@ -240,6 +263,7 @@ A private directory path is never included in the public aggregate.
 | Requirement | Actual executable coverage |
 |---|---|
 | Percentiles, limits, overlap, warm-up, insufficient samples, errors/timeouts, incomplete children, privacy/schema/profile/HEAD | `make mvp048-guards` |
+| Exact image revision/context and immutable consumers; real stale/unlabelled/context-negative Docker images before load | `make mvp048-guards mvp048-image-guards` |
 | Missing/stale/invalid target authorization, wrong host/profile/TLS/images, no accidental remote/deploy | target guards + read-only live target preflight |
 | Real buttons, both searches, orders, concurrent replay, stale consent/revision/state, ownership, quotas/spoofing, DB graph | `make mvp048-smoke` through PG16/Nginx/verified TLS |
 | SMTP unavailable, real retry/lease/crash/restart/backlog; DB 503/reconnect/readiness | `make mvp048-smoke` |

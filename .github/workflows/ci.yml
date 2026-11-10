@@ -338,10 +338,11 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$MVP048_EXPECTED_HEAD"
           make mvp048-guards
+          make mvp048-image-guards
       - name: Build full disposable synthetic profile
         run: |
           cp .env.example .env
-          make init-secrets local-tls build
+          make init-secrets local-tls
           docker pull python:3.12.14-alpine
       - name: Real TLS, 200 client pool, 30 network sources, committed HTTP and recovery
         run: make mvp048-smoke MVP048_ARGS="--report-dir $RUNNER_TEMP/mvp048-evidence"

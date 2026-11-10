@@ -10,7 +10,15 @@ from types import SimpleNamespace
 from https_smoke import main
 
 
-def prepare_smtp(config, compose, stack, prefix, temporary):
+def prepare_smtp(
+    config,
+    compose,
+    stack,
+    prefix,
+    temporary,
+    *,
+    backend_image="akbrizcase-backend:mvp-003",
+):
     stack.verify_database()
     compose("stop", "worker")  # deterministic pending observation, isolated stack only
     root = Path(__file__).resolve().parents[1]
@@ -20,7 +28,7 @@ def prepare_smtp(config, compose, stack, prefix, temporary):
             {
                 "services": {
                     "smtp-test": {
-                        "image": "akbrizcase-backend:mvp-003",
+                        "image": backend_image,
                         "pull_policy": "never",
                         "command": ["python", "/test/smtp_double.py"],
                         "networks": ["data"],

@@ -16,7 +16,8 @@ import time
 from pathlib import Path
 
 from https_smoke import main as https_stack
-from mvp048_result import PROFILES, make_result, publish
+from mvp048_images import source_trees, verify_application_images
+from mvp048_result import PROFILES, checked_outage, make_result, publish
 from notification_retry_browser_smoke import prepare_smtp
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,6 +136,13 @@ class Resources:
         self.sample_lock = threading.Lock()
         self.backup_status = "unavailable"
         self.runtime_status = "unavailable"
+        self.pool_configuration = {
+            "status": "unavailable",
+            "source": "application_factory",
+            "pool_size": None,
+            "max_overflow": None,
+            "timeout_seconds": None,
+        }
 
     def snapshot(self):
         row = {}
@@ -201,6 +209,9 @@ class Resources:
             pass
         try:
             data = self.probe("report")
+            self.pool_configuration = data.get("configuration", {}).get(
+                "sqlalchemy_pool", self.pool_configuration
+            )
             if data["disk"]["status"] in {"observed", "low"}:
                 row["files_disk_total_bytes"] = data["disk"]["total_bytes"]
                 row["files_disk_free_bytes"] = data["disk"]["free_bytes"]
@@ -237,8 +248,6 @@ class Resources:
                 pg_connections=database["postgres_connections"],
                 pg_active=data["pg_active"],
                 pg_max_connections=data["pg_max_connections"],
-                pg_pool_size=5,
-                pg_pool_overflow=5,
                 outbox_attempts=data["outbox_attempts"],
             )
             row.update(
@@ -290,8 +299,6 @@ class Resources:
             "pg_connections",
             "pg_active",
             "pg_max_connections",
-            "pg_pool_size",
-            "pg_pool_overflow",
             "outbox_pending",
             "outbox_sending",
             "outbox_failed",
@@ -305,6 +312,7 @@ class Resources:
             "runtime_db_errors",
         }
         return {
+            "configuration": {"sqlalchemy_pool": self.pool_configuration},
             "samples": len(self.samples),
             "metrics": {
                 field: {
@@ -330,29 +338,36 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
     started = time.monotonic()
     deadline = started + profile.total_timeout
     stack.verify_database()
-    # Reuse SMTP composition only. Its legacy probes change queue timestamps;
-    # none of those probes are invoked by MVP-048.
-    if not target:
-        prepare_smtp(config, compose, stack, prefix, temporary)
-        compose("stop", "smtp-test")
     services = {
         name: json.loads(
             stack.docker("inspect", compose("ps", "--all", "--quiet", name).strip())
         )[0]
-        for name in ("api", "nginx", "postgres")
+        for name in ("api", "nginx", "postgres", "worker")
     }
-    identities = {
-        key: services[name]["Image"]
-        for key, name in [
-            ("backend", "api"),
-            ("frontend", "nginx"),
-            ("postgres", "postgres"),
-        ]
-    }
+    identities = verify_application_images(
+        stack.docker, services, head, source_trees(head)
+    )
+    identities["postgres"] = services["postgres"]["Image"]
     identities["generator"] = json.loads(
         stack.docker("image", "inspect", GENERATOR_IMAGE)
     )[0]["Id"]
     identities["schema"] = stack.sql("SELECT version_num FROM app.alembic_version")
+    if target and any(
+        identities[key] != config["expected_images"][key]
+        for key in ("backend", "frontend", "postgres", "generator")
+    ):
+        raise ValueError("TARGET_IMAGES_CHANGED")
+    # Compose only; the legacy timestamp-changing probes are never invoked.
+    if not target:
+        prepare_smtp(
+            config,
+            compose,
+            stack,
+            prefix,
+            temporary,
+            backend_image=identities["backend"],
+        )
+        compose("stop", "smtp-test")
     assert stack.sql("SHOW server_version_num").startswith("16")
     assert stack.sql("SELECT count(*) FROM app.orders") == "0"
     corpus = dict(
@@ -492,7 +507,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
                 + ",dst=/load/ca.crt,readonly",
                 "--entrypoint",
                 "python",
-                GENERATOR_IMAGE,
+                identities["generator"],
                 "/load/client.py",
             )
             containers.append(identifier)
@@ -530,6 +545,8 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             else:
                 raise ValueError("MVP048_SOURCE_NOT_RUNNING")
             assert set(client["NetworkSettings"]["Networks"]) == {network}
+            if client["Image"] != identities["generator"]:
+                raise ValueError("MVP048_GENERATOR_IMAGE_CHANGED")
             source_addresses.add(
                 client["NetworkSettings"]["Networks"][network]["IPAddress"]
             )
@@ -653,7 +670,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
                 "SMTP recovery waits for real 120s lease + 300s retry",
                 flush=True,
             )
-            probe("outage")
+            outage_events = checked_outage(probe("outage"))
             compose("up", "--no-build", "--detach", "smtp-test")
             probe("crash")
             # Start the actual resident worker after the real crash. Do not manually
@@ -682,7 +699,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             from collections import Counter
 
             runtime = Counter()
-            runtime_events = []
+            runtime_events = list(outage_events)
             for line in compose(
                 "logs", "--no-log-prefix", "--no-color", "api", "worker"
             ).splitlines():
