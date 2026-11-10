@@ -95,6 +95,18 @@ miss. Это unit-проверка алгоритма с замоканной н
 Полные результаты PostgreSQL и остальные regression jobs должны быть проверены
 GitHub Actions на exact PR HEAD; локальные заблокированные команды не считаются PASS.
 
+Дополнительный локальный PostgreSQL run удалось выполнить без изменения gates:
+rootfs уже собранного integration image сохранён одним слоем (Docker export/import,
+с теми же ENV/CMD/WORKDIR/USER), чтобы убрать избыточное копирование Docker VFS.
+Acceptance package, tests, provision script и trees подключены read-only из
+побайтовых копий текущих файлов с такими же read permissions, как в Dockerfile.
+Штатный runner `exercise("kb-acceptance", reuse_image=True)` использовал свежий
+маркированный PostgreSQL 16.13, Alembic, runtime roles, ClamAV и обычные ограничения.
+Результат: **37/37 PASSED**, строгий `db-kb-acceptance.json` содержит все 37 outcomes;
+полная валидация `kb047-aggregate.json` прошла: **18/20 hits, HitRate 0.90,
+MRR 0.875, 20/20 safe negatives, ACL 0, complete=true**. Это отдельный локальный
+прогон с адаптацией хранения образа, не замена обычной сборки в GitHub Actions.
+
 Реальные expert corpus, target staging и production admission остаются BLOCKED,
 экспертное review — PENDING. Merge/deploy не выполняются; PR требует независимого
 ревью до merge и post-merge CI, затем можно рассматривать MVP-048.

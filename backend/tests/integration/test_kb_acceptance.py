@@ -7,6 +7,7 @@ import secrets
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -655,7 +656,9 @@ def test_external_unmapped_public_uses_snapshot_and_actual_fts_rank(
         assert result["technical_result"] == "PASS" and result["acl_incidents"] == 0
         rows: Any = result["queries"]
         assert rows[0]["first_relevant_position"] == actual_rank
-        assert result["mrr_at_5"] == (19 + 1 / actual_rank) / 20
+        assert result["mrr_at_5"] == float(
+            (Fraction(19) + Fraction(1, actual_rank)) / 20
+        )
 
 
 @pytest.mark.parametrize(
@@ -822,7 +825,22 @@ def test_unmapped_source_binding_and_missing_evidence_fail_closed(
             update={"source": hit.source.model_copy(update={fault: value})}
         )
     page = KnowledgePage(items=[hit], total=1, limit=5, offset=0)
-    response = measurement_reply(page)
+    response = measurement_reply(
+        KnowledgePage(items=[public_competitor], total=1, limit=5, offset=0)
+    )
+    if fault != "reply_source":
+        # Inject a broken adapter outcome after DTO construction. Otherwise
+        # SourceRef's own validators reject the fixture before the independent
+        # database verifier can be exercised (URL/page binding faults).
+        response = response.model_copy(
+            update={
+                "text": quoted_text(page),
+                "sources": [hit.source],
+                "actions": [
+                    response.actions[0].model_copy(update={"payload": hit.source})
+                ],
+            }
+        )
     if fault == "reply_source":
         response = response.model_copy(
             update={
@@ -832,6 +850,10 @@ def test_unmapped_source_binding_and_missing_evidence_fail_closed(
             }
         )
     with prepared.database.unit_of_work() as session:
+        if fault != "reply_source":
+            assert verify_public_source(session, hit.source, hit.excerpt) == (
+                "unverified" if fault == "section_id" else "mismatch"
+            )
         result = measure(
             prepared.corpus,
             prepared.mapping,
