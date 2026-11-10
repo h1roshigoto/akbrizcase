@@ -417,7 +417,7 @@ class Client:
         # Nginx burst saturation is observed separately and followed by real
         # elapsed-time recovery. This source has at most 240 requests overall.
         seen_429 = False
-        while self.count < 200:
+        while self.count < 235:
             code, _, response_headers = self.request(
                 "catalog",
                 "GET",
