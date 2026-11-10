@@ -1,0 +1,150 @@
+{
+  "format": "kb-acceptance",
+  "format_version": 1,
+  "corpus_id": "mvp047-synthetic",
+  "corpus_version": "1.1.0",
+  "status": "synthetic",
+  "label": "SYNTHETIC ONLY",
+  "locked": true,
+  "previous_corpus_sha256": "0ff0a4340c785a16fbb869361e748c8106f2e03382e83c6a169062c765686b7b",
+  "revision_reason": "Measurement validity correction: R05 and R12 reused the same word bag. Preserve v1.0.0 at commit 89cd7e2; retire R05 and lock new R21 before its first measurement. No source/ranking changes or score-based query selection.",
+  "queries_sha256": "6bacd2ef6c6260aa3c7e61fe781f3395ce6b1d97b641c487a3f2d5e36e57c747",
+  "sections_sha256": "73c588e0ec5ac4544ce7becd119f68d7bc089551196a79d378125e2829e247ae",
+  "documents": [
+    {
+      "key": "guide",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — guide",
+      "material": "guide-v1.txt",
+      "sha256": "e6e73bc4ecba361e21b965cd62dd15d96aa0c431b88c6e5d733e321b569c6271",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "safety",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — safety",
+      "material": "safety-v1.txt",
+      "sha256": "21655659e5bd151c1ba171a306289c24509ce9d423cd288fd08c02ce02fe7fef",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "logistics",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — logistics",
+      "material": "logistics-v1.txt",
+      "sha256": "fd41668617df7c9b51af5f6028988ad9444e4ca92bb05c5e02f9c195ffba7f1f",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "editions",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — editions",
+      "material": "editions-v1.txt",
+      "sha256": "f596f8f4545f2326332811da6c6c242741fabb08e5558da4ea9ee37fe6fac22b",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "retired"
+    },
+    {
+      "key": "editions",
+      "version": 2,
+      "title": "SYNTHETIC ONLY — editions",
+      "material": "editions-v2.txt",
+      "sha256": "4eec36eb43d46681b93fba023cea1642c2f05d1cc4d5cd9c88507aad4cccd6df",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "distractors",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — distractors",
+      "material": "distractors-v1.txt",
+      "sha256": "d6bb2970cf568f4de4c171cedcf4bcce5f87155f4bbd5c66a484fa1bd4f987cd",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "internal",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — internal",
+      "material": "internal-v1.txt",
+      "sha256": "bdf99c56b3ad41948dc0368a4d779cfa812481a5f8f180a70a2dabcb7bf520fb",
+      "visibility": "internal",
+      "status": "active",
+      "version_status": "published"
+    },
+    {
+      "key": "draft",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — draft",
+      "material": "draft-v1.txt",
+      "sha256": "fde306b7b8818166f3eeec322f1101ae95d79142bb4d4c1689214607ae01c456",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "draft"
+    },
+    {
+      "key": "retired",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — retired",
+      "material": "retired-v1.txt",
+      "sha256": "8e7151ee09472be503760662f3fa86ea57456ec0aec2e42f8f5a6b8765935b98",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "retired"
+    },
+    {
+      "key": "revoked_version",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — revoked_version",
+      "material": "revoked_version-v1.txt",
+      "sha256": "6536fa1dd915bb50db289faaba126da036be6e8ef8966b1dc6e9a43b6475a272",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "revoked"
+    },
+    {
+      "key": "revoked_document",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — revoked_document",
+      "material": "revoked_document-v1.txt",
+      "sha256": "e9b399b544d4cb93022ddc0bdff991addb7fd512ad05c5a72c79378e3f53833b",
+      "visibility": "public",
+      "status": "revoked",
+      "version_status": "published"
+    },
+    {
+      "key": "excluded",
+      "version": 1,
+      "title": "SYNTHETIC ONLY — excluded",
+      "material": "excluded-v1.txt",
+      "sha256": "d42ec0776ade2867270bf5d45eae62dec1be4454513f8b92af3f3ae6dd7e3f73",
+      "visibility": "public",
+      "status": "active",
+      "version_status": "published"
+    }
+  ],
+  "assistant_policy": "public/published/active/assistant_allowed only; full files separately public",
+  "expert_approval": {
+    "status": "synthetic-fixture",
+    "reference": null,
+    "rights_reference": null,
+    "approved_on": null,
+    "reviewer": null
+  },
+  "environment": {
+    "postgresql_major": 16,
+    "text_search_config": "russian",
+    "top_k": 5,
+    "minimum_hit_rate": "4/5",
+    "excerpt_characters": 600
+  }
+}

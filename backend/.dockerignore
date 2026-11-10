@@ -11,3 +11,7 @@ app/**/*.pyc
 !migrations/**
 !tests/
 !tests/**
+!kb_acceptance/
+!kb_acceptance/**
+kb_acceptance/**/__pycache__/
+kb_acceptance/**/*.pyc
