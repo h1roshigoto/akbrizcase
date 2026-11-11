@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.staff_models import StaffUser
+from app.core.timing import span
 
 StaffRole = Literal["manager", "admin"]
 
@@ -47,7 +48,8 @@ def verify_password(password_hash: str, password: str) -> bool:
     if len(password.encode("utf-8")) > 1024:
         return False
     try:
-        return _hasher.verify(password_hash, password)
+        with span("argon2_ms", count="argon2_calls"):
+            return _hasher.verify(password_hash, password)
     except (VerificationError, InvalidHashError):
         return False
 

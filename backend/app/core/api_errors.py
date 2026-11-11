@@ -17,6 +17,7 @@ from app.core.http_security import TrustedProxy
 from app.core.observability import emit, endpoint_category
 from app.core.rate_limits import RateLimited
 from app.core.release import release_denied
+from app.core.timing import current, mark
 from app.schemas.common import ErrorDetail, ErrorEnvelope
 
 
@@ -43,8 +44,12 @@ def install_api_errors(app: FastAPI) -> None:
     async def request_identifier(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        mark("handler_start_ns")
         started = monotonic()
         request.state.request_id = uuid4()
+        trace = current.get()
+        if trace is not None:
+            trace.request_id = request.state.request_id
         request.state.csp_nonce = secrets.token_urlsafe(24)
         origins = request.headers.getlist("origin")
         public_api = request.url.path.startswith(

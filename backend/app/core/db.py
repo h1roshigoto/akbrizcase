@@ -20,6 +20,9 @@ from app.core.csrf import StaffSecurity
 from app.core.http_security import TrustedProxy
 from app.core.observability import emit
 from app.core.rate_limits import IpSecurity
+from app.core.timing import enabled as timing_enabled
+from app.core.timing import span
+from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0011_mvp039_http_security"
@@ -75,8 +78,9 @@ class DatabaseSettings:
 
 
 def create_database_engine(settings: DatabaseSettings) -> Engine:
-    return create_engine(
+    engine = create_engine(
         settings.url(),
+        **({"poolclass": TimedQueuePool} if timing_enabled() else {}),
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=5,
@@ -89,6 +93,9 @@ def create_database_engine(settings: DatabaseSettings) -> Engine:
             "-c search_path=app,public",
         },
     )
+    if timing_enabled():
+        observe_engine(engine)
+    return engine
 
 
 class Database:
@@ -106,9 +113,11 @@ class Database:
         with self.sessions() as session:
             try:
                 yield session
-                session.commit()
+                with span("commit_ms", count="commit_calls"):
+                    session.commit()
             except BaseException:
-                session.rollback()
+                with span("rollback_ms", count="rollback_calls"):
+                    session.rollback()
                 raise
 
     def ready(self) -> bool:

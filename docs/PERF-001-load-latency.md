@@ -110,3 +110,76 @@ The thresholds, concurrency, sample selection and end-to-end timer are unchanged
 
 Final exact-HEAD nine-job status and actual before/after MVP048_RESULT/v2 values
 are recorded in the PR after CI completes. Until then performance remains FAIL.
+
+## Under-load phase investigation (continuation)
+
+The continuation adds opt-in `PERF001_TIMING=1` only to the full, freshly owned
+MVP-048 synthetic API service. Ordinary runtime and the target adapter do not
+enable it. No new endpoint, response header, privilege or security exemption is
+introduced. There is no further optimization pending these measurements.
+
+The original client sample object, monotonic HTTP timer (through body validation
+and close), fixed profile, percentile/status handling, quotas and deadlines stay
+unchanged. Additional timestamps are side measurements; their overhead is part
+of the actual HTTP result and cannot be subtracted from a gate.
+
+The outer ASGI observer and context propagated to the existing AnyIO threadpool
+collect a closed numeric `HTTP_PHASES` event. The only correlation value is the
+already existing server-generated request UUID. Events never contain SQL or
+parameters, URL/path/query text, payloads, headers, contacts, credentials, chat or
+order tokens. Normal request/error handling, commit/rollback and projection are
+unchanged. The log formatter validates the nested metric keys and numeric types.
+These safe runtime events remain private; they are not uploaded as artifacts.
+
+After measurement the controller joins all 660 client records to server events
+and exports **only aggregate** `PERF001_PHASES/v1`, bound to exact HEAD. The join
+is reconciled against the unchanged all-attempt ledger. Missing/duplicate server
+records, unknown fields, damaged clocks and tampering cannot masquerade as full
+coverage. Failed/unmatched attempts remain counted and visible in the all-attempt
+HTTP distribution and in p95-cohort coverage. Request UUIDs and absolute clocks
+are absent from this public aggregate.
+
+Measurements and limits of interpretation:
+
+- `pool_queue_ms` times SQLAlchemy's original Queue.get, including mutex/condition
+  waiting and scheduling. `pool_acquire_ms` covers original QueuePool._do_get;
+  `connect_ms` is a nested physical connection creation span. Only thin subclasses
+  delegate to `super`; no capacity, deadline or connection algorithm is copied.
+  Reentrant acquisition is counted once. `checkout_after_get_ms` covers pre-ping,
+  checkout bookkeeping and scheduling after get. None of these overlapping
+  percentiles may be summed. Existing pool stays 5 + 5, timeout 3 seconds.
+- `dispatch_ms` measures submission-to-worker-start using the original threadpool
+  function/limiter. Worker wall and thread CPU, observed token counts, cursor wall/
+  thread CPU, lock-capable statement time, commit/rollback and connection-hold
+  time are distinct. Lock-capable SQL time is **not** pure PostgreSQL lock wait.
+  Commit-nested SQL/acquisition spans are identified to avoid double counting.
+- Chat write and fresh post-commit projection retain their separate UoWs; both
+  commits and the projection's commit are timed. No stored response is trusted
+  and no projection, ACL or state validation is skipped.
+- The outer ASGI-to-error-middleware gap observes framework scheduling. Route
+  entry, dispatch, worker completion and response send span the request pipeline.
+  Client socket/DNS+TCP, verified TLS, headers wait, body read, validation and close
+  are measured without extra HTTP operations. The signed send-to-ASGI residual
+  includes network/proxy/Uvicorn admission and sender/receiver overlap; it must
+  not be relabelled as a pure server queue.
+- Per-operation component distributions also report the **same requests at or
+  above actual client p95**, not independently selected per-component tails.
+  API process CPU is a counter delta over the correlated request envelope,
+  including framework/logging/worker CPU; per-request process deltas are not
+  added. Thread CPU excludes other threads and is not an additive wall partition.
+- Existing resource sampler intervals and its unchanged authenticated probe are
+  observed. Argon2 verification wall/process CPU is timed without touching its
+  parameters or checks. Sampler overlap is correlation, not evidence of causality.
+- Numeric PG16 pg_stat_database deltas bracket measurement before functional
+  tests. They include the collector/sampler, possible stats flush lag, planning
+  and server waits; active_time is server wall activity, **not PostgreSQL CPU**.
+  No pg_stat_reset, forced flush, server setting, extension or SQL logging is used.
+  Disabled IO timing is unavailable, never represented as a measured zero.
+
+Unit tests cover privacy canaries, context isolation, exceptions, pool capacity/
+release/timeout, ledger and tail reconciliation and incomplete coverage. New
+PG16 cases cover the real ten-connection cap, commit/flush rollback, denied/replay
+without extra business rows, and separate post-commit chat projection. They run
+only in the existing CI integration job. Actual measurements and conclusions are
+recorded in PR #68 after the exact-HEAD nine-job run; until then no bottleneck is
+claimed proved by this instrumentation.

@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 from datetime import UTC, datetime
 from logging.handlers import MemoryHandler
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.core.operations import (
     disk_report,
     runtime_report,
 )
+from app.core.timing import RequestTiming, current, enabled
 from app.modules.notify.outbox import claim_due
 from app.modules.notify.smtp import SMTPSettings, send_notification
 from app.worker.runner import tick
@@ -33,19 +35,27 @@ def main():
     assert command["operation"] in {"report", "outage", "crash", "invariants"}
     database = Database(DatabaseSettings.from_environment())
     try:
-        with database.unit_of_work() as session:
-            assert (
-                session.scalar(
-                    text(
-                        "SELECT shobj_description(oid,'pg_database') FROM"
-                        " pg_database WHERE datname=current_database()"
+        auth_trace = RequestTiming() if enabled() else None
+        trace_token = current.set(auth_trace)
+        auth_started = time.monotonic_ns()
+        try:
+            with database.unit_of_work() as session:
+                assert (
+                    session.scalar(
+                        text(
+                            "SELECT shobj_description(oid,'pg_database') FROM"
+                            " pg_database WHERE datname=current_database()"
+                        )
                     )
+                    == "akbrizcase:synthetic-seed:demo"
                 )
-                == "akbrizcase:synthetic-seed:demo"
-            )
-            assert (
-                authorize(session, command["login"], command["password"]) == "success"
-            )
+                assert (
+                    authorize(session, command["login"], command["password"])
+                    == "success"
+                )
+        finally:
+            current.reset(trace_token)
+        authorization_ms = (time.monotonic_ns() - auth_started) / 1e6
         if command["operation"] == "report":
             runtime = runtime_report(
                 Path(command["runtime_journal"])
@@ -78,6 +88,17 @@ def main():
             print(
                 json.dumps(
                     {
+                        "perf_auth": {
+                            "authorization_ms": authorization_ms,
+                            "argon2_ms": auth_trace.metrics["argon2_ms"]
+                            if auth_trace
+                            else None,
+                            "argon2_process_cpu_ms": auth_trace.metrics[
+                                "argon2_process_cpu_ms"
+                            ]
+                            if auth_trace
+                            else None,
+                        },
                         "database": report,
                         "disk": disk_report(Path(os.environ["APP_FILES_DIR"])),
                         "backup": backup_report(

@@ -57,18 +57,26 @@ def created_session(data):
 
 class LocalTLS(http.client.HTTPSConnection):
     def connect(self):
-        raw = socket.create_connection(("nginx", 8443), self.timeout)
+        started = time.monotonic_ns()
+        try:
+            raw = socket.create_connection(("nginx", 8443), self.timeout)
+        finally:
+            self.tcp_ms = (time.monotonic_ns() - started) / 1_000_000
+        started = time.monotonic_ns()
         try:
             self.sock = self._context.wrap_socket(raw, server_hostname="localhost")
         except BaseException:
             raw.close()
             raise
+        finally:
+            self.tls_ms = (time.monotonic_ns() - started) / 1_000_000
 
 
 class Client:
     def __init__(self, config):
         self.config = config
         self.samples = []
+        self.phase_timings = []
         self.count = 0
         self.orders = 0
         self.sessions = []
@@ -104,6 +112,8 @@ class Client:
             {},
         )
         connection = LocalTLS("localhost", 8443, timeout=8, context=self.context)
+        send_end = headers_end = body_end = validation_end = None
+        request_id = None
         try:
             connection.request(
                 method,
@@ -111,14 +121,18 @@ class Client:
                 payload,
                 {"Content-Type": "application/json", **(headers or {})},
             )
+            send_end = time.monotonic_ns()
             response = connection.getresponse()
+            headers_end = time.monotonic_ns()
             code = response.status
             response_headers = dict(response.getheaders())
             raw = response.read(1024 * 1024 + 1)
+            body_end = time.monotonic_ns()
             assert len(raw) <= 1024 * 1024
             data = json.loads(raw)
             if path.startswith("/api/"):
-                UUID(response.getheader("X-Request-ID"))
+                identifier = UUID(response.getheader("X-Request-ID"))
+                request_id = str(identifier)
                 assert response.getheader("Cache-Control") == "no-store"
             assert code in ([expected] if type(expected) is int else expected)
             if code >= 400:
@@ -133,6 +147,7 @@ class Client:
                 validate(data)
             checked = True
             ok = 200 <= code < 300
+            validation_end = time.monotonic_ns()
         except TimeoutError:
             timeout = True
             code = 0
@@ -154,6 +169,23 @@ class Client:
                     "client": self.current,
                 }
             )
+            if self.phase == "measurement":
+                end = self.samples[-1]["end_ns"]
+                self.phase_timings.append(
+                    {
+                        "request_id": request_id,
+                        "operation": operation,
+                        "status": code,
+                        "start_ns": start,
+                        "end_ns": end,
+                        "send_end_ns": send_end,
+                        "headers_end_ns": headers_end,
+                        "body_end_ns": body_end,
+                        "validation_end_ns": validation_end,
+                        "tcp_ms": getattr(connection, "tcp_ms", None),
+                        "tls_ms": getattr(connection, "tls_ms", None),
+                    }
+                )
         if self.phase != "measurement" and code in (
             [expected] if type(expected) is int else expected
         ):
@@ -476,6 +508,7 @@ def main():
             "source": config["source"],
             "orders": client.orders,
             "samples": client.samples,
+            "phase_timings": client.phase_timings,
             "requests": client.count,
         }
     )
