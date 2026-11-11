@@ -33,6 +33,19 @@ REQUIREMENTS = json.loads((DATA / "requirements.json").read_bytes())
 HISTORICAL = json.loads((DATA / "historical-baseline.json").read_bytes())
 CATALOG = {row["id"]: row for row in REQUIREMENTS}
 FEATURES = ("catalog", "orders", "manager", "knowledge", "diagnose", "files", "smtp")
+# Only existing runtime switches can support a claimed feature exclusion.
+# There is no manager switch; listing its endpoints cannot disable staff access.
+EXCLUSION_MODES = {
+    "catalog": ("catalog", False),
+    "orders": ("orders", False),
+    "knowledge": ("knowledge", False),
+    "diagnose": ("chat", False),
+    "files": ("files", False),
+    "smtp": ("smtp", "disabled"),
+}
+NON_EXCLUDABLE_REQUIREMENTS = frozenset(
+    r["id"] for r in REQUIREMENTS if r["feature"] == "core"
+) | {"MVP-010", "MVP-013"}
 # Closed route/method and UI inventory; actual disabling needs independent proof.
 ENDPOINTS = {
     "catalog": (
@@ -372,6 +385,18 @@ def evidence_assessment(evidence, artifacts, records, binding, requirement):
     return "INCONCLUSIVE", "UNVERIFIED_EXTERNAL_EVIDENCE"
 
 
+def defect_constraint(defects):
+    """Scope declarations cannot establish that a critical defect is harmless."""
+    if any(
+        d["severity"] in {"P0", "P1"} and d["state"] == "OPEN"
+        for d in defects["entries"]
+    ):
+        return "FAIL", "CRITICAL_DEFECT_PRESENT"
+    if defects["review"] is None:
+        return "BLOCKED", "DEFECT_TRIAGE_UNVERIFIED"
+    return None
+
+
 def assess(manifest, artifacts, records):
     """PASS describes packet validation only. No caller-provided trust switch."""
     validate(manifest, CHECKLIST_SCHEMA)
@@ -430,22 +455,18 @@ def assess(manifest, artifacts, records):
         )
     excluded_checks = set()
     for feature, exclusion in exclusions.items():
-        flag = {
-            "catalog": "catalog",
-            "orders": "orders",
-            "knowledge": "knowledge",
-            "diagnose": "chat",
-            "files": "files",
-        }.get(feature)
+        require(feature in EXCLUSION_MODES, "UNSUPPORTED_SCOPE_EXCLUSION")
+        flag, disabled = EXCLUSION_MODES[feature]
         require(
-            flag is None or binding["modes"][flag] is False,
+            type(binding["modes"][flag]) is type(disabled)
+            and binding["modes"][flag] == disabled,
             "EXCLUDED_MODE_STILL_ENABLED",
         )
-        require(
-            feature != "smtp" or binding["modes"]["smtp"] == "disabled",
-            "EXCLUDED_MODE_STILL_ENABLED",
-        )
-        expected = {r["id"] for r in REQUIREMENTS if r["feature"] == feature}
+        expected = {
+            r["id"]
+            for r in REQUIREMENTS
+            if r["feature"] == feature and r["id"] not in NON_EXCLUDABLE_REQUIREMENTS
+        }
         require(
             set(exclusion["disabled_endpoints"]) == set(ENDPOINTS[feature])
             and len(exclusion["disabled_endpoints"]) == len(ENDPOINTS[feature])
@@ -491,13 +512,19 @@ def assess(manifest, artifacts, records):
             reason = "CHECK_NOT_EXECUTED"
         elif status == "FAIL":
             reason = "REPORTED_FAILURE"
-        if key == "MODE-SUPPORTED" and (
-            binding["modes"] != MODES
-            or manifest["pilot"] != "SYNTHETIC_DEMO"
-            and MODES["data"] == "synthetic-only"
+        # Missing prerequisites may block a check, but must never weaken a FAIL
+        # already declared by the operator or found while checking evidence.
+        if (
+            status != "FAIL"
+            and key == "MODE-SUPPORTED"
+            and (
+                binding["modes"] != MODES
+                or manifest["pilot"] != "SYNTHETIC_DEMO"
+                and MODES["data"] == "synthetic-only"
+            )
         ):
             status, reason = "BLOCKED", "UNSUPPORTED_RELEASE_MODES"
-        if key in {"A-IMAGES", "A-SCHEMA", "D-TARGET"}:
+        if status != "FAIL" and key in {"A-IMAGES", "A-SCHEMA", "D-TARGET"}:
             missing_binding = (
                 key == "A-IMAGES"
                 and any(v is None for v in binding["images"].values())
@@ -508,17 +535,11 @@ def assess(manifest, artifacts, records):
             )
             if missing_binding:
                 status, reason = "BLOCKED", "RELEASE_BINDING_INCOMPLETE"
-        if key == "A-DEFECTS":
-            if any(
-                d["severity"] in {"P0", "P1"}
-                and d["state"] == "OPEN"
-                and (d["feature"] == "core" or d["feature"] in enabled)
-                for d in manifest["defects"]["entries"]
-            ):
-                status, reason = "FAIL", "CRITICAL_DEFECT_PRESENT"
-            elif defect_review is None:
-                status, reason = "BLOCKED", "DEFECT_TRIAGE_UNVERIFIED"
-        if key == "C-TARGET-LOAD" and reference is None:
+        if status != "FAIL" and key == "A-DEFECTS":
+            constraint = defect_constraint(manifest["defects"])
+            if constraint is not None:
+                status, reason = constraint
+        if status != "FAIL" and key == "C-TARGET-LOAD" and reference is None:
             status, reason = "BLOCKED", "TARGET_MEASUREMENT_MISSING"
         rows.append(
             {
@@ -526,7 +547,7 @@ def assess(manifest, artifacts, records):
                 "priority": requirement["priority"],
                 "group": requirement["group"],
                 "feature": requirement["feature"],
-                "included": requirement["feature"] == "core"
+                "included": key in NON_EXCLUDABLE_REQUIREMENTS
                 or requirement["feature"] in enabled,
                 "status": status,
                 "declared_status": check["status"],

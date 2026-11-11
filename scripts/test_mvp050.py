@@ -172,7 +172,12 @@ class ReadinessTests(unittest.TestCase):
             self.manifest["binding"]["modes"][flag] = False
         if feature == "smtp":
             self.manifest["binding"]["modes"]["smtp"] = "disabled"
-        keys = [r["id"] for r in gate.REQUIREMENTS if r["feature"] == feature]
+        keys = [
+            r["id"]
+            for r in gate.REQUIREMENTS
+            if r["feature"] == feature
+            and r["id"] not in gate.NON_EXCLUDABLE_REQUIREMENTS
+        ]
         self.manifest["scope"]["exclusions"] = [
             dict(
                 feature=feature,
@@ -493,6 +498,93 @@ class ReadinessTests(unittest.TestCase):
         ]
         self.assertEqual(self.row("A-DEFECTS")["status"], "BLOCKED")
 
+    def test_open_critical_defects_of_excluded_features_remain_fail(self):
+        original = copy.deepcopy(self.manifest)
+        for feature in ("orders", "diagnose", "smtp", "manager"):
+            for severity in ("P0", "P1"):
+                with self.subTest(feature=feature, severity=severity):
+                    self.manifest = copy.deepcopy(original)
+                    self.records = {}
+                    self.reduced(feature)
+                    self.manifest["defects"]["entries"] = [
+                        dict(
+                            id=opaque(1000),
+                            severity=severity,
+                            state="OPEN",
+                            feature=feature,
+                        )
+                    ]
+                    # Defect assessment has no scope/feature-activation input.
+                    self.assertEqual(
+                        gate.defect_constraint(self.manifest["defects"]),
+                        ("FAIL", "CRITICAL_DEFECT_PRESENT"),
+                    )
+                    if feature == "manager":
+                        # Unsupported manager exclusion rejects the whole packet.
+                        code, result = self.cli()
+                        self.assertEqual(code, 1)
+                    else:
+                        code, result = self.cli()
+                        self.assertEqual(code, 0)
+                        row = next(
+                            r for r in result["checklist"] if r["id"] == "A-DEFECTS"
+                        )
+                        self.assertEqual(row["status"], "FAIL")
+                    self.assert_no_admission(result)
+
+    def test_closed_or_empty_defects_cannot_self_approve_triage(self):
+        for entries in (
+            [],
+            [dict(id=opaque(1000), severity="P1", state="CLOSED", feature="orders")],
+        ):
+            with self.subTest(entries=entries):
+                self.manifest["defects"]["entries"] = entries
+                self.check("A-DEFECTS")["status"] = "PASS"
+                self.assertEqual(self.row("A-DEFECTS")["status"], "BLOCKED")
+                self.assert_no_admission(self.assess())
+        self.manifest["defects"]["review"] = self.add_evidence("A-DEFECTS")
+        self.assertEqual(self.row("A-DEFECTS")["status"], "INCONCLUSIVE")
+        self.assert_no_admission(self.assess())
+
+    def test_missing_prerequisites_never_weaken_declared_fail(self):
+        original = copy.deepcopy(self.manifest)
+        for key in (
+            "MODE-SUPPORTED",
+            "A-IMAGES",
+            "A-SCHEMA",
+            "D-TARGET",
+            "A-DEFECTS",
+            "C-TARGET-LOAD",
+        ):
+            for declared in ("FAIL", "PASS", "NOT RUN", "BLOCKED", "INCONCLUSIVE"):
+                with self.subTest(key=key, declared=declared):
+                    self.manifest = copy.deepcopy(original)
+                    self.manifest["binding"]["schema"] = None
+                    self.check(key)["status"] = declared
+                    result = self.assess()
+                    row = next(r for r in result["checklist"] if r["id"] == key)
+                    self.assertEqual(
+                        row["status"], "FAIL" if declared == "FAIL" else "BLOCKED"
+                    )
+                    if declared == "FAIL":
+                        self.assertEqual(row["reason"], "REPORTED_FAILURE")
+                    self.assertEqual(result["TECHNICAL_READINESS_CHECK"], "PASS")
+                    self.assertEqual(result["technical_scope"], "PACKET_CONSISTENCY")
+                    self.assert_no_admission(result)
+
+    def test_evidence_failure_is_not_hidden_by_missing_prerequisites(self):
+        original = copy.deepcopy(self.manifest)
+        for key in ("MODE-SUPPORTED", "A-IMAGES", "A-SCHEMA", "D-TARGET", "A-DEFECTS"):
+            with self.subTest(key=key):
+                self.manifest = copy.deepcopy(original)
+                self.records = {}
+                self.manifest["binding"]["schema"] = None
+                self.add_evidence(key, "EXTERNAL_DECISION", self.ci_snapshot(), "ci")
+                row = self.row(key)
+                self.assertEqual(row["status"], "FAIL")
+                self.assertEqual(row["reason"], "EVIDENCE_SCOPE_MISMATCH")
+                self.assert_no_admission(self.assess())
+
     def test_target_latency_failure_is_preserved(self):
         self.bind_complete()
         report = self.load_report(target=True)
@@ -553,6 +645,44 @@ class ReadinessTests(unittest.TestCase):
         self.manifest["pilot"] = "REDUCED_PILOT"
         self.assertEqual(self.cli()[0], 1)
 
+    def test_manager_without_runtime_switch_cannot_be_excluded(self):
+        self.reduced("manager")
+        self.assertNotIn("manager", gate.EXCLUSION_MODES)
+        with self.assertRaisesRegex(Rejected, "UNSUPPORTED_SCOPE_EXCLUSION"):
+            self.assess()
+        self.assertEqual(self.cli()[0], 1)
+
+    def test_order_exclusion_retains_idempotency_and_privacy_requirements(self):
+        keys = self.reduced("orders")
+        original = copy.deepcopy(self.manifest)
+        for key in ("MVP-010", "MVP-013"):
+            with self.subTest(key=key):
+                self.manifest = copy.deepcopy(original)
+                self.assertNotIn(key, keys)
+                row = self.row(key)
+                self.assertTrue(row["included"])
+                self.assertTrue(row["blocks_public_launch"])
+                self.assertEqual(row["status"], "NOT RUN")
+                self.check(key)["status"] = "OUT_OF_SCOPE_APPROVED"
+                self.assertEqual(self.cli()[0], 1)
+                self.manifest["scope"]["exclusions"][0]["checks"].append(key)
+                self.assertEqual(self.cli()[0], 1)
+
+    def test_supported_scope_claims_still_need_independent_confirmation(self):
+        original = copy.deepcopy(self.manifest)
+        for feature in ("orders", "diagnose", "knowledge", "files", "smtp"):
+            with self.subTest(feature=feature):
+                self.manifest = copy.deepcopy(original)
+                self.records = {}
+                keys = self.reduced(feature)
+                code, result = self.cli()
+                self.assertEqual(code, 0)
+                for row in result["checklist"]:
+                    if row["id"] in keys:
+                        self.assertEqual(row["status"], "INCONCLUSIVE")
+                        self.assertEqual(row["reason"], "SCOPE_DECISION_UNVERIFIED")
+                self.assert_no_admission(result)
+
     def test_exclusions_require_endpoints_and_not_applicable_checks(self):
         self.reduced()
         self.manifest["scope"]["exclusions"][0]["disabled_endpoints"].pop()
@@ -560,7 +690,14 @@ class ReadinessTests(unittest.TestCase):
 
     def test_safety_privacy_restore_and_included_commerce_cannot_be_excluded(self):
         original = copy.deepcopy(self.manifest)
-        for key in ("MVP-005", "MVP-010", "MVP-039", "E-POLICY", "B-RESTORE"):
+        for key in (
+            "MVP-005",
+            "MVP-010",
+            "MVP-013",
+            "MVP-039",
+            "E-POLICY",
+            "B-RESTORE",
+        ):
             with self.subTest(key=key):
                 self.manifest = copy.deepcopy(original)
                 self.reduced()
@@ -581,17 +718,29 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(self.cli()[0], 1)
 
     def test_exclusion_cannot_hide_enabled_mode(self):
-        self.reduced()
-        self.manifest["binding"]["modes"]["chat"] = True
-        self.manifest["evidence"][0]["binding_sha256"] = gate.digest(
-            self.manifest["binding"]
-        )
-        self.assertEqual(self.cli()[0], 1)
+        original = copy.deepcopy(self.manifest)
+        for feature in ("orders", "diagnose", "knowledge", "files", "smtp"):
+            with self.subTest(feature=feature):
+                self.manifest = copy.deepcopy(original)
+                self.records = {}
+                self.reduced(feature)
+                flag, disabled = gate.EXCLUSION_MODES[feature]
+                self.manifest["binding"]["modes"][flag] = (
+                    True if disabled is False else "required"
+                )
+                self.manifest["evidence"][0]["binding_sha256"] = gate.digest(
+                    self.manifest["binding"]
+                )
+                with self.assertRaisesRegex(Rejected, "EXCLUDED_MODE_STILL_ENABLED"):
+                    self.assess()
+                self.assertEqual(self.cli()[0], 1)
 
     def test_full_and_reduced_modes_not_supported_by_current_controller(self):
         self.assertEqual(
             self.row("MODE-SUPPORTED")["reason"], "UNSUPPORTED_RELEASE_MODES"
         )
+
+        self.assert_no_admission(self.assess())
         self.reduced()
         self.assertEqual(self.row("MODE-SUPPORTED")["status"], "BLOCKED")
         self.manifest["binding"]["modes"] = copy.deepcopy(gate.MODES)
@@ -602,6 +751,9 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(
             self.row("MODE-SUPPORTED")["reason"], "UNSUPPORTED_RELEASE_MODES"
         )
+        code, result = self.cli()
+        self.assertEqual(code, 0)
+        self.assert_no_admission(result)
 
     def test_no_automatic_go_for_self_authored_all_pass_file(self):
         self.bind_complete()

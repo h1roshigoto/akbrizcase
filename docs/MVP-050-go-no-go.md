@@ -33,6 +33,10 @@ canonical SHA-256 и clean Git lineage из MVP-049; MODES/SCHEMA из MVP-041;
   проверки, INCONCLUSIVE для недоказанного события/согласования. Импортированный
   успешный CI/target report и opaque approval остаются INCONCLUSIVE: ни JSON,
   ни checksum, ни approval ID/подпись в файле не удостоверяют событие/полномочия.
+  **FAIL имеет приоритет:** явно заявленный либо обнаруженный при анализе evidence
+  FAIL не ослабляется отсутствием prerequisite/evidence до BLOCKED, INCONCLUSIVE
+  или NOT RUN. Например, C-TARGET-LOAD=FAIL без reference остаётся FAIL;
+  PASS без evidence по-прежнему не становится подтверждённым успехом.
 - `OUT_OF_SCOPE_APPROVED`: допустимое заявленное исключение только при отдельном
   scope decision и полном списке отключений. Офлайн-инструмент не удостоверяет
   решение: эффективный статус остаётся INCONCLUSIVE/SCOPE_DECISION_UNVERIFIED.
@@ -67,6 +71,18 @@ MVP-054–056, плюс 34 финальных gate. MVP-051–053 (P2) в объ
 | artifacts | Уникальные opaque IDs/filenames, SHA-256 точных bytes; kind opaque / ci / load. Opaque bytes могут быть безопасной ссылкой на private original; это не создание решения |
 | scope | Отдельный nullable scope decision; для каждого исключённого feature полный фиксированный список HTTP method/routes, UI surfaces, CLI/worker paths и checks, объявленных неприменимыми |
 | defects | Nullable reference к независимому A-DEFECTS review; все известные entries с opaque ID, severity P0/P1/P2, OPEN/CLOSED, feature. Пустой список без triage не доказывает отсутствие дефектов |
+
+Любой заявленный OPEN P0/P1 даёт A-DEFECTS=FAIL независимо от feature и
+enabled_features, включая исключённые функции. Scope exclusion не устанавливает
+неприменимость дефекта: закрытие/неприменимость требует независимого triage.
+CLOSED либо пустой список entries без review оставляет gate BLOCKED; импортированный
+review не удостоверяет решение и не создаёт PASS. Trust-флага для triage нет.
+
+`NON_EXCLUDABLE_REQUIREMENTS` включает все core-gates и отдельно MVP-010/MVP-013:
+идемпотентность, replay и гарантии ПДн остаются обязательными даже при отключённых
+orders. Поле feature в каталоге обозначает предметную область, а не разрешение
+исключить проверку. Эти требования не входят в допустимые exclusion.checks,
+всегда имеют included=true и продолжают блокировать запуск без evidence.
 
 Canonical binding: UTF-8 JSON, sort_keys, ensure_ascii=false, separators comma/colon,
 allow_nan=false (`digest()` из MVP-049). Он включает release ID, HEAD/base, **все**
@@ -245,8 +261,13 @@ MVP-047 также не является экспертной приёмкой �
    Каталог ENDPOINTS фиксирует routes/методы и UI/CLI/worker surfaces; фактические
    результаты их проверки остаются в private scope decision. Перечень строк JSON сам по
    себе не доказывает отключения. Core requirement нельзя поместить в exclusion;
-   включённый feature тоже исключить нельзя; соответствующие mode flags должны
-   быть отключены и согласованы с exclusion. Если profile не поддерживается
+   MVP-010/MVP-013 также остаются обязательными. Включённый feature исключить
+   нельзя. Закрытый EXCLUSION_MODES сопоставляет поддерживаемые функции с
+   существующим runtime flag и его отключённым значением; manager не имеет такого
+   switch, поэтому его исключение отвергается даже с approval ID и полным списком
+   endpoints. Отсутствующий flag не доказывает отключение. Поддерживаемые flags
+   должны быть отключены и согласованы с exclusion; imported scope approval
+   оставляет эффективный статус исключения INCONCLUSIVE. Если profile не поддерживается
    существующим controller — BLOCKED; расширения production modes вне MVP-050.
 4. Контент принимают существующими процедурами MVP-047/049: exact source/version,
    изображение/полный public-файл, real expert/fact disclosure, published versions,
