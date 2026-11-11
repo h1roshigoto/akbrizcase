@@ -636,7 +636,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
                     event = json.loads(line)
                 except ValueError:
                     continue
-                if event.get("event_code") == "HTTP_PHASES":
+                if isinstance(event, dict) and event.get("event_code") == "HTTP_PHASES":
                     timing_events.append(event)
             phase_result = json.loads(
                 compose(

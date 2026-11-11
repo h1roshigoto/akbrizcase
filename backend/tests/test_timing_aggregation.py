@@ -12,9 +12,15 @@ import pytest
 
 from app.core.timing import RequestTiming
 
-AGGREGATE = runpy.run_path(
-    str(Path(__file__).resolve().parents[2] / "scripts/perf001_timing_result.py")
-)["aggregate"]
+
+def aggregate(**values: Any) -> dict[str, Any]:
+    # Integration images intentionally contain app/tests, not host scripts.
+    # Load this unit-only controller helper on execution, never on collection.
+    function = runpy.run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/perf001_timing_result.py")
+    )["aggregate"]
+    result: dict[str, Any] = function(**values)
+    return result
 
 
 def packet() -> dict[str, Any]:
@@ -83,7 +89,7 @@ def packet() -> dict[str, Any]:
 
 def test_tail_and_privacy() -> None:
     data = packet()
-    result = AGGREGATE(**data)
+    result = aggregate(**data)
     assert result["coverage"] == "COMPLETE"
     for operation, metrics in result["operations"].items():
         assert metrics["http_all_attempt_ms"]["p95"] == 38
@@ -107,7 +113,7 @@ def test_unmatched_error_visible_in_all_attempts_and_tail() -> None:
     row["request_id"] = None
     row["status"] = 0
     data["samples"][19]["status"] = 0
-    result = AGGREGATE(**data)
+    result = aggregate(**data)
     metrics = result["operations"]["button"]
     assert result["coverage"] == "INCOMPLETE"
     assert metrics["attempts"] == metrics["http_all_attempt_ms"]["count"] == 20
@@ -134,7 +140,7 @@ def test_tampering_rejected_without_echo(case: str) -> None:
     else:
         data["clients"][0]["headers_end_ns"] = 1
     with pytest.raises(ValueError) as caught:
-        AGGREGATE(**data)
+        aggregate(**data)
     assert "private-secret-canary" not in str(caught.value)
 
 
@@ -179,7 +185,7 @@ def test_sampler_overlap_is_correlated_without_exporting_clocks() -> None:
             "argon2_process_cpu_ms": 12,
         }
     ]
-    result = AGGREGATE(**data)
+    result = aggregate(**data)
     assert result["sampler"]["observed_cycles"] == 1
     assert result["sampler"]["metrics"]["argon2_ms"]["mean"] == 5
     assert (
