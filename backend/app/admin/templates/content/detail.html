@@ -1,0 +1,34 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Document {{ row.code }}</h2>
+<p>{{ row.id }} · {{ row.status }} · {{ row.visibility }}</p>
+<p>Review metadata below is historical. Publication revalidates the exact evidence, content, file and permissions. A draft import is not approval.</p>
+<form method="post" action="/admin/documents/{{ row.id }}/preview">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <input type="hidden" name="operation" value="revoke">
+  <button type="submit" class="btn btn-danger">Preview whole-document revocation</button>
+</form>
+<table class="table">
+  <thead><tr><th>Version / UUID</th><th>Status</th><th>Reviewer UUID / recorded at (UTC)</th><th>Published at (UTC)</th><th>Actions</th></tr></thead>
+  <tbody>{% for version in versions[:page_size] %}
+  <tr><td>{{ version.version }} / {{ version.id }}</td><td>{{ version.status }}</td>
+    <td>{{ version.reviewed_by or 'No review recorded' }} / {{ version.approved_at or '—' }}</td>
+    <td>{{ version.published_at or '—' }}</td><td>
+    {% for operation in ['publish', 'revoke'] %}
+    {% if operation == 'revoke' or (row.status == 'active' and version.status in ['draft', 'published']) %}
+    <form method="post" action="/admin/documents/{{ row.id }}/preview">
+      <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+      <input type="hidden" name="operation" value="{{ operation }}">
+      <input type="hidden" name="version_id" value="{{ version.id }}">
+      <button type="submit" class="btn btn-secondary">Preview {{ operation }}</button>
+    </form>
+    {% endif %}{% endfor %}
+  </td></tr>
+  {% else %}<tr><td colspan="5">No prepared versions.</td></tr>{% endfor %}</tbody>
+</table>
+<nav aria-label="Version pagination">
+  {% if offset > 0 %}<a href="/admin/documents/{{ row.id }}?offset={{ [0, offset - page_size]|max }}">Previous</a>{% endif %}
+  {% if versions|length > page_size and offset + page_size <= 10000 %}<a href="/admin/documents/{{ row.id }}?offset={{ offset + page_size }}">Next</a>{% endif %}
+</nav>
+<a href="/admin/documents">Documents</a>
+{% endblock %}

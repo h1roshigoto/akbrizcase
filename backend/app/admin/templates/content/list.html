@@ -1,0 +1,15 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Documents</h2>
+<p>Prepared through the protected operator CLI. Import and expert review remain in that workflow.</p>
+<table class="table">
+  <thead><tr><th>Code</th><th>Document status</th><th>Visibility</th></tr></thead>
+  <tbody>{% for row in rows[:page_size] %}
+  <tr><td><a href="/admin/documents/{{ row.id }}">{{ row.code }}</a></td><td>{{ row.status }}</td><td>{{ row.visibility }}</td></tr>
+  {% else %}<tr><td colspan="3">No documents.</td></tr>{% endfor %}</tbody>
+</table>
+<nav aria-label="Document pagination">
+  {% if offset > 0 %}<a href="/admin/documents?offset={{ [0, offset - page_size]|max }}">Previous</a>{% endif %}
+  {% if rows|length > page_size and offset + page_size <= 10000 %}<a href="/admin/documents?offset={{ offset + page_size }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

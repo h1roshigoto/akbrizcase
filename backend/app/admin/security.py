@@ -193,7 +193,9 @@ class StaffSecurityMiddleware(BaseHTTPMiddleware):
         ):
             return await self._image_upload(request, call_next, database, security)
         if unsafe and re.fullmatch(
-            r"/admin/catalog/items/[^/]+/(?:applicability/[^/]+|image/remove)", path
+            r"/admin/(?:catalog/items/[^/]+/(?:applicability/[^/]+|image/remove)"
+            r"|documents/[^/]+/(?:preview|revoke|versions/[^/]+/[^/]+))",
+            path,
         ):
             try:
                 await bounded_body(request, 32768)
