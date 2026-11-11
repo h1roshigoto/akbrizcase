@@ -258,6 +258,13 @@ def main(*, pilot_content=False):
             # Child logs/secrets/paths/DB exceptions are never emitted or uploaded.
             # The shared harness stops owned containers and retains all volumes.
             print("OPERATOR_STAGE_FAIL " + stage, file=sys.stderr, flush=True)
+            if pilot_content:
+                from mvp049_content_gate import canonical, empty_result
+
+                failure = empty_result()
+                failure["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "FAIL"
+                failure["codes"] = ["REHEARSAL_FAILED"]
+                print("MVP049_RESULT " + canonical(failure).decode(), flush=True)
             return 1
 
 

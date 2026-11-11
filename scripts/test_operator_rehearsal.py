@@ -73,7 +73,7 @@ class OperatorRehearsalTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 rehearsal.checked_backup(invalid, HEAD)
 
-    def execute(self, child, backup_output=None, dirty=False):
+    def execute(self, child, backup_output=None, dirty=False, pilot_content=False):
         def process(argv, **kwargs):
             output = ""
             if argv[:3] == ["git", "status", "--porcelain"]:
@@ -91,7 +91,7 @@ class OperatorRehearsalTests(unittest.TestCase):
             contextlib.redirect_stdout(output),
             contextlib.redirect_stderr(output),
         ):
-            result = rehearsal.main()
+            result = rehearsal.main(pilot_content=pilot_content)
         self.assertNotIn(CANARY, output.getvalue())
         return result, output.getvalue(), runner
 
@@ -133,6 +133,18 @@ class OperatorRehearsalTests(unittest.TestCase):
         result, output, _ = self.execute(failure)
         self.assertEqual(result, 1)
         self.assertIn("OPERATOR_STAGE_FAIL staff", output)
+
+    def test_content_failure_emits_closed_failed_result_without_receipt(self):
+        result, output, _ = self.execute(
+            lambda *a, **k: print("=== 1 failed ==="), pilot_content=True
+        )
+        self.assertEqual(result, 1)
+        self.assertNotIn("MVP049_REHEARSAL", output)
+        self.assertNotIn("OPERATOR_EVIDENCE", output)
+        record = json.loads(output.split("MVP049_RESULT ")[1])
+        self.assertEqual(record["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "FAIL")
+        self.assertEqual(record["gates"]["PILOT_CONTENT_ADMISSION"], "BLOCKED")
+        self.assertEqual(record["gates"]["PRODUCTION_ADMISSION"], "BLOCKED")
 
     def test_dirty_checkout_and_false_backup_success_are_rejected(self):
         result, output, runner = self.execute(lambda *a, **k: None, dirty=True)

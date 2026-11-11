@@ -55,6 +55,9 @@ class ContentGateTests(unittest.TestCase):
             path = self.packet / entry["filename"]
             path.write_bytes((FIXTURE / entry["filename"]).read_bytes())
             path.chmod(0o600)
+        for tree in self.manifest["content"]["trees"]:
+            tree["git_commit"] = self.head
+        self.rebind()
 
     def store(self, name, value, kind):
         data = gate.canonical(value)
@@ -482,7 +485,9 @@ class ContentGateTests(unittest.TestCase):
             lambda c: c["images"][0].update(output_sha256=None),
             lambda c: c["trees"][0]["nodes"][0].update(next=["observe", "finish"]),
             lambda c: c["trees"][0]["nodes"][1].update(source_refs=["missing"]),
-            lambda c: c["trees"][0]["nodes"][1].update(recommendations=["missing"]),
+            lambda c: c["trees"][0]["nodes"][1].update(
+                recommendations=[{"item": "missing", "qty": 1}]
+            ),
         ):
             self.manifest = copy.deepcopy(original)
             mutation(self.manifest["content"])
@@ -537,6 +542,7 @@ class ContentGateTests(unittest.TestCase):
 
         fixture = self.repo / "content/pilot/synthetic"
         shutil.copytree(FIXTURE, fixture)
+        (fixture / "manifest.template.json").write_bytes(gate.canonical(self.manifest))
         subprocess.run(
             ["git", "-C", str(self.repo), "add", "."], check=True, capture_output=True
         )
@@ -579,6 +585,49 @@ class ContentGateTests(unittest.TestCase):
             a for a in self.manifest["artifacts"] if a["id"] == "previous-manifest"
         )
         entry["sha256"] = "f" * 64
+        self.assertEqual(self.run_cli()[0], 1)
+
+    def test_yaml_parser_rejects_actual_bytes_or_reports_not_run(self):
+        import base64
+        import sys
+
+        tree = self.manifest["content"]["trees"][0]
+        items = {i["sku"]: i for i in self.manifest["content"]["catalog"]["items"]}
+        self.assertIn(gate.verify_source(b"key: [", tree, items), {"FAIL", "NOT RUN"})
+        request = {
+            "yaml": base64.b64encode(
+                (self.packet / "branching-yaml.bin").read_bytes()
+            ).decode(),
+            "items": {i["id"]: i["sku"] for i in items.values()},
+            "expected": {
+                k: tree[k] for k in ("key", "version", "model", "start", "nodes")
+            },
+        }
+        # -S deliberately hides installed dependencies. No optimistic fallback.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                str(gate.ROOT / "scripts/mvp049_source_check.py"),
+            ],
+            input=gate.canonical(request),
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual((result.returncode, result.stdout.strip()), (2, b"NOT RUN"))
+        artifacts = {a["id"]: a for a in self.manifest["artifacts"]}
+        records = {
+            key: (self.packet / a["filename"]).read_bytes()
+            for key, a in artifacts.items()
+        }
+        with patch.object(gate, "verify_source", return_value="NOT RUN"):
+            checked = gate.check_content(self.manifest, artifacts, records)
+        self.assertEqual(checked["trees"], "NOT RUN")
+
+    def test_tree_source_git_commit_must_be_in_reviewed_lineage(self):
+        self.manifest["content"]["trees"][0]["git_commit"] = "f" * 40
+        self.rebind()
         self.assertEqual(self.run_cli()[0], 1)
 
 

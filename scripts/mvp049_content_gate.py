@@ -5,6 +5,7 @@ network access, publication, approval generation or runtime-state repair exists.
 """
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -103,6 +104,7 @@ def subject(value, scope=None):
             "yaml_sha256",
             "binding_sha256",
             "inventory_sha256",
+            "git_commit",
             "start",
             "nodes",
         ),
@@ -419,6 +421,38 @@ def empty_result():
     }
 
 
+def verify_source(yaml_bytes, tree, items):
+    """Reuse the existing bounded parser, never normalize an independent graph.
+
+    Locked backend dependencies are optional for inventory-only use. Without
+    them tree validation is NOT RUN, never PASS. No installation/network occurs.
+    """
+    require(len(yaml_bytes) <= 262144, "YAML_INVENTORY_MISMATCH")
+    interpreter = ROOT / "backend/.venv/bin/python"
+    if not interpreter.is_file():
+        interpreter = Path(sys.executable)
+    request = {
+        "yaml": base64.b64encode(yaml_bytes).decode("ascii"),
+        "items": {item["id"]: item["sku"] for item in items.values()},
+        "expected": {
+            key: tree[key] for key in ("key", "version", "model", "start", "nodes")
+        },
+    }
+    result = subprocess.run(
+        [str(interpreter), "-I", str(ROOT / "scripts/mvp049_source_check.py")],
+        input=canonical(request),
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    require(
+        (result.returncode, result.stdout.strip())
+        in {(0, b"PASS"), (1, b"FAIL"), (2, b"NOT RUN")},
+        "YAML_INVENTORY_MISMATCH",
+    )
+    return result.stdout.strip().decode("ascii")
+
+
 def check_content(manifest, artifacts, records):
     content = manifest["content"]
     checks = dict.fromkeys(DOMAINS, "PASS")
@@ -471,6 +505,7 @@ def check_content(manifest, artifacts, records):
             "BUSINESS_PARAMETERS_INVALID",
         )
         approval(item["business_approval"], "business", item, "catalog")
+    require(len({item["id"] for item in items.values()}) == len(items), "DUPLICATE_ID")
     images = indexed(content["images"], "id")
     require(
         len({i["item"] for i in images.values()}) == len(images)
@@ -701,7 +736,11 @@ def check_content(manifest, artifacts, records):
     )
     for tree in trees.values():
         require(tree["model"] in models, "TREE_BINDING_INVALID")
-        artifact(tree["yaml_artifact"], "yaml", tree["yaml_sha256"])
+        yaml_bytes = artifact(tree["yaml_artifact"], "yaml", tree["yaml_sha256"])
+        source_status = verify_source(yaml_bytes, tree, items)
+        require(source_status != "FAIL", "YAML_INVENTORY_MISMATCH")
+        if source_status == "NOT RUN" and checks["trees"] == "PASS":
+            checks["trees"] = "NOT RUN"
         binding = digest(
             {k: tree[k] for k in ("key", "version", "model", "start", "nodes")}
         )
@@ -734,7 +773,7 @@ def check_content(manifest, artifacts, records):
             for source in node["source_refs"]:
                 require(valid_section(source, public=True), "TREE_DEPENDENCY_INVALID")
             for item in node["recommendations"]:
-                require((item, model) in confirmed, "TREE_DEPENDENCY_INVALID")
+                require((item["item"], model) in confirmed, "TREE_DEPENDENCY_INVALID")
             path = [*path, identifier]
             if not node["next"]:
                 paths.append(path)
@@ -923,6 +962,8 @@ def evaluate(packet, filename, expected_sha, repo, head, base):
     manifest = parse(raw)
     validate(manifest, SCHEMA)
     lineage(repo, manifest, head, base)
+    for source_commit in {t["git_commit"] for t in manifest["content"]["trees"]}:
+        git(repo, "merge-base", "--is-ancestor", source_commit, head)
     artifacts = indexed(manifest["artifacts"], "id")
     require(
         len({a["filename"] for a in artifacts.values()}) == len(artifacts)

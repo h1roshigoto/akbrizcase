@@ -285,6 +285,10 @@
               "items": {
                 "type": "object",
                 "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                  },
                   "sku": {
                     "type": "string",
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
@@ -363,6 +367,7 @@
                   }
                 },
                 "required": [
+                  "id",
                   "sku",
                   "kind",
                   "revision",
@@ -756,6 +761,10 @@
                 "minimum": 1,
                 "maximum": 2147483647
               },
+              "git_commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
               "model": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
@@ -834,9 +843,24 @@
                     "recommendations": {
                       "type": "array",
                       "items": {
-                        "type": "string",
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
-                        "maxLength": 100
+                        "type": "object",
+                        "properties": {
+                          "item": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
+                            "maxLength": 100
+                          },
+                          "qty": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                          }
+                        },
+                        "required": [
+                          "item",
+                          "qty"
+                        ],
+                        "additionalProperties": false
                       },
                       "maxItems": 50,
                       "minItems": 0
@@ -882,6 +906,7 @@
             "required": [
               "key",
               "version",
+              "git_commit",
               "model",
               "status",
               "yaml_artifact",

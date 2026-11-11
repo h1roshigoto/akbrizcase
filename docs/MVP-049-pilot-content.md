@@ -15,7 +15,7 @@
 ## Граница доказательства
 
 `check` проверяет **согласованность выбранного закрытого пакета**. Он не подключается
-к БД, не сканирует изображения, не импортирует YAML, не выполняет SQL/HTTP,
+к БД, не сканирует изображения, не импортирует YAML в БД, не выполняет SQL/HTTP,
 не создаёт approvals и ничего не публикует. Проверенные заранее результаты сервисов
 передаёт оператор. Новый DB adapter не добавлен; публикационные predicates, ACL,
 UoW и аудит остаются у существующих сервисов.
@@ -100,11 +100,11 @@ runner копирует fixture в свой private namespace и закрепл�
 | artifacts | Уникальные id/filename, SHA-256 точных bytes, kind. Все перечисленные файлы проверяются, даже неиспользованные |
 | approvals | Opaque id, scope, subject_sha256, record_artifact и classification. Это ссылки на уже существующие private originals, а не новые экспертные решения |
 | catalog.models | Стабильный code, status, revision SHA-256 согласованного model snapshot и business_approval |
-| catalog.items | SKU, product/service, revision, status, fixed/on_request, nullable цена строкой с двумя десятичными, RUB, unit, tax_note, shipping, delivery_tariff=null, business_approval |
+| catalog.items | Точный item UUID, SKU, product/service, revision, status, fixed/on_request, nullable цена строкой с двумя десятичными, RUB, unit, tax_note, shipping, delivery_tariff=null, business_approval |
 | images | Логический id, item/revision, original/output artifacts и SHA-256, pipeline observation и rights_approval; отсутствие — ABSENT и все file/rights поля null |
 | documents | Code/version, текущие D/V statuses/visibility, original/import artifacts+SHA, sections с точным id/key/bytes/assistant_allowed, service sections_sha256, отдельный section_inventory_sha256, review и full-file permission/approval |
 | applicability | Точная item/model/section, review_approval отдельно от disclosure_allowed/disclosure_approval, ожидаемый confirmed/unknown и разрешённые public_sources |
-| trees | Key/version/model/status, исходный YAML artifact+SHA, service binding_sha256 отдельно от inventory_sha256, нормализованные nodes/start, paths artifact и review_approval |
+| trees | Key/version/model/status и исходный git_commit, YAML artifact+SHA, service binding_sha256 отдельно от inventory_sha256, нормализованные nodes/start, paths artifact и review_approval |
 | search | Конкретная version, corpus artifact+SHA, предварительное expectations_approval, nullable measurement_artifact |
 | minimum | Точные model codes, согласованное число сценариев, отдельное agreement_approval; наличие одной fixture не согласует минимум |
 | state/rehearsal | Nullable ссылки на закрытый state snapshot и синтетический workflow receipt |
@@ -124,7 +124,7 @@ preflight связывает их с inventory, paths и закрытым state,
 `subject_sha256` — digest scope-specific inventory binding, функция `subject()`
 в инструменте. Document review связывает code/version, original/import SHA,
 service sections SHA, section inventory SHA и sections; full-file дополнительно
-связывает full_file_public_allowed. Tree review связывает key/version/model,
+связывает full_file_public_allowed. Tree review связывает key/version/model/git_commit,
 YAML SHA, service binding, inventory SHA, start/nodes. Applicability review
 связывает item/model/section; disclosure дополнительно review ID и отдельный flag.
 Search expectations связывает version/corpus SHA, независимо от последующего
@@ -157,8 +157,15 @@ SYNTHETIC ONLY там запрещено, но смена строки не со
   Paths — полный детерминированный DFS список node IDs от start до каждого terminal.
   Cycles, missing/unreachable nodes, неверные переходы, references/recommendations
   и неполный список отвергаются. Нормализованную inventory оператор получает
-  после существующего tree-check и сверяет с **тем же** YAML; новый YAML parser
-  и альтернативный publication validator не добавлены.
+  после существующего tree-check. Дополнительно bounded subprocess bridge
+  `mvp049_source_check.py` вызывает тот же `parse_tree` MVP-027 и сверяет key/version/
+  model/start, nodes, переходы, SourceRef, рекомендации и qty с фактическими YAML
+  bytes; item UUID переводится в SKU по закрытому inventory. Исходный git_commit
+  должен быть ancestor reviewed HEAD. Новый YAML parser и publication путь не добавлены.
+  Bridge использует существующую backend .venv либо текущий Python; зависимости
+  он не устанавливает. Без зависимостей tree technical check = NOT RUN. Для полной
+  проверки запустить CLI из подготовленной locked backend Python 3.12 среды.
+  Timeout 15 s, исходный YAML ≤256 KiB, вход bridge ≤2 MiB; stderr не публикуется.
 - `MVP049_CORPUS/v1`: format/version/classification/queries. Каждая строка содержит
   id/text/group/expected_sections/behavior/safe_sections. Group relevant/negative;
   behavior results/no_match/safe_quote/handoff. Все ожидаемые IDs — допустимые

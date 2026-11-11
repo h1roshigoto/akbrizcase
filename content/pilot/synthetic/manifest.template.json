@@ -53,7 +53,7 @@
     {
       "id": "branching-paths",
       "filename": "branching-paths.json",
-      "sha256": "e03fb2b69433f08671d552eb02c790a25255fdcb3b3f9073173fd65936a9e322",
+      "sha256": "3eb15052ee47108e95dd779264c1a08980a5b3469ed62e1e50347f633502c036",
       "kind": "paths"
     },
     {
@@ -71,13 +71,13 @@
     {
       "id": "product-business",
       "filename": "product-business.bin",
-      "sha256": "3b2c8cda870627f865e1c502f48af225cc14350632348ac76975e414b8250bd9",
+      "sha256": "0c2871563de4dcff6b17929f1db6b18912036a60cdf22cc56e3058bf17649c77",
       "kind": "approval"
     },
     {
       "id": "service-business",
       "filename": "service-business.bin",
-      "sha256": "fcc7a51f240aff4e690707f8212ab77a0a5ffcca2e7d973b564e54492f1ff14b",
+      "sha256": "c4938ebf3685741278f4fb91a37772af613df2bb6d3fcafbe7200d840ebdd88f",
       "kind": "approval"
     },
     {
@@ -113,7 +113,7 @@
     {
       "id": "tree-review",
       "filename": "tree-review.bin",
-      "sha256": "dfb99d1f42678245606588cc86e5c7838af4b996f0b38a4b17f354da3faaa098",
+      "sha256": "c1651f5ddc369250bf69b54027af1bc39b6e64da1d2b2267d9baa990851372e8",
       "kind": "approval"
     },
     {
@@ -140,14 +140,14 @@
     {
       "id": "product-business",
       "scope": "business",
-      "subject_sha256": "e6ad7d14b8dce42cf88dc0952fabfcdda31cfc5de62be2626289426e58ee1a34",
+      "subject_sha256": "72a92fae7a68a90f54d632de37f976b4f99208027e11579e0d69d1e3a61b95fe",
       "record_artifact": "product-business",
       "classification": "SYNTHETIC ONLY"
     },
     {
       "id": "service-business",
       "scope": "business",
-      "subject_sha256": "76d9b29a697b4f9e1b123adde9d1ca9971b44163b1476394df380d23c11b798d",
+      "subject_sha256": "c917cd8ed83e907d1799313d636401de5b4013676c2f9e438f7e8321a0b82a13",
       "record_artifact": "service-business",
       "classification": "SYNTHETIC ONLY"
     },
@@ -189,7 +189,7 @@
     {
       "id": "tree-review",
       "scope": "tree_review",
-      "subject_sha256": "4d08d1b9af0984bce40c794065e13d430d8bec1b96cdeb2db804e32803d49bfe",
+      "subject_sha256": "7f0021db95792f789b369f0dca8a9b96287c2cd2fd603c95feda1bae8bf6f8da",
       "record_artifact": "tree-review",
       "classification": "SYNTHETIC ONLY"
     },
@@ -233,6 +233,7 @@
           "unit": "SYNTHETIC UNIT",
           "tax_note": "SYNTHETIC ONLY - no tax assertion",
           "delivery_tariff": null,
+          "id": "22222222-2222-4222-8222-222222222222",
           "sku": "22222222-2222-4222-8222-222222222222",
           "kind": "product",
           "price_mode": "fixed",
@@ -247,6 +248,7 @@
           "unit": "SYNTHETIC UNIT",
           "tax_note": "SYNTHETIC ONLY - no tax assertion",
           "delivery_tariff": null,
+          "id": "33333333-3333-4333-8333-333333333333",
           "sku": "SYNTHETIC-SERVICE",
           "kind": "service",
           "price_mode": "on_request",
@@ -327,6 +329,7 @@
       {
         "key": "SYNTHETIC-027-BRANCH",
         "version": 1,
+        "git_commit": "5d14de62534e93907a5ca15c874e372199fddd39",
         "model": "DEMO-MODEL-001",
         "status": "published",
         "yaml_artifact": "branching-yaml",
@@ -353,7 +356,10 @@
               "11111111-1111-4111-8111-111111111111"
             ],
             "recommendations": [
-              "22222222-2222-4222-8222-222222222222"
+              {
+                "item": "22222222-2222-4222-8222-222222222222",
+                "qty": 1
+              }
             ]
           },
           {
@@ -367,7 +373,7 @@
         "paths_artifact": "branching-paths",
         "review_approval": "tree-review",
         "binding_sha256": "4d7ca17eec2c1b062b1c23cd5af2da0771bd46607df9f24dcaa235743c05afe5",
-        "inventory_sha256": "4e5f3cb40c449887a2be7dc63fdb163301f7c7e43d6491376cc0c527a000fbfc"
+        "inventory_sha256": "a768453d8d2bdc9330ec2788d0f6121230941ed861c438bcd309a0417f619b1a"
       }
     ],
     "search": {
