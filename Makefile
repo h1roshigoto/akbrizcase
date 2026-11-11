@@ -210,3 +210,7 @@ mvp049-guards:
 # Extends the existing operator run once; never publishes real content.
 mvp049-rehearsal:
 	python3 scripts/operator_rehearsal.py --pilot-content
+
+.PHONY: mvp050-guards
+mvp050-guards:
+	python3 -m unittest discover -s scripts -p 'test_mvp050.py'
