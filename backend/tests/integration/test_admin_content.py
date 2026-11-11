@@ -402,7 +402,9 @@ def test_content_publication_refusals_are_audited_and_atomic(
         "file_metadata": "REVIEW_STALE",
         "review_invalid": "REVIEW_REQUIRED",
         "public_approval": "PUBLIC_APPROVAL_REQUIRED",
-        "scan": "OPERATOR_IO_FAILURE",
+        # FilePipeline._areas maps OSError from its entire prepare context,
+        # including missing scanner files, to the existing STORAGE_FAILURE.
+        "scan": "STORAGE_FAILURE",
     }[refusal]
     response = execute(browser, csrf, document, version)
     assert_error(response, 409, expected)
