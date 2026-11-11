@@ -588,6 +588,14 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             )
             complete = True
         else:
+            # PERF-001 investigation runs AFTER measured HTTP and invariants.
+            # Fresh synthetic stack only; every probe write rolls back. This
+            # separate aggregate cannot affect MVP048_RESULT or target gates.
+            diagnostic = json.loads(compose(
+                "exec", "-T", "api", "python", "-c",
+                (ROOT / "scripts/perf001_probe.py").read_text(),
+            ))
+            print("PERF001_PROBE " + json.dumps(diagnostic), flush=True)
             # HTTP side effects are verified before/after the controlled DB outage.
             # Only this freshly claimed DB is stopped; target mode cannot reach here.
             import ssl
