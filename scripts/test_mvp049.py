@@ -57,6 +57,8 @@ class ContentGateTests(unittest.TestCase):
             path.chmod(0o600)
         for tree in self.manifest["content"]["trees"]:
             tree["git_commit"] = self.head
+            # The default private packet is deliberately absent from this Git repo.
+            tree.pop("git_blob", None)
         self.rebind()
 
     def store(self, name, value, kind):
@@ -210,16 +212,23 @@ class ContentGateTests(unittest.TestCase):
         self.assertEqual(self.run_cli("report")[0], 1)
         self.assertEqual(path.read_bytes(), before)
 
-    def test_synthetic_pass_cannot_promote_any_real_gate(self):
+    def test_external_receipt_is_inconclusive_even_with_valid_counts(self):
         self.manifest["rehearsal_artifact"] = self.store(
             "workflow", self.full_receipt(), "rehearsal"
         )
-        code, result = self.run_cli()
-        self.assertEqual(code, 0)
-        self.assertEqual(result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "PASS")
-        self.assertTrue(all(result["gates"][g] == "BLOCKED" for g in gate.GATES[2:]))
-        self.assertEqual(result["MVP043_EXTERNAL"], "BLOCKED")
-        self.assertEqual(result["MVP047_EXTERNAL"], "BLOCKED")
+        for operation in ("check", "report"):
+            with self.subTest(operation=operation):
+                code, result = self.run_cli(operation)
+                self.assertEqual(code, 0)
+                self.assertEqual(
+                    result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "INCONCLUSIVE"
+                )
+                self.assertIn("UNVERIFIED_REHEARSAL_RECEIPT", result["codes"])
+                self.assertTrue(
+                    all(result["gates"][g] == "BLOCKED" for g in gate.GATES[2:])
+                )
+                self.assertEqual(result["MVP043_EXTERNAL"], "BLOCKED")
+                self.assertEqual(result["MVP047_EXTERNAL"], "BLOCKED")
         self.manifest["classification"] = "REAL UNVERIFIED"
         self.assertEqual(self.run_cli()[0], 1)
 
@@ -568,7 +577,8 @@ class ContentGateTests(unittest.TestCase):
             self.repo, self.head, self.full_receipt(), directory
         )
         self.assertEqual(result["gates"]["MANIFEST_VALIDATION"], "PASS")
-        self.assertEqual(result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "PASS")
+        self.assertEqual(result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "INCONCLUSIVE")
+        self.assertIn("UNVERIFIED_REHEARSAL_RECEIPT", result["codes"])
         self.assertIn("SCHEMA_FIXTURE_ONLY", result["codes"])
         self.assertTrue(all(result["gates"][g] == "BLOCKED" for g in gate.GATES[2:]))
         self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
@@ -629,6 +639,92 @@ class ContentGateTests(unittest.TestCase):
         self.manifest["content"]["trees"][0]["git_commit"] = "f" * 40
         self.rebind()
         self.assertEqual(self.run_cli()[0], 1)
+
+    def commit_yaml(self, data=None):
+        path = "content/trees/source.yaml"
+        target = self.repo / path
+        target.parent.mkdir(parents=True)
+        target.write_bytes(
+            (self.packet / "branching-yaml.bin").read_bytes() if data is None else data
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repo), "add", "."], check=True, capture_output=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "-c",
+                "user.name=SYNTHETIC",
+                "-c",
+                "user.email=synthetic@example.invalid",
+                "commit",
+                "-qm",
+                "SYNTHETIC source provenance",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        self.head = gate.git(self.repo, "rev-parse", "HEAD")
+        self.manifest["git"].update(head=self.head, base=self.head)
+        tree = self.manifest["content"]["trees"][0]
+        tree["git_commit"] = self.head
+        tree["git_blob"] = {
+            "path": path,
+            "sha1": gate.git(self.repo, "rev-parse", self.head + ":" + path),
+        }
+        self.rebind()
+        return tree
+
+    def test_exact_commit_path_blob_and_yaml_bytes_are_verified(self):
+        self.commit_yaml()
+        code, result = self.run_cli()
+        self.assertEqual(code, 0)
+        self.assertEqual(result["technical_checks"]["git_commit_ancestry"], "PASS")
+        self.assertEqual(result["technical_checks"]["yaml_source_provenance"], "PASS")
+        self.assertNotIn("YAML_PROVENANCE_UNVERIFIED", result["codes"])
+        self.assertTrue(all(result["gates"][g] == "BLOCKED" for g in gate.GATES[2:]))
+
+    def test_ancestor_commit_with_different_yaml_bytes_is_rejected(self):
+        tree = self.commit_yaml(b"SYNTHETIC different committed bytes\n")
+        gate.git(
+            self.repo, "merge-base", "--is-ancestor", tree["git_commit"], self.head
+        )
+        self.assertEqual(self.run_cli()[0], 1)
+
+    def test_missing_unsafe_or_unrelated_git_blob_is_rejected(self):
+        tree = self.commit_yaml()
+        original = dict(tree["git_blob"])
+        for change in (
+            {"path": "content/trees/missing.yaml"},
+            {"path": "../outside.yaml"},
+            {"path": "/outside.yaml"},
+            {"path": "content//trees/source.yaml"},
+            {"path": "content/./source.yaml"},
+            {"path": "HEAD:content/trees/source.yaml"},
+            {"sha1": "f" * 40},
+            {"sha1": gate.git(self.repo, "rev-parse", "HEAD^{tree}")},
+        ):
+            with self.subTest(change=change):
+                tree["git_blob"] = {**original, **change}
+                self.assertEqual(self.run_cli()[0], 1)
+
+    def test_private_yaml_ancestry_never_implies_byte_provenance(self):
+        # HEAD is an empty commit, but the private input contains valid YAML.
+        self.assertEqual(gate.git(self.repo, "ls-tree", "HEAD"), "")
+        for blob in (None, "omitted"):
+            tree = self.manifest["content"]["trees"][0]
+            tree["git_blob"] = blob
+            if blob == "omitted":
+                del tree["git_blob"]
+            code, result = self.run_cli()
+            self.assertEqual(code, 0)
+            self.assertEqual(result["technical_checks"]["git_commit_ancestry"], "PASS")
+            self.assertEqual(
+                result["technical_checks"]["yaml_source_provenance"], "INCONCLUSIVE"
+            )
+            self.assertIn("YAML_PROVENANCE_UNVERIFIED", result["codes"])
 
 
 if __name__ == "__main__":

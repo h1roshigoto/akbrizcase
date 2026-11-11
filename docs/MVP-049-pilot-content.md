@@ -29,9 +29,19 @@ UoW и аудит остаются у существующих сервисов.
 
 `technical_checks=PASS` означает проверку предоставленных связей внутри пакета,
 а не право распространения, экспертную безопасность текста или проверку live БД.
-`MVP049_REHEARSAL/v1` доказывает в пределах журнала runner прохождение синтетических
-workflow regressions на указанном HEAD; он не относится к реальному контенту и
-не утверждает совпадение ephemeral DB entities со schema fixture.
+`MVP049_REHEARSAL/v1` описывает заявленные stages/counts/FTS и Git bindings.
+Его структурная валидность **не подтверждает выполнение тестов**: корректные числа
+можно составить вручную. `check` и `report` проверяют receipt, но всегда оставляют
+SYNTHETIC_CONTENT_REHEARSAL=INCONCLUSIVE с кодом UNVERIFIED_REHEARSAL_RECEIPT.
+Без receipt этот gate = NOT RUN; неверный receipt отклоняется.
+
+Только текущий процесс доверенного operator runner после фактического успешного
+выполнения **всех stages и проверенного backup/restore** на exact clean HEAD
+устанавливает SYNTHETIC_CONTENT_REHEARSAL=PASS и CURRENT_PROCESS_REHEARSAL.
+Повторный импорт даже подлинного receipt предыдущего запуска снова INCONCLUSIVE.
+Нет trust-флага для JSON, подписей или новой инфраструктуры аттестации. Этот PASS
+не относится к реальному контенту и не утверждает совпадение ephemeral DB entities
+со schema fixture; все реальные gates по-прежнему BLOCKED.
 
 ## CLI и защищённое хранение
 
@@ -88,8 +98,9 @@ approval records, private snapshots, child logs или reports в Git/CI artifac
 ## Точный manifest
 
 Закрытая схема: [manifest.schema.json](../content/pilot/manifest.schema.json).
-Все её properties обязательны; отсутствие необязательного свидетельства записывают
-явным `null`, а не выдуманной записью. Полный безопасный пример:
+Все поля `required` обязательны; отсутствие необязательного свидетельства записывают
+явным `null`, а не выдуманной записью. Единственное необязательное дополнение к v1 —
+`trees[].git_blob`: оно может отсутствовать либо быть null (provenance не доказан). Полный безопасный пример:
 [synthetic/manifest.template.json](../content/pilot/synthetic/manifest.template.json).
 Он содержит **SYNTHETIC ONLY** данные и не запускается непосредственно из Git:
 runner копирует fixture в свой private namespace и закрепляет фактический HEAD.
@@ -104,7 +115,7 @@ runner копирует fixture в свой private namespace и закрепл�
 | images | Логический id, item/revision, original/output artifacts и SHA-256, pipeline observation и rights_approval; отсутствие — ABSENT и все file/rights поля null |
 | documents | Code/version, текущие D/V statuses/visibility, original/import artifacts+SHA, sections с точным id/key/bytes/assistant_allowed, service sections_sha256, отдельный section_inventory_sha256, review и full-file permission/approval |
 | applicability | Точная item/model/section, review_approval отдельно от disclosure_allowed/disclosure_approval, ожидаемый confirmed/unknown и разрешённые public_sources |
-| trees | Key/version/model/status и исходный git_commit, YAML artifact+SHA, service binding_sha256 отдельно от inventory_sha256, нормализованные nodes/start, paths artifact и review_approval |
+| trees | Key/version/model/status и git_commit для ancestry, необязательный git_blob {path, sha1}, YAML artifact+SHA, service binding_sha256 отдельно от inventory_sha256, нормализованные nodes/start, paths artifact и review_approval |
 | search | Конкретная version, corpus artifact+SHA, предварительное expectations_approval, nullable measurement_artifact |
 | minimum | Точные model codes, согласованное число сценариев, отдельное agreement_approval; наличие одной fixture не согласует минимум |
 | state/rehearsal | Nullable ссылки на закрытый state snapshot и синтетический workflow receipt |
@@ -160,8 +171,9 @@ SYNTHETIC ONLY там запрещено, но смена строки не со
   после существующего tree-check. Дополнительно bounded subprocess bridge
   `mvp049_source_check.py` вызывает тот же `parse_tree` MVP-027 и сверяет key/version/
   model/start, nodes, переходы, SourceRef, рекомендации и qty с фактическими YAML
-  bytes; item UUID переводится в SKU по закрытому inventory. Исходный git_commit
-  должен быть ancestor reviewed HEAD. Новый YAML parser и publication путь не добавлены.
+  bytes; item UUID переводится в SKU по закрытому inventory. git_commit должен быть
+  ancestor reviewed HEAD; это **только git_commit_ancestry=PASS**, не доказательство
+  происхождения YAML. Новый YAML parser и publication путь не добавлены.
   Bridge использует существующую backend .venv либо текущий Python; зависимости
   он не устанавливает. Без зависимостей tree technical check = NOT RUN. Для полной
   проверки запустить CLI из подготовленной locked backend Python 3.12 среды.
@@ -178,6 +190,30 @@ SYNTHETIC ONLY там запрещено, но смена строки не со
   переданных outcomes, а не новое измерение FTS. Реальное измерение выполняет
   существующий `kb_acceptance.external` по процедуре MVP-047; его private outcomes
   переносят без изменения предварительно утверждённых ожиданий.
+
+### Git provenance исходных YAML
+
+Для YAML, который разрешено хранить в Git, необязательный `trees[].git_blob`
+содержит `path` (нормализованный repo-relative путь) и `sha1` (40 lowercase hex).
+Безопасный пример — существующий SYNTHETIC ONLY manifest.template.json, связанный
+с `content/trees/valid/branching.yaml` в указанном git_commit.
+
+Проверка разрешает путь только через committed tree этого commit: обычный Git blob
+с mode 100644/100755, точным path и ожидаемым object ID. Затем проверяются размер
+и **точное равенство bytes** blob защищённому YAML artifact, уже закреплённому
+SHA-256. Working tree, symlink/gitlink, произвольные objects, абсолютные пути,
+traversal, пустые компоненты, backslash и Git pathspec magic не используются.
+Путь ≤240 символов, ASCII компоненты ≤100 из букв/цифр/`_.-`, первый символ —
+буква/цифра/underscore. Подмена bytes, отсутствующий путь или неверный blob — отказ.
+Только полное совпадение даёт yaml_source_provenance=PASS.
+
+**Закрытый YAML не нужно коммитить ради проверки.** Оставить git_blob null либо
+не указывать его. git_commit в таком пакете обозначает лишь согласованный Git
+anchor/редакцию программного контура, не наличие материала в нём. Результаты
+раздельны: git_commit_ancestry=PASS, yaml_source_provenance=INCONCLUSIVE,
+код YAML_PROVENANCE_UNVERIFIED. Происхождение самих bytes требует независимого
+защищённого подтверждения вне Git. Git provenance не подтверждает права или
+экспертное согласование и не снимает ни один реальный BLOCKED.
 
 ## Операторская последовательность и матрица
 
@@ -248,6 +284,8 @@ make mvp049-rehearsal
 Skip/xfail/partial/error не дают receipt. FTS использует прежний строгий runner
 MVP-047 с проверкой всех 40 outcomes, actual PG16, schema и exact clean HEAD.
 Receipt содержит только source checksum, закрытые stage codes/counts и FTS counts.
+Его копия в private packet проходит лишь офлайн-проверку структуры/согласованности;
+PASS выдаёт сам runner после завершения этих действий в текущем процессе.
 
 В CI лёгкие guards добавлены в Backend checks, расширенный rehearsal заменяет
 один прежний operator запуск в том же job. Все девять обязательных jobs,
@@ -266,7 +304,7 @@ MANIFEST_VALIDATION=PASS относится к конкретному перед
 | Gate | Текущее предметное состояние |
 | --- | --- |
 | MANIFEST_VALIDATION | Результат конкретного check; schema fixture не реальный release manifest |
-| SYNTHETIC_CONTENT_REHEARSAL | PASS только после полного фактического runner; иначе NOT RUN/FAIL |
+| SYNTHETIC_CONTENT_REHEARSAL | PASS только в текущем успешном runner после stages+restore; внешний receipt INCONCLUSIVE, отсутствие NOT RUN, ошибка runner FAIL |
 | CATALOG_FINAL / IMAGE_RIGHTS / DOCUMENT_PERMISSIONS | BLOCKED: внешние материалы/решения отсутствуют |
 | APPLICABILITY_EXPERT_REVIEW / TREE_EXPERT_REVIEW | BLOCKED: реальные независимые решения отсутствуют |
 | REAL_TOP5_ACCEPTANCE / TARGET_CONTENT_VERIFICATION | BLOCKED: нет финального корпуса, ожиданий и целевого walkthrough |

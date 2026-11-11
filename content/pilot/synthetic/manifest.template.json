@@ -373,7 +373,11 @@
         "paths_artifact": "branching-paths",
         "review_approval": "tree-review",
         "binding_sha256": "4d7ca17eec2c1b062b1c23cd5af2da0771bd46607df9f24dcaa235743c05afe5",
-        "inventory_sha256": "a768453d8d2bdc9330ec2788d0f6121230941ed861c438bcd309a0417f619b1a"
+        "inventory_sha256": "a768453d8d2bdc9330ec2788d0f6121230941ed861c438bcd309a0417f619b1a",
+        "git_blob": {
+          "path": "content/trees/valid/branching.yaml",
+          "sha1": "850d3b35541e3db335bb2c016f0a6732076ab1f9"
+        }
       }
     ],
     "search": {

@@ -7,7 +7,10 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
+import mvp049_content_gate as content_gate
+import mvp049_rehearsal as content_rehearsal
 import operator_rehearsal as rehearsal
+import test_kb_acceptance_result as corpus_cases
 
 HEAD = "a" * 40
 CANARY = "private-synthetic-secret@example.invalid"
@@ -120,7 +123,9 @@ class OperatorRehearsalTests(unittest.TestCase):
             "=== 1 passed, 1 xfailed in 1s ===",
         ):
             with self.subTest(summary=summary):
-                result, output, runner = self.execute(lambda *a, **k: print(summary))
+                result, output, runner = self.execute(
+                    lambda *a, summary=summary, **k: print(summary)
+                )
                 self.assertEqual(result, 1)
                 self.assertEqual(runner.call_count, 1)
                 self.assertNotIn("OPERATOR_EVIDENCE", output)
@@ -145,6 +150,86 @@ class OperatorRehearsalTests(unittest.TestCase):
         self.assertEqual(record["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "FAIL")
         self.assertEqual(record["gates"]["PILOT_CONTENT_ADMISSION"], "BLOCKED")
         self.assertEqual(record["gates"]["PRODUCTION_ADMISSION"], "BLOCKED")
+
+    def test_live_content_pass_requires_all_stages_and_checked_restore(self):
+        # Controller-only unit test: no mocked DB acceptance is claimed here.
+        for failure in (None, "stage", "skip", "xfail", "fts_head", "restore"):
+            with self.subTest(failure=failure):
+                self.check_content_case(failure)
+
+    def check_content_case(self, failure):
+        stage_names = {**rehearsal.STAGES, **content_rehearsal.PILOT_STAGES}
+        valid_fts = corpus_cases.CorpusEvidenceTests().record(hits=18)
+        observed = []
+        original_check = rehearsal.checked_backup
+
+        def checked_restore(output, head):
+            value = original_check(output, head)
+            observed.append("restore-validated")
+            return value
+
+        def child(*args, **kwargs):
+            observed.append(kwargs["suite"])
+            if kwargs["suite"] == "operator-pilot-paths" and failure in {
+                "stage",
+                "skip",
+                "xfail",
+            }:
+                outcome = {
+                    "stage": "failed",
+                    "skip": "skipped",
+                    "xfail": "xfailed",
+                }[failure]
+                print(f"=== 100 passed, 1 {outcome} in 1s ===")
+                return
+            if kwargs["suite"] == "kb-acceptance":
+                measured = (
+                    {**valid_fts, "head_sha": "b" * 40}
+                    if failure == "fts_head"
+                    else valid_fts
+                )
+                print("KB_ACCEPTANCE_RESULT " + json.dumps(measured))
+            print("=== 100 passed in 1s ===")
+
+        def fixture(*args):
+            self.assertEqual(len(observed), len(stage_names) + 1)
+            self.assertEqual(observed[-1], "restore-validated")
+            result = content_gate.empty_result()
+            result["gates"]["MANIFEST_VALIDATION"] = "PASS"
+            result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "INCONCLUSIVE"
+            result["codes"] = ["UNVERIFIED_REHEARSAL_RECEIPT"]
+            return result
+
+        with (
+            patch.object(content_rehearsal, "git", return_value="b" * 40),
+            patch.object(
+                content_rehearsal, "check_schema_fixture", side_effect=fixture
+            ) as schema,
+            patch.object(rehearsal, "checked_backup", side_effect=checked_restore),
+        ):
+            code, output, runner = self.execute(
+                child,
+                pilot_content=True,
+                backup_output=backup(incomplete_restore_blocked=False)
+                if failure == "restore"
+                else None,
+            )
+        result = json.loads(output.split("MVP049_RESULT ")[1])
+        if failure is None:
+            self.assertEqual(code, 0)
+            self.assertEqual(runner.call_count, len(stage_names))
+            self.assertEqual(result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "PASS")
+            self.assertIn("CURRENT_PROCESS_REHEARSAL", result["codes"])
+            self.assertNotIn("UNVERIFIED_REHEARSAL_RECEIPT", result["codes"])
+            schema.assert_called_once()
+        else:
+            self.assertEqual(code, 1)
+            self.assertEqual(result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"], "FAIL")
+            self.assertNotIn("MVP049_REHEARSAL", output)
+            schema.assert_not_called()
+        self.assertTrue(
+            all(result["gates"][g] == "BLOCKED" for g in content_gate.GATES[2:])
+        )
 
     def test_dirty_checkout_and_false_backup_success_are_rejected(self):
         result, output, runner = self.execute(lambda *a, **k: None, dirty=True)

@@ -245,6 +245,12 @@ def main(*, pilot_content=False):
                 content_result = check_schema_fixture(
                     REPO, head, record, root / "schema-fixture"
                 )
+                # Only this live control flow has observed every successful
+                # stage and checked restore on the exact HEAD. A receipt read
+                # from disk (even one emitted here earlier) has no such authority.
+                content_result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "PASS"
+                content_result["codes"].remove("UNVERIFIED_REHEARSAL_RECEIPT")
+                content_result["codes"].append("CURRENT_PROCESS_REHEARSAL")
             print(
                 "OPERATOR_EVIDENCE " + json.dumps(evidence, sort_keys=True), flush=True
             )

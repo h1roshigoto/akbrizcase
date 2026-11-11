@@ -16,8 +16,11 @@ The copied branching YAML is the existing `content/trees/valid/branching.yaml`;
 its IDs are placeholders. Inventory paths are schema expectations. Existing
 MVP-045 integration tests rebind those IDs in guarded fresh databases, publish
 through the normal services and exercise every actual path and dependency loss.
-A workflow receipt binds those tests to the source tree, not this template to
-an ephemeral database.
+A workflow receipt lists stages and a source tree; offline JSON does not prove
+execution, so imported receipts remain INCONCLUSIVE. Only the live runner can
+report PASS after its successful stages and restore. It does not bind this
+template to an ephemeral database. The optional git_blob checks the exact public
+branching YAML commit/path/blob; private YAML without it has unverified provenance.
 
 Do not import this fixture into production, relabel it as real, or copy its
 attestations into real approvals. Read the [operator contract](../../../docs/MVP-049-pilot-content.md).

@@ -43,6 +43,8 @@ DOMAINS = (
     "search",
     "minimum",
     "state",
+    "git_commit_ancestry",
+    "yaml_source_provenance",
 )
 STATES = {"PASS", "FAIL", "BLOCKED", "NOT RUN", "INCONCLUSIVE"}
 
@@ -201,7 +203,10 @@ def validate(value, schema, root=SCHEMA):
             "SCHEMA_INVALID",
         )
     if kind == "object":
-        require(set(value) == set(schema["properties"]), "SCHEMA_INVALID")
+        require(
+            set(schema["required"]) <= set(value) <= set(schema["properties"]),
+            "SCHEMA_INVALID",
+        )
         for k, v in value.items():
             validate(v, schema["properties"][k], root)
     elif kind == "array":
@@ -369,13 +374,15 @@ class PrivateInput:
         os.close(self.fd)
 
 
-def git(repo, *args):
+def git_bytes(repo, *args):
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    env["GIT_NO_LAZY_FETCH"] = "1"
     return subprocess.run(
         [
             "git",
             "--no-optional-locks",
+            "--literal-pathspecs",
             "-c",
             "core.fsmonitor=false",
             "-C",
@@ -385,9 +392,49 @@ def git(repo, *args):
         env=env,
         check=True,
         capture_output=True,
-        text=True,
         timeout=20,
-    ).stdout.strip()
+    ).stdout
+
+
+def git(repo, *args):
+    return git_bytes(repo, *args).decode("utf-8").strip()
+
+
+def yaml_provenance(repo, tree, data):
+    """Ancestry is not a claim that private YAML bytes were committed."""
+    source = tree.get("git_blob")
+    if source is None:
+        return "INCONCLUSIVE"
+    path = source["path"]
+    require(
+        type(path) is str
+        and 0 < len(path) <= 240
+        and all(
+            re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}", p)
+            for p in path.split("/")
+        ),
+        "YAML_PROVENANCE_INVALID",
+    )
+    # Resolve through the committed tree, not the working directory, a symlink,
+    # submodule or an arbitrary caller-selected object in the object database.
+    entry = git_bytes(repo, "ls-tree", "-z", tree["git_commit"], "--", path)
+    require(
+        entry
+        in {
+            f"{mode} blob {source['sha1']}\t{path}\0".encode("ascii")
+            for mode in ("100644", "100755")
+        },
+        "YAML_PROVENANCE_INVALID",
+    )
+    size = git(repo, "cat-file", "-s", source["sha1"])
+    require(
+        size == str(len(data)) and 0 < len(data) <= 262144, "YAML_PROVENANCE_INVALID"
+    )
+    require(
+        git_bytes(repo, "cat-file", "blob", source["sha1"]) == data,
+        "YAML_PROVENANCE_INVALID",
+    )
+    return "PASS"
 
 
 def lineage(repo, manifest, head, base):
@@ -456,6 +503,7 @@ def verify_source(yaml_bytes, tree, items):
 def check_content(manifest, artifacts, records):
     content = manifest["content"]
     checks = dict.fromkeys(DOMAINS, "PASS")
+    checks["git_commit_ancestry"] = checks["yaml_source_provenance"] = "NOT RUN"
     approvals = indexed(manifest["approvals"], "id")
     synthetic = manifest["classification"] == "SYNTHETIC ONLY"
 
@@ -990,6 +1038,18 @@ def evaluate(packet, filename, expected_sha, repo, head, base):
         git(repo, "merge-base", "--is-ancestor", old["git"]["head"], head)
     result = empty_result()
     result["technical_checks"] = check_content(manifest, artifacts, records)
+    trees = manifest["content"]["trees"]
+    if trees:
+        # The ancestor checks above concern only Git metadata. Byte provenance
+        # needs an independently checked commit/path/blob binding as well.
+        result["technical_checks"]["git_commit_ancestry"] = "PASS"
+        provenance = [
+            yaml_provenance(repo, tree, records[tree["yaml_artifact"]])
+            for tree in trees
+        ]
+        result["technical_checks"]["yaml_source_provenance"] = (
+            "PASS" if all(p == "PASS" for p in provenance) else "INCONCLUSIVE"
+        )
     result["gates"]["MANIFEST_VALIDATION"] = "PASS"
     result["checksums"] = {
         "manifest": sha(raw),
@@ -1033,10 +1093,14 @@ def evaluate(packet, filename, expected_sha, repo, head, base):
             "SYNTHETIC_ESCALATION",
         )
         validate_receipt(parse(records[rehearsal_id]), repo, head)
-        result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "PASS"
+        result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "INCONCLUSIVE"
     # Offline JSON cannot prove real people, rights, independent provenance or
     # freshness of target DB reads. There is deliberately no PASS branch here.
     result["codes"] = ["INDEPENDENT_VERIFICATION_REQUIRED", "MVP050_REQUIRED"]
+    if rehearsal_id is not None:
+        result["codes"].append("UNVERIFIED_REHEARSAL_RECEIPT")
+    if result["technical_checks"]["yaml_source_provenance"] == "INCONCLUSIVE":
+        result["codes"].append("YAML_PROVENANCE_UNVERIFIED")
     if manifest["classification"] == "SYNTHETIC ONLY":
         result["codes"].append("SYNTHETIC_ONLY")
     packet.finish()

@@ -41,6 +41,7 @@ def receipt(repo, head, counts, fts):
 
 
 def validate_receipt(value, repo, head):
+    """Validate structure/bindings only; JSON does not prove test execution."""
     # Imports are lazy to keep ordinary guard/preflight startup offline and small.
     from kb_acceptance_result import CORPUS_SHA256
     from operator_rehearsal import STAGES
@@ -97,7 +98,8 @@ def passed_count(output):
 def check_schema_fixture(repo, head, record, directory):
     """Copy public test inputs into an explicitly private rehearsal namespace.
 
-    This is exclusively a schema fixture. It never represents the ephemeral DB
+    This checker grants no execution PASS. It is exclusively a schema fixture
+    and never represents the ephemeral DB
     entities used by the independent workflow regressions or real pilot content.
     """
     import json
