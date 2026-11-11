@@ -1,10 +1,13 @@
 """Narrow staff UI over the existing commands and middleware-owned UoW."""
 
+from collections.abc import Callable
 from typing import cast
 
 from fastapi import Request
 from sqladmin import expose
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.responses import HTMLResponse, RedirectResponse, Response
@@ -21,6 +24,19 @@ from app.schemas.common import parse_uuid
 
 STAFF_LIMIT = 100
 FORM_BYTES = 16384
+
+
+def within_savepoint[T](session: Session, operation: Callable[[], T]) -> T:
+    # Catch DB failures in this adapter before SQLAdmin starts an error response.
+    # The middleware still owns the outer transaction and staff lock.
+    with session.begin_nested():
+        return operation()
+
+
+def unavailable(request: Request) -> Response:
+    return error_response(
+        request, 503, "SERVICE_UNAVAILABLE", "Staff operation unavailable"
+    )
 
 
 async def staff_fields(request: Request, allowed: set[str]) -> dict[str, str]:
@@ -44,13 +60,19 @@ async def invalid_form(
 ) -> Response:
     actor = request_identity(request)
     assert actor is not None
-    await run_in_threadpool(
-        record_staff_event,
-        request.state.staff_db,
-        actor_id=actor.user.id,
-        action=action,
-        result="invalid_input",
-    )
+
+    def record() -> None:
+        record_staff_event(
+            request.state.staff_db,
+            actor_id=actor.user.id,
+            action=action,
+            result="invalid_input",
+        )
+
+    try:
+        await run_in_threadpool(within_savepoint, request.state.staff_db, record)
+    except SQLAlchemyError:
+        return unavailable(request)
     return error_response(request, status, "INVALID_REQUEST", "Invalid staff fields")
 
 
@@ -94,11 +116,17 @@ class StaffView(StaffBaseView):
             )
             return {"rows": rows[:STAFF_LIMIT], "truncated": len(rows) > STAFF_LIMIT}
 
+        try:
+            context = await run_in_threadpool(
+                within_savepoint, request.state.staff_db, read
+            )
+        except SQLAlchemyError:
+            return unavailable(request)
         return await self.templates.TemplateResponse(
-            request, "staff/list.html", await run_in_threadpool(read)
+            request, "staff/list.html", context
         )
 
-    @expose("/staff/create", methods=["POST"], identity="staff-create")
+    @expose("/staff/create-account", methods=["POST"], identity="staff-create")
     async def post_create(self, request: Request) -> Response:
         try:
             values = await staff_fields(
@@ -114,14 +142,22 @@ class StaffView(StaffBaseView):
             return await invalid_form(request, "staff.create", status)
         actor = request_identity(request)
         assert actor is not None
-        outcome = await run_in_threadpool(
-            create_staff_as_actor,
-            request.state.staff_db,
-            actor=actor,
-            login=values["login"],
-            password=values["password"],
-            role=cast(StaffRole, values["role"]),
-        )
+
+        def create() -> StaffOutcome:
+            return create_staff_as_actor(
+                request.state.staff_db,
+                actor=actor,
+                login=values["login"],
+                password=values["password"],
+                role=cast(StaffRole, values["role"]),
+            )
+
+        try:
+            outcome = await run_in_threadpool(
+                within_savepoint, request.state.staff_db, create
+            )
+        except SQLAlchemyError:
+            return unavailable(request)
         if not outcome.ok:
             return rejected(request, outcome)
         return RedirectResponse(f"/admin/staff/{outcome.user_id}", status_code=303)
@@ -138,12 +174,18 @@ class StaffView(StaffBaseView):
             return await invalid_form(request, "staff.disable", status)
         actor = request_identity(request)
         assert actor is not None
-        outcome = await run_in_threadpool(
-            disable_staff_as_actor,
-            request.state.staff_db,
-            actor=actor,
-            user_id=identifier,
-        )
+
+        def disable() -> StaffOutcome:
+            return disable_staff_as_actor(
+                request.state.staff_db, actor=actor, user_id=identifier
+            )
+
+        try:
+            outcome = await run_in_threadpool(
+                within_savepoint, request.state.staff_db, disable
+            )
+        except SQLAlchemyError:
+            return unavailable(request)
         if not outcome.ok:
             return rejected(request, outcome)
         if identifier == actor.user.id:
@@ -196,7 +238,12 @@ class StaffView(StaffBaseView):
                 "is_self": actor.user.id == identifier,
             }
 
-        context = await run_in_threadpool(read)
+        try:
+            context = await run_in_threadpool(
+                within_savepoint, request.state.staff_db, read
+            )
+        except SQLAlchemyError:
+            return unavailable(request)
         if context["row"] is None:
             return error_response(request, 404, "NOT_FOUND", "Staff not found")
         return await self.templates.TemplateResponse(

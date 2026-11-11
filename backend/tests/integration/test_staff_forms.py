@@ -111,11 +111,11 @@ def test_browser_create_and_cli_postconditions(
     assert login(browser).status_code == 200
     page = browser.get("/admin/staff")
     assert page.status_code == 200
-    assert 'href="/admin/staff"' in page.text
+    assert f'href="{ORIGIN}/admin/staff"' in page.text
     csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
     assert csrf is not None
     response = browser.post(
-        "/admin/staff/create",
+        "/admin/staff/create-account",
         data={**create_form(role=role), "csrf_token": csrf[1]},
         headers={"Origin": ORIGIN},
     )
@@ -158,7 +158,7 @@ def test_direct_urls_are_admin_only(
     for method, path, data in (
         ("GET", "/admin/staff", {}),
         ("GET", f"/admin/staff/{uid}", {}),
-        ("POST", "/admin/staff/create", create_form()),
+        ("POST", "/admin/staff/create-account", create_form()),
         ("POST", f"/admin/staff/{uid}/disable", {"confirm": "disable"}),
     ):
         response = browser.request(method, path, data=data, headers=headers(csrf))
@@ -186,7 +186,11 @@ def test_mutation_security(
 ) -> None:
     csrf = login(browser).json()["csrf_token"]
     uid = identifier(staff_database, "forms-manager")
-    url = "/admin/staff/create" if action == "create" else f"/admin/staff/{uid}/disable"
+    url = (
+        "/admin/staff/create-account"
+        if action == "create"
+        else f"/admin/staff/{uid}/disable"
+    )
     data = create_form() if action == "create" else {"confirm": "disable"}
     request_headers = headers("forged" if denial == "csrf" else csrf)
     if denial == "origin":
@@ -229,7 +233,9 @@ def test_invalid_create(
 ) -> None:
     csrf = login(browser).json()["csrf_token"]
     response = browser.post(
-        "/admin/staff/create", data=create_form(**changes), headers=headers(csrf)
+        "/admin/staff/create-account",
+        data=create_form(**changes),
+        headers=headers(csrf),
     )
     assert response.status_code == status, response.text
     assert NEW_PASSWORD not in response.text
@@ -248,7 +254,7 @@ def test_duplicate_create_fields(browser: TestClient, field: str) -> None:
     data = {**create_form(), "csrf_token": csrf}
     pairs = [*data.items(), (field, data[field])]
     response = browser.post(
-        "/admin/staff/create",
+        "/admin/staff/create-account",
         content=urlencode(pairs),
         headers={**headers(csrf), "Content-Type": "application/x-www-form-urlencoded"},
     )
@@ -296,7 +302,7 @@ def test_revoked_admin_cannot_read_or_write(
         assert browser.get(f"/admin/staff/{uid}").status_code == 401
         assert (
             browser.post(
-                "/admin/staff/create", data=create_form(), headers=headers(csrf)
+                "/admin/staff/create-account", data=create_form(), headers=headers(csrf)
             ).status_code
             == 401
         )
@@ -308,7 +314,7 @@ def test_confirmation_and_no_get_mutations(
     csrf = login(browser).json()["csrf_token"]
     uid = identifier(staff_database, "forms-manager")
     assert browser.get(f"/admin/staff/{uid}/disable").status_code == 405
-    assert browser.get("/admin/staff/create").status_code >= 400
+    assert browser.get("/admin/staff/create-account").status_code >= 400
     assert (
         browser.post(
             f"/admin/staff/{uid}/disable", data={}, headers=headers(csrf)
@@ -359,7 +365,9 @@ def test_disable_all_sessions_and_relogin(
                 assert client.get("/admin/staff").status_code == 401
                 assert (
                     client.post(
-                        "/admin/staff/create", data=create_form(), headers=headers(csrf)
+                        "/admin/staff/create-account",
+                        data=create_form(),
+                        headers=headers(csrf),
                     ).status_code
                     == 401
                 )
@@ -456,7 +464,7 @@ def test_audit_failure_rolls_back_entire_command(
     event.listen(AuditEvent, "before_insert", fail)
     try:
         url = (
-            "/admin/staff/create"
+            "/admin/staff/create-account"
             if operation == "create"
             else f"/admin/staff/{uid}/disable"
         )
@@ -492,7 +500,7 @@ def test_no_credentials_in_html_audit_or_logs(
     csrf = login(browser).json()["csrf_token"]
     raw = browser.cookies[SESSION_COOKIE]
     created = browser.post(
-        "/admin/staff/create", data=create_form(), headers=headers(csrf)
+        "/admin/staff/create-account", data=create_form(), headers=headers(csrf)
     )
     assert created.status_code == 303
     detail = browser.get(created.headers["location"])
@@ -542,7 +550,7 @@ def test_disable_wins_race_with_http_create(
     def create() -> Response:
         requested.set()
         return browser.post(
-            "/admin/staff/create", data=create_form(), headers=headers(csrf)
+            "/admin/staff/create-account", data=create_form(), headers=headers(csrf)
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -625,6 +633,7 @@ def test_actor_cli_disable_same_postconditions(
         issued = login_staff(session, "actor-admin", PASSWORD)
         assert issued is not None
         assert disable_staff_as_actor(session, actor=actor, user_id=created.user_id).ok
+        session.refresh(issued.identity.session)
         assert not issued.identity.user.is_active and issued.identity.session.revoked_at
         assert disable_staff(
             session,

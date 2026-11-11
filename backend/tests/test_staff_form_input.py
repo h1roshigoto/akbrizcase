@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.routing import Route
+from starlette.routing import Match, Route
 from starlette.types import Message
 
 from app.admin.sqladmin import install_sqladmin
@@ -82,7 +82,18 @@ def test_staff_menu_and_explicit_methods() -> None:
     }
     assert routes == {
         "/staff": {"GET", "HEAD"},
-        "/staff/create": {"POST"},
+        "/staff/create-account": {"POST"},
         "/staff/{record}": {"GET", "HEAD"},
         "/staff/{record}/disable": {"POST"},
     }
+
+
+def test_create_dispatch_reaches_staff_handler_before_generic_sqladmin() -> None:
+    admin = install_sqladmin(FastAPI())
+    scope = {"type": "http", "method": "POST", "path": "/staff/create-account"}
+    matched = next(
+        route for route in admin.admin.routes if route.matches(scope)[0] == Match.FULL
+    )
+    assert isinstance(matched, Route)
+    assert matched.name == "staff-create"
+    assert isinstance(getattr(matched.endpoint, "__self__", None), StaffView)

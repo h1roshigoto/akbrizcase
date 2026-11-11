@@ -13,9 +13,12 @@ admin появляется Staff. Manager получает 403 при прямо
 | Метод | Маршрут | Назначение |
 |---|---|---|
 | GET | `/admin/staff` | Первые 100 сотрудников по login, затем UUID; форма создания |
-| POST | `/admin/staff/create` | Создание manager/admin |
+| POST | `/admin/staff/create-account` | Создание manager/admin |
 | GET | `/admin/staff/{user_id}` | UUID, login, role, is_active; подтверждение disable |
 | POST | `/admin/staff/{user_id}/disable` | Отключение и отзыв всех сессий |
+
+Имя create-account избегает встроенного маршрута SQLAdmin `/{identity}/create`;
+регрессионный unit-тест проверяет фактический выбор handler в полном router.
 
 GET не меняет бизнес-состояние. Список читает максимум 101 техническую запись,
 показывает 100 и предупреждение об ограничении. Пагинации и полного экспорта нет;
@@ -75,8 +78,10 @@ disable_staff_as_actor. HTTP передаёт StaffIdentity из request.state.s
 роль/активность из PostgreSQL и для StaffIdentity проверяет принадлежность,
 revoked_at/expiry серверной сессии. Staff-блокировка удерживается до внешнего commit:
 победивший disable запрещает ожидающую административную операцию; уже выполняющаяся
-операция заканчивает свою транзакцию перед disable. Доменный сервис не вызывает
-commit/rollback. Ошибка команды/аудита/commit откатывает пользователя, отзыв и audit.
+операция заканчивает свою транзакцию перед disable. HTTP-адаптер использует savepoint,
+чтобы откатить ошибку команды/аудита до безопасного ответа 503, без преждевременного
+error response SQLAdmin. Доменный сервис не вызывает commit/rollback; внешним UoW
+владеет middleware. Ошибка команды/аудита/commit откатывает пользователя, отзыв и audit.
 
 Сохраняются staff.create/staff.disable и их outcomes. Отказы форм фиксируются как
 invalid_input. Role/session отказы и CSRF/Origin фиксируются прежними staff.access /
