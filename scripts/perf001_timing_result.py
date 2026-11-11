@@ -84,7 +84,8 @@ def derive(client, event):
             "end_ns",
         )
     ]
-    if any(v is None for v in stamps) or stamps != sorted(stamps):
+    observed_stamps = [value for value in stamps if value is not None]
+    if observed_stamps != sorted(observed_stamps):
         raise ValueError("PERF001_CLIENT_CLOCK_INVALID")
     if not (
         0
@@ -99,28 +100,36 @@ def derive(client, event):
         or m["response_start_ns"] > client["end_ns"]
     ):
         raise ValueError("PERF001_CORRELATION_CLOCK_INVALID")
+
+    def interval(end, start):
+        return (end - start) / 1e6 if end is not None and start is not None else None
+
     result = {k: m[k] for k in DURATIONS | COUNTS}
     result.update(
         client_total_ms=(client["end_ns"] - client["start_ns"]) / 1e6,
         tcp_ms=client["tcp_ms"],
         tls_ms=client["tls_ms"],
-        headers_wait_ms=(client["headers_end_ns"] - client["send_end_ns"]) / 1e6,
-        body_read_ms=(client["body_end_ns"] - client["headers_end_ns"]) / 1e6,
-        client_validate_ms=(client["validation_end_ns"] - client["body_end_ns"]) / 1e6,
-        client_close_ms=(client["end_ns"] - client["validation_end_ns"]) / 1e6,
+        headers_wait_ms=interval(client["headers_end_ns"], client["send_end_ns"]),
+        body_read_ms=interval(client["body_end_ns"], client["headers_end_ns"]),
+        client_validate_ms=interval(client["validation_end_ns"], client["body_end_ns"]),
+        client_close_ms=interval(client["end_ns"], client["validation_end_ns"]),
         server_ms=(m["response_end_ns"] - m["asgi_start_ns"]) / 1e6,
         framework_queue_ms=(m["handler_start_ns"] - m["asgi_start_ns"]) / 1e6,
         response_stream_ms=(m["response_end_ns"] - m["response_start_ns"]) / 1e6,
         # This signed residual includes transport/proxy/Uvicorn admission and
         # sender/receiver overlap. It is explicitly NOT a pure queue wait.
-        send_to_asgi_signed_ms=(m["asgi_start_ns"] - client["send_end_ns"]) / 1e6,
+        send_to_asgi_signed_ms=interval(m["asgi_start_ns"], client["send_end_ns"]),
     )
     if client["operation"] in {"button", "order"}:
         if client["status"] < 400 and (
             not m["route_start_ns"] or m["worker_calls"] != 1
         ):
             raise ValueError("PERF001_WORKER_COVERAGE_INVALID")
-        result["route_delay_ms"] = (m["route_start_ns"] - m["handler_start_ns"]) / 1e6
+        result["route_delay_ms"] = (
+            (m["route_start_ns"] - m["handler_start_ns"]) / 1e6
+            if m["route_start_ns"]
+            else None
+        )
         result["server_other_ms"] = (
             result["server_ms"]
             - m["worker_ms"]
@@ -228,19 +237,27 @@ def aggregate(head, clients, events, samples, sampler_intervals, postgres=None):
             "attempts": len(attempts),
             "http_all_attempt_ms": total,
             "matched": len(joined),
+            "partial_client": sum(
+                any(
+                    row[k] is None
+                    for k in CLIENT_FIELDS - {"request_id", "operation", "status"}
+                )
+                for row in attempts
+            ),
             "unmatched": len(attempts) - len(joined),
             "statuses": dict(
                 sorted(Counter(str(c["status"]) for c in attempts).items())
             ),
             "all": {
-                k: distribution([v[k] for v in joined if k in v]) for k in sorted(keys)
+                k: distribution([v[k] for v in joined if k in v and v[k] is not None])
+                for k in sorted(keys)
             },
             "p95_and_above": {
                 "attempts": expected_tail,
                 "count": len(tail),
                 "unmatched": expected_tail - len(tail),
                 "metrics": {
-                    k: distribution([v[k] for v in tail if k in v])
+                    k: distribution([v[k] for v in tail if k in v and v[k] is not None])
                     for k in sorted(keys)
                 },
             },
@@ -295,7 +312,7 @@ def aggregate(head, clients, events, samples, sampler_intervals, postgres=None):
     output["coverage"] = (
         "COMPLETE"
         if all(
-            v["attempts"] > 0 and not v["unmatched"]
+            v["attempts"] > 0 and not v["unmatched"] and not v["partial_client"]
             for v in output["operations"].values()
         )
         else "INCOMPLETE"
@@ -368,8 +385,6 @@ if __name__ == "__main__":
         }
         result = aggregate(**packet)
         print(json.dumps(result, sort_keys=True, allow_nan=False), flush=True)
-        if result["coverage"] != "COMPLETE":
-            raise SystemExit(1)
     except Exception:
         # Exception inputs can contain synthetic canaries or tampered raw fields.
         print("PERF001_PHASES_INVALID", file=sys.stderr)

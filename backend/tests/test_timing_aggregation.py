@@ -195,3 +195,20 @@ def test_sampler_overlap_is_correlated_without_exporting_clocks() -> None:
         == 19.5
     )
     assert "start_ns" not in json.dumps(result)
+
+
+def test_failed_validation_is_not_dropped_or_changed_to_zero() -> None:
+    data = packet()
+    data["clients"][19]["status"] = data["samples"][19]["status"] = data["events"][19][
+        "status"
+    ] = 503
+    data["clients"][19]["validation_end_ns"] = None
+    result = aggregate(**data)
+    metrics = result["operations"]["button"]
+    assert result["coverage"] == "INCOMPLETE"
+    assert metrics["matched"] == metrics["attempts"] == 20
+    assert metrics["partial_client"] == 1
+    assert metrics["statuses"] == {"200": 19, "503": 1}
+    assert metrics["http_all_attempt_ms"]["p95"] == 38
+    assert metrics["p95_and_above"]["count"] == 2
+    assert metrics["all"]["client_validate_ms"]["count"] == 19

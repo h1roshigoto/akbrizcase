@@ -508,6 +508,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
     outcomes["backup"] = "BLOCKED"
     complete = False
     runtime_observed = False
+    phase_result = None
     source_addresses = set()
     try:
         stack.docker("image", "inspect", GENERATOR_IMAGE)
@@ -881,6 +882,12 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             or (target and result["gates"]["TARGET_LOAD"] != "PASS")
         ):
             raise ValueError("MVP048_EVIDENCE_NOT_PASS")
+        if (
+            not failure_in_flight
+            and not target
+            and (phase_result is None or phase_result["coverage"] != "COMPLETE")
+        ):
+            raise ValueError("PERF001_DIAGNOSTICS_INCOMPLETE")
 
 
 def target_preflight(path):
