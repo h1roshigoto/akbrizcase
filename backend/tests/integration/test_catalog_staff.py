@@ -92,6 +92,7 @@ def test_catalog_and_staff_in_production_app(
             assert {view.identity for view in admin.views} == {
                 "orders",
                 "order-detail",
+                "stats",
                 "catalog-items",
                 "equipment-models",
                 "catalog-editor",
