@@ -149,6 +149,9 @@ def install_sqladmin(app: FastAPI) -> Admin:
 
     admin.add_view(CatalogImagesView)
     admin.add_view(CatalogApplicabilityView)
+    from app.admin.staff import StaffView
+
+    admin.add_view(StaffView)
     # Templates use relative same-origin URLs. Forwarded headers are never
     # authority for URL generation or CSRF validation.
     return admin

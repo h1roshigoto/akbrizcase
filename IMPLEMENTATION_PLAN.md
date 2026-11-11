@@ -628,11 +628,12 @@ base `mvp-038-privacy-cleanup`), без закрытия release gates MVP-037/0
 
 - **Приоритет:** P2. **Цель/результат:** admin может пользоваться формами вместо staff CLI.
 - **Объём:** формы create/disable через существующие сервисы, CSRF/role/audit; CLI и ограничения bootstrap сохраняются.
-- **Файлы/модули:** admin staff forms/tests.
+- **Файлы/модули:** `admin/staff.py`, staff templates, общий actor-based путь в `core/staff.py`, unit и PostgreSQL core tests; [контракт и инструкция](docs/MVP-052-staff-forms.md).
 - **Зависимости:** MVP-004, MVP-005, MVP-050. **DoD:** manager/disabled не создаёт сотрудников; нет прямого password hash edit или доступа к токенам.
-- **Тесты:** RBAC/CSRF, disable отзывает сессии, отсутствие секретов в форме/аудите.
+- **Тесты:** RBAC/Origin/CSRF, строгие ограниченные формы, create manager/admin, disable отзывает все сессии и запрещает повторный login; audit/rollback, CLI-совместимость, stale identity, гонка disable/create, bootstrap-инварианты и отсутствие секретов. PostgreSQL 16 — существующий suite core, без нового CI job.
 - **Проверка:** browser создание/disable synthetic staff и проверка старой сессии.
 - **Не входит:** публичная регистрация, новые роли и SSO.
+- **Статус реализации:** защищённые формы и тесты подготовлены; приёмка требует девяти успешных CI jobs на точном HEAD PR и независимого ревью. Merge/deploy не выполняются; FULL_MVP_READINESS=BLOCKED, REDUCED_PILOT_READINESS=BLOCKED, PUBLIC_LAUNCH_RECOMMENDATION=NO-GO, HUMAN_GO_NO_GO_DECISION=PENDING, PRODUCTION_ADMISSION=BLOCKED.
 
 #### MVP-053 — Формы публикации и отзыва документов
 

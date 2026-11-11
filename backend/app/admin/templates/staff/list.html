@@ -1,0 +1,22 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Staff</h2>
+<p>Up to 100 accounts, sorted by login. Open an account by its known technical UUID if it is outside this list.</p>
+{% if truncated %}<p role="status">More accounts exist; this list is limited to 100.</p>{% endif %}
+<table class="table">
+  <thead><tr><th>Login</th><th>Role</th><th>Active</th></tr></thead>
+  <tbody>{% for row in rows %}
+    <tr><td><a href="/admin/staff/{{ row.id }}">{{ row.login }}</a></td><td>{{ row.role }}</td><td>{{ row.is_active }}</td></tr>
+  {% endfor %}</tbody>
+</table>
+<h2>Create staff account</h2>
+<p>Login: 3–64 ASCII letters, digits, dots, underscores or hyphens; case sensitive. Individual password: at least 12 characters, at most 1024 UTF-8 bytes. Spaces are preserved.</p>
+<form action="/admin/staff/create" method="post" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <label>Login <input name="login" required minlength="3" maxlength="64" pattern="[A-Za-z0-9_.\-]{3,64}" autocomplete="off"></label>
+  <label>Role <select name="role" required><option value="manager">manager</option><option value="admin">admin</option></select></label>
+  <label>New password <input type="password" name="password" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+  <label>Confirm new password <input type="password" name="password_confirm" required minlength="12" maxlength="1024" autocomplete="new-password"></label>
+  <button type="submit" class="btn btn-primary">Create account</button>
+</form>
+{% endblock %}
