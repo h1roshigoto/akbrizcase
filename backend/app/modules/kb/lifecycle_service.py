@@ -507,6 +507,40 @@ def run_lifecycle(
     visibility: str | None = None,
 ) -> LifecycleReport:
     actor = authenticate_operator(session, login, password)
+    if actor is not None and has_role(actor.user, "admin"):
+        # CLI only. HTTP retains the ordinary transaction/statement/lock limits.
+        session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '180s'"))
+    return run_lifecycle_as_actor(
+        session,
+        actor=actor,
+        operation=operation,
+        document_id=document_id,
+        pipeline=pipeline,
+        version_id=version_id,
+        evidence_path=evidence_path,
+        visibility=visibility,
+    )
+
+
+def run_lifecycle_as_actor(
+    session: Session,
+    *,
+    actor: AuthenticatedStaff | None,
+    operation: Operation,
+    document_id: UUID,
+    pipeline: FilePipeline,
+    version_id: UUID | None = None,
+    evidence_path: Path | None = None,
+    visibility: str | None = None,
+) -> LifecycleReport:
+    """Verified CLI/HTTP identity under the caller's commit-scoped staff lock.
+
+    HTTP passes its resolved StaffIdentity and existing Session, never credentials
+    or an actor selector from the form. The outer UoW alone commits. Savepoint
+    rollback includes file finalizers and automatic retire/dependency writes;
+    refusals are recorded only after that rollback, identically for CLI and UI.
+    SQL/commit failures deliberately propagate to the owning boundary.
+    """
 
     def denied(code: str) -> LifecycleReport:
         session.add(
@@ -526,8 +560,6 @@ def run_lifecycle(
         return denied("AUTHENTICATION_DENIED")
     if not has_role(actor.user, "admin"):
         return denied("FORBIDDEN")
-    # Bounded operator AV only; do not change HTTP statement/lock/idle limits.
-    session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '180s'"))
     try:
         with session.begin_nested():
             return LifecycleService(session, actor, pipeline).execute(

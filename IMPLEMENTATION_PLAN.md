@@ -644,6 +644,9 @@ base `mvp-038-privacy-cleanup`), без закрытия release gates MVP-037/0
 - **Тесты:** паритет CLI/UI, CSRF/roles, scan/review refusal, dependency preview и revoke.
 - **Проверка:** повторить операторский сценарий MVP-043 через UI на synthetic content.
 - **Не входит:** импорт/редактор фрагментов, UI деревьев, визуальный конструктор YAML, обход экспертного ревью и обязательность для пилота.
+- **Реализация:** SQLAdmin admin-only список и версии, CSRF POST preview и подтверждённые publish/revoke поверх общего actor-based lifecycle/savepoint; HTTP использует действующую PostgreSQL staff identity и исходный UoW без пароля и изменения timeouts. Подробности: [MVP-053](docs/MVP-053-content-forms.md).
+- **Приёмка:** unit-контракты и PostgreSQL/ClamAV HTTP-сценарии в существующем `db:core`; фактические локальные проверки и девять CI jobs на точном HEAD фиксируются в PR. До независимого ревью не считать задачу принятой; merge/deploy не выполнены.
+- **Допуск:** `FULL_MVP_READINESS=BLOCKED`, `REDUCED_PILOT_READINESS=BLOCKED`, `PUBLIC_LAUNCH_RECOMMENDATION=NO-GO`, `HUMAN_GO_NO_GO_DECISION=PENDING`, `PRODUCTION_ADMISSION=BLOCKED`.
 
 ## 3. Три потока разработки и точки синхронизации
 

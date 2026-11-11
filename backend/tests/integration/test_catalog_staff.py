@@ -98,6 +98,8 @@ def test_catalog_and_staff_in_production_app(
                 "catalog-editor",
                 "catalog-image",
                 "catalog-applicability-action",
+                "documents",
+                "document-revoke",
                 "staff",
             }
             assert all(not view.is_model for view in admin.views)

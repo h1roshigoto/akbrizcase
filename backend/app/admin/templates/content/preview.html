@@ -1,0 +1,26 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Technical dependency preview</h2>
+<p>Operation: {{ operation }}. Document {{ document }} ({{ status }}). Target: {{ version or 'whole document' }}.</p>
+<p>The providers report links across all versions of this document; counts may include historical links. Execution rechecks the affected versions and current permissions.</p>
+<ul>{% for dependency in dependencies %}
+  <li>{{ dependency.label }}: {{ dependency.count }}{% if dependency.link_count %}; links: {{ dependency.link_count }}{% endif %}.
+    <ul>{% for identifier in dependency.ids %}<li>{{ identifier }}</li>{% endfor %}</ul>
+    {% if dependency.count > 50 %}Only the first 50 IDs are displayed.{% endif %}
+  </li>
+{% endfor %}</ul>
+{% if operation == 'revoke' %}
+<p>Revocation is irreversible. New public and staff reads lose access to the selected version or the whole document, including retired editions. Applicability permissions are invalidated; dependent trees stop serving unavailable sources. Historical manual links remain. Later publication never automatically restores permissions. Already downloaded bytes cannot be recalled.</p>
+{% else %}
+<p>The previously published edition becomes retired. Its applicability permissions are invalidated. Exact retired links can remain readable under ACL. This action does not change visibility or create expert approval.</p>
+{% endif %}
+<form method="post" action="/admin/documents/{{ document }}{% if version %}/versions/{{ version }}{% endif %}/{{ operation }}">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <input type="hidden" name="preview_digest" value="{{ digest }}">
+  <input type="hidden" name="preview_token" value="{{ token }}">
+  <label><input type="checkbox" name="confirm" value="{{ operation }}" required> I confirm {{ operation }} for this target and have inspected these consequences.</label>
+  <button type="submit" class="btn btn-danger">Confirm {{ operation }}</button>
+</form>
+<p>Confirmation expires after 10 minutes. Changed state requires a fresh preview; all lifecycle checks still apply.</p>
+<a href="/admin/documents/{{ document }}">Back to document</a>
+{% endblock %}
