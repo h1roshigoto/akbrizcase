@@ -661,3 +661,30 @@ def test_restore_and_revoke_serialize(database: Database, tmp_path: Path) -> Non
     with database.unit_of_work() as s:
         assert s.get(DiagnosticTree, tree).status == "revoked"  # type: ignore[union-attr]
         assert load_tree(s, tree_id=tree) is None
+
+
+def test_reused_statements_recheck_acl_and_rollback_for_each_lookup(
+    session: Session, tmp_path: Path
+) -> None:
+    first, one, path, proof = prepared(session, tmp_path)
+    assert run(session, first, one, "publish", path, proof).ok
+    second, two, path, proof = prepared(session, tmp_path)
+    assert run(session, second, two, "publish", path, proof).ok
+    one_key = session.get(DiagnosticTree, one).key  # type: ignore[union-attr]
+    two_key = session.get(DiagnosticTree, two).key  # type: ignore[union-attr]
+    for identifier, key in ((one, one_key), (two, two_key), (one, one_key)):
+        assert load_tree(session, key=key).tree_id == identifier  # type: ignore[union-attr]
+        assert load_tree(session, tree_id=identifier).tree_id == identifier  # type: ignore[union-attr]
+    # Both statement shapes are warm. A pending ACL change must immediately deny
+    # the affected tree, without contaminating another lookup or a later rollback.
+    with session.begin_nested() as savepoint:
+        session.execute(
+            text("UPDATE app.documents SET visibility='internal' WHERE id=:id"),
+            {"id": first.document},
+        )
+        assert load_tree(session, key=one_key) is None
+        assert load_tree(session, tree_id=one) is None
+        assert load_tree(session, tree_id=two) is not None
+        savepoint.rollback()
+    assert load_tree(session, key=one_key) is not None
+    assert load_tree(session, tree_id=one) is not None
