@@ -12,8 +12,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
-from sqlalchemy import event, select, text
-
 from app.core.db import Database, DatabaseSettings
 from app.modules.catalog.models import CatalogItem
 from app.modules.chat.messages import create_message, read_message_result
@@ -25,7 +23,7 @@ from app.modules.orders.service import create_order
 from app.schemas.chat import ChatMessageCreate, ChatSessionCreate
 from app.schemas.common import OrderHeaders
 from app.schemas.orders import OrderCreate
-
+from sqlalchemy import event, select, text
 
 FUNCTIONS = {
     "create_order",
