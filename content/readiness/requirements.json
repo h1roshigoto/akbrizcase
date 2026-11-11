@@ -1,0 +1,1295 @@
+[
+  {
+    "id": "MVP-001",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-001",
+    "title": "Минимальный каркас FastAPI",
+    "dod": "чистое окружение воспроизводит установку из lockfile, запуск API, health и локальные проверки; нет паролей по умолчанию и секретов в конфигурации."
+  },
+  {
+    "id": "MVP-054",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-054",
+    "title": "Минимальный каркас frontend",
+    "dod": "чистое окружение устанавливает зависимости из lockfile и воспроизводит typecheck/build; dev/build preview открывает пустую страницу, секретов в bundle нет."
+  },
+  {
+    "id": "MVP-055",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-055",
+    "title": "Compose и контейнерный smoke",
+    "dod": "чистый clone собирает образы и поднимает Compose; через Nginx доступны UI и health; DB/files не опубликованы наружу; нет паролей по умолчанию/лишних сервисов, worker корректно останавливается."
+  },
+  {
+    "id": "MVP-056",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-056",
+    "title": "Базовый CI каркаса",
+    "dod": "CI воспроизводит проверки чистого clone, ошибка проверки/сборки останавливает job; секреты не попадают в git/образ/вывод."
+  },
+  {
+    "id": "MVP-002",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-002",
+    "title": "Зафиксировать общие контракты и клиентские типы",
+    "dod": "примеры валидируются; frontend использует согласованные типы; optional/null различены; источники и токены не становятся произвольными URL. Поведение повтора после стирания ПДн определено принятым AQ-01 (owner merge PR #21); это не блокирует фиксацию остальных контрактов и работу UI на fixtures."
+  },
+  {
+    "id": "MVP-003",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-003",
+    "title": "БД, Unit of Work и интеграционный контур",
+    "dod": "сервисы могут разделить транзакцию без внутренних commit; readiness не успешен при недоступной/несовместимой схеме; миграции не запускаются каждым API-процессом."
+  },
+  {
+    "id": "MVP-004",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-004",
+    "title": "Сотрудники, аудит и контролируемый bootstrap",
+    "dod": "нет публичной регистрации, default password или универсального обхода; после bootstrap новый сотрудник создаётся только активным admin; произвольный actor_id не даёт полномочий."
+  },
+  {
+    "id": "MVP-005",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-005",
+    "title": "Staff HTTP-auth, RBAC и CSRF",
+    "dod": "logout/expiry/disable закрывают доступ; CSRF и прямой URL не обходят роль; cookie и токены не логируются."
+  },
+  {
+    "id": "MVP-006",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-006",
+    "title": "Базовая схема и демо-набор каталога",
+    "dod": "ограничения действуют в PostgreSQL; повтор seed безопасен; production seed запрещён; нет отдельных products/services."
+  },
+  {
+    "id": "MVP-007",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-007",
+    "title": "Публичный каталог и поиск",
+    "dod": "архивное/draft не раскрывается; price string/null, параметры ограничены; ошибки соответствуют §6.1."
+  },
+  {
+    "id": "MVP-008",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-008",
+    "title": "Схема заявок, согласий и outbox",
+    "dod": "схема допускает законную очистку без разрушения FK; текст согласия неизменяем; синтетическая версия согласия маркирована demo-only."
+  },
+  {
+    "id": "MVP-009",
+    "group": "A",
+    "priority": "P0",
+    "feature": "orders",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-009",
+    "title": "Транзакционное создание заявки и снимков",
+    "dod": "неизвестные суммы не равны нулю; CATALOG_CHANGED/CONSENT_CHANGED дают 409; ошибка любого шага не оставляет частичных строк."
+  },
+  {
+    "id": "MVP-010",
+    "group": "A",
+    "priority": "P0",
+    "feature": "orders",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-010",
+    "title": "Идемпотентность и безопасный receipt",
+    "dod": "использовать ставший нормативным после merge контракт §6.1 и всю матрицу AQ-01; receipt из снимков и исходного status=new без ПДн/сырого токена/текущего статуса; нет публичного GET заявки; повтор не создаёт order/consent/history/outbox, даже если outbox уже удалена. UNIQUE ключ сохраняется до удаления строки, в том числе после стирания и 24 часов. Хэши токена и HMAC тела удаляются атомарно со всеми назначенными ПДн и pii_erased_at, без нового материала проверки токена после стирания. Знание UUID/ключа не доказывает владение."
+  },
+  {
+    "id": "MVP-011",
+    "group": "A",
+    "priority": "P0",
+    "feature": "manager",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-011",
+    "title": "Минимальный просмотр заявок в SQLAdmin",
+    "dod": "manager/admin читают; anonymous нет; нет редактирования снимков/удаления истории и экспорта всех контактов; no-store на чувствительных ответах."
+  },
+  {
+    "id": "MVP-012",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-012",
+    "title": "Frontend каталога и выбранных позиций",
+    "dod": "каталог интегрирован с реальным backend и PostgreSQL через Compose; fixtures не подменяют API в приёмке; ошибки API видимы; on_request не выглядит нулевой ценой; выбор разных kinds не теряется при переходе; тексты экранируются."
+  },
+  {
+    "id": "MVP-013",
+    "group": "A",
+    "priority": "P0",
+    "feature": "orders",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-013",
+    "title": "Frontend формы, подтверждения и повторов",
+    "dod": "форма интегрирована с реальным POST orders/consent-text и PostgreSQL, выбранное приходит из каталога MVP-012; fixture-only прогон не завершает задачу; двойной клик безопасен; контакты/чат не пишутся в localStorage; receipt без контактов; UI не обещает договор/полную цену при null. Обработка стирания проверяется по принятому AQ-01 (PR #21); post-erasure 410 не входит в контракт, общий 410 собственной истёкшей chat-сессии сохраняется."
+  },
+  {
+    "id": "MVP-014",
+    "group": "A",
+    "priority": "P0",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-014",
+    "title": "Приёмка раннего вертикального среза",
+    "dod": "одна orders, две order_items, один consent и outbox; manager видит те же снимки; ни одной реальной ПДн; прогон повторяем с чистой БД."
+  },
+  {
+    "id": "MVP-015",
+    "group": "A",
+    "priority": "P1",
+    "feature": "manager",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-015",
+    "title": "Статусы и история обработки заявки",
+    "dod": "конкурентная смена даёт один успех и 409; история согласована, обратных переходов нет; closed не называется отгрузкой/оплатой."
+  },
+  {
+    "id": "MVP-016",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-016",
+    "title": "Сервис и формы управления каталогом",
+    "dod": "manager получает 403 и при прямом POST; изменения конфликтуют с созданием снимка корректно, не меняют старую заявку; archived скрывается."
+  },
+  {
+    "id": "MVP-017",
+    "group": "A",
+    "priority": "P1",
+    "feature": "smtp",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-017",
+    "title": "Устойчивый email worker",
+    "dod": "два worker не владеют одним действующим lease; старый worker не перезаписывает новый результат; сбой SMTP не затрагивает orders; модель at-least-once задокументирована."
+  },
+  {
+    "id": "MVP-018",
+    "group": "A",
+    "priority": "P1",
+    "feature": "smtp",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-018",
+    "title": "Статус уведомления и ручной retry",
+    "dod": "sent/действующий sending не повторяются вручную; параллельные retry безопасны; полномочия manager/admin и CSRF обязательны."
+  },
+  {
+    "id": "MVP-019",
+    "group": "A",
+    "priority": "P1",
+    "feature": "knowledge",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-019",
+    "title": "Схема версий документов и фрагментов",
+    "dod": "section_id однозначно определяет документ/версию; один published; draft-фрагмент нельзя удалить при ссылках; реальный контент не попадает в git."
+  },
+  {
+    "id": "MVP-020",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-020",
+    "title": "Безопасный файловый конвейер документов",
+    "dod": "отсутствие/устаревание сканера блокирует публикационную пригодность; ошибка не выдаёт файл и не ломает сайт; путь пользователя не используется; orphan cleanup отдельно от импорта."
+  },
+  {
+    "id": "MVP-021",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-021",
+    "title": "Авторизованный CLI импорта и разметки",
+    "dod": "draft не публикуется автоматически; ручная проверка обязательна; actor_id берётся из auth, не аргумента; extraction failure оставляет draft и понятный отчёт; команды аудируются."
+  },
+  {
+    "id": "MVP-022",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-022",
+    "title": "ACL, выдача источника и FTS",
+    "dod": "internal не раскрывается через snippets/title/ID/count/file; несовпадение document/version → 404; пустой q не запускает FTS; no_match без выдуманного ответа. Для тестов published fixture создаёт сервисный test setup; операторская публикация — MVP-023."
+  },
+  {
+    "id": "MVP-023",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-023",
+    "title": "Публикация, смена видимости и отзыв документов",
+    "dod": "публикация без проверки/реквизитов не проходит; отозванное сразу исчезает из поиска/файлов; старые утверждённые версии доступны только по разрешённым правилам; ре-публикация revoked запрещена."
+  },
+  {
+    "id": "MVP-024",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-024",
+    "title": "Подтверждённая применимость и её инвалидирование",
+    "dod": "одинаковы карточка/model filter/total; отсутствие условий даёт unknown; public↔internal меняет SourceRef, но не отдельное разрешение факта; единый lock order соблюдён."
+  },
+  {
+    "id": "MVP-025",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-025",
+    "title": "Проверка и безопасная выдача изображения",
+    "dod": "сбой сохраняет прежнюю картинку; старый ключ/draft/archived →404; traversal невозможен; снятие ссылки не удаляет файл до процедуры references/backup."
+  },
+  {
+    "id": "MVP-026",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-026",
+    "title": "SQLAdmin изображений и разрешений применимости",
+    "dod": "manager получает 403 на прямой endpoint; реквизиты нельзя подделать generic edit; сбой upload не меняет UI-ссылку; аудит без внутреннего текста."
+  },
+  {
+    "id": "MVP-027",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-027",
+    "title": "Схема, импорт и валидатор YAML-деревьев",
+    "dod": "модель одинакова у версий key; нет unsafe YAML tags, внешних переходов и несуществующих node_key; валидатор не выдаёт себя за экспертное ревью."
+  },
+  {
+    "id": "MVP-028",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-028",
+    "title": "Публикация, закрепление и отзыв версий дерева",
+    "dod": "публикация не проходит без admin и экспертных реквизитов; retired не предлагается для нового старта; ACL/revoke source учитывается и для retired-дерева; отзыв не ждёт окончания сессий."
+  },
+  {
+    "id": "MVP-029",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-029",
+    "title": "Схема чата и связь с заявкой",
+    "dod": "удаление сессии не трогает orders.comment; UUID не становится секретом владения; время в UTC; одна запись messages представляет обмен запрос/ответ."
+  },
+  {
+    "id": "MVP-030",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-030",
+    "title": "Владение чат-сессией и доступ к состоянию",
+    "dod": "admin-cookie не даёт доступ к чужому чату и внутренним ответам; токен не попадает в URL/логи; после expiry путь не продолжается."
+  },
+  {
+    "id": "MVP-031",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-031",
+    "title": "Чистая функция диагностического перехода",
+    "dod": "функция не пишет в БД, не делает I/O и не генерирует инструкции; поддельные next/node_id и option другого узла отвергаются; неизвестная модель/сценарий безопасно обрабатывается интегратором."
+  },
+  {
+    "id": "MVP-032",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-032",
+    "title": "Роутер режимов и структурированные actions",
+    "dod": "public actor используется даже с admin-cookie; нет POST orders внутри chat; неизвестная применимость не становится подтверждённой; technical question не превращается в сгенерированный план ремонта."
+  },
+  {
+    "id": "MVP-033",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-033",
+    "title": "Атомарные сообщения, повторы и конкуренция",
+    "dod": "два запроса одной версии не дают два перехода; повтор не меняет версию; failed transaction не оставляет сообщения/частичного состояния; retired pinned tree не заменяется новой версией."
+  },
+  {
+    "id": "MVP-034",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-034",
+    "title": "Проверка источников и рекомендаций при каждом чтении",
+    "dod": "raw сохранённый response не выдаётся напрямую; revoke/visibility действуют на следующем запросе; retired source допускает диагностику, но делает применимость unknown; republish не возвращает старый public_allowed."
+  },
+  {
+    "id": "MVP-035",
+    "group": "A",
+    "priority": "P1",
+    "feature": "diagnose",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-035",
+    "title": "Frontend чата, цитат и конфликтов",
+    "dod": "replay не добавляет второй переход/пузырь; mode reset виден; no_match/handoff/retired отображаются; никакого POST orders по нажатию action; контакты/чат не в localStorage."
+  },
+  {
+    "id": "MVP-036",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-036",
+    "title": "Handoff и независимое описание support-заявки",
+    "dod": "сервер сохраняет именно подтверждённый comment, не подменяет его и не копирует переписку; manager читает его после DELETE session; chat не создаёт заявку сам."
+  },
+  {
+    "id": "MVP-037",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-037",
+    "title": "Операционная политика ПДн и действующие согласия",
+    "dod": "demo-версия не активна в production; сроки конфигурируемы по принятой политике; нет неподтверждённого утверждения о 152-ФЗ. При отсутствии согласований задача заблокирована для пилота, остальные задачи продолжаются на synthetic."
+  },
+  {
+    "id": "MVP-038",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-038",
+    "title": "Пакетная очистка и защищённая процедура удаления",
+    "dod": "batch повторяем, аудит только количества/технических ID; описание support живёт независимо от чата, но удаляется со своими ПДн; доказательства экспертного согласования не исчезают по общему 90-дневному правилу."
+  },
+  {
+    "id": "MVP-039",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-039",
+    "title": "HTTP-защита, лимиты и секреты",
+    "dod": "429/Retry-After; лимиты корректны с двумя API-процессами; произвольный X-Forwarded-For не меняет доверенный IP; нет секрета в image/git/log; raw volume не доступен через Nginx."
+  },
+  {
+    "id": "MVP-040",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-040",
+    "title": "Безопасные логи, аудит и эксплуатационные сигналы",
+    "dod": "handoff не считается продажей/успехом, text не выгружается для regression corpus; оператор видит failed/старый pending/ошибку backup; доказательства review выделены для срока MVP-038."
+  },
+  {
+    "id": "MVP-041",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-041",
+    "title": "Staging, release CI и контролируемый deploy",
+    "dod": "DB/files не доступны из Интернета; readiness проверяет схему; scanner/signature update работает локально; нет автоматического допуска real users; deploy/revert dry-run проверен на staging."
+  },
+  {
+    "id": "MVP-042",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-042",
+    "title": "Backup и проверенное восстановление",
+    "dod": "измерены RPO≤24 ч/RTO≤4 ч, журнал удалений доступен отдельно от backup; удалённые ПДн не возвращаются; текущая картинка и support.comment после очистки чата сохраняются; номера не повторяются."
+  },
+  {
+    "id": "MVP-043",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-043",
+    "title": "Проверка операторских процедур и передачи менеджеру",
+    "dod": "другой участник воспроизводит процедуры по инструкции; ответственные и доступы известны; ограничение одного узла и повторов SMTP принято заказчиком; нет секретов/реальных ПДн в инструкции."
+  },
+  {
+    "id": "MVP-044",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-044",
+    "title": "Межмодульный регресс коммерческих инвариантов",
+    "dod": "покрыты обязательные проверки 1–5 из §8 этого плана; конкурентные тесты стабильны и не подменяют PG mocks; receipt не раскрывает состояние обработки."
+  },
+  {
+    "id": "MVP-045",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-045",
+    "title": "Регресс ACL, публикации и диагностики",
+    "dod": "internal/revoked не раскрываются нигде; retired source разрешён закреплённой диагностике, применимость по нему unknown; manager не публикует ни HTTP, ни CLI; все поставляемые graph paths проверены."
+  },
+  {
+    "id": "MVP-046",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-046",
+    "title": "Сквозная приёмка пользовательских путей",
+    "dod": "критические пути проходят через Nginx в целевой сборке; нет mock вместо API; support сохраняется после удаления чата; реальный SMTP не нужен для browser suite."
+  },
+  {
+    "id": "MVP-047",
+    "group": "A",
+    "priority": "P1",
+    "feature": "knowledge",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-047",
+    "title": "Приёмочный корпус знаний и качество FTS",
+    "dod": "зафиксированы корпус/версия/метрика и безопасные ответы на 20 negative queries; FTS rank не показан как вероятность; качество измерено, не предполагается."
+  },
+  {
+    "id": "MVP-048",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-048",
+    "title": "Нагрузочный и эксплуатационный smoke",
+    "dod": "прогон не обходится лимитами молча; указаны допустимые роли/профиль IP и ошибки; outbox backlog восстанавливается; несоответствия закрыты или релиз не допускается без решения о требованиях."
+  },
+  {
+    "id": "MVP-049",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Команда + независимый ревьюер",
+    "action": "Повторить DoD на exact candidate и проверить происхождение результатов",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "IMPLEMENTATION_PLAN.md#MVP-049",
+    "title": "Подготовка и утверждение пилотного наполнения",
+    "dod": "нет demo-цен и сценариев под видом рабочих; все paths проверены на финальных checksum; подтверждены модели/минимум и отдельное раскрытие факта применимости; нет непроверенной технической инструкции."
+  },
+  {
+    "id": "A-IMAGES",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Release owner",
+    "action": "Проверить exact SHA, OCI revision/context, immutable backend/frontend/PG16 digests",
+    "depends_on": [],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Exact release-image provenance",
+    "dod": "Exact release-image provenance"
+  },
+  {
+    "id": "A-CI",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "test",
+    "owner": "Независимый CI reviewer",
+    "action": "Проверить complete post-merge/release push run и все 9 jobs, inventories/ошибки/skips",
+    "depends_on": [
+      "A-IMAGES"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Exact release CI, все обязательные jobs",
+    "dod": "Exact release CI, все обязательные jobs"
+  },
+  {
+    "id": "A-DEFECTS",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "QA + владелец продукта",
+    "action": "Независимо сверить полный triage: ни P0, ни открытых P1 во включённой области",
+    "depends_on": [
+      "A-CI"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Полный реестр открытых дефектов",
+    "dod": "Полный реестр открытых дефектов"
+  },
+  {
+    "id": "A-SCHEMA",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Release owner + DBA",
+    "action": "Проверить linear Alembic head, actual DB revision и image compatibility; без stamp/downgrade",
+    "depends_on": [
+      "A-IMAGES"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Миграционная схема и совместимость",
+    "dod": "Миграционная схема и совместимость"
+  },
+  {
+    "id": "B-TARGET",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Инфраструктурный владелец",
+    "action": "Предоставить и принять целевой RF host и ресурсы CPU/RAM/SSD/DB/disk",
+    "depends_on": [],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Размещение и ресурсы целевого сервера",
+    "dod": "Размещение и ресурсы целевого сервера"
+  },
+  {
+    "id": "B-TLS",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Инфраструктурный владелец + ИБ",
+    "action": "Проверить domain/TLS/firewall, изоляцию сети и защищённые mounts",
+    "depends_on": [
+      "B-TARGET"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Domain/TLS/firewall",
+    "dod": "Domain/TLS/firewall"
+  },
+  {
+    "id": "B-SECRETS",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор + ИБ",
+    "action": "Проверить runtime secrets, least privilege DB, индивидуальные реальные роли",
+    "depends_on": [
+      "B-TLS"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Секреты и реальные роли",
+    "dod": "Секреты и реальные роли"
+  },
+  {
+    "id": "B-SMTP",
+    "group": "B",
+    "priority": "P1",
+    "feature": "smtp",
+    "kind": "external",
+    "owner": "Владелец SMTP",
+    "action": "Принять SMTP sender/recipient, outbox/lease/retry и мониторинг",
+    "depends_on": [
+      "B-SECRETS"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Реальный SMTP и outbox",
+    "dod": "Реальный SMTP и outbox"
+  },
+  {
+    "id": "B-AV",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Владелец AV",
+    "action": "Принять official signed CVD, происхождение/свежесть и clean/infected fail-closed",
+    "depends_on": [
+      "B-TARGET"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "ClamAV и поставка сигнатур",
+    "dod": "ClamAV и поставка сигнатур"
+  },
+  {
+    "id": "B-MONITORING",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор",
+    "action": "Проверить errors/latency/backlog/DB connections/disk/backup alarms",
+    "depends_on": [
+      "B-TARGET"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Наблюдаемость и реакция",
+    "dod": "Наблюдаемость и реакция"
+  },
+  {
+    "id": "B-OFFSITE",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Владелец backup + ИБ",
+    "action": "Проверить независимое защищённое RF offsite, read-back, таймер и watchdog",
+    "depends_on": [
+      "B-TARGET",
+      "E-RETENTION"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Независимый защищённый backup",
+    "dod": "Независимый защищённый backup"
+  },
+  {
+    "id": "B-KEYS",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Владелец backup + ИБ",
+    "action": "Назначить custody/escrow/rotation и проверить доступность recovery keys",
+    "depends_on": [
+      "B-OFFSITE"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Ключи и custody",
+    "dod": "Ключи и custody"
+  },
+  {
+    "id": "B-JOURNAL",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор + ИБ",
+    "action": "Проверить независимый sink, discovery/fencing, terminal ack, legacy/service bindings и high-water authority",
+    "depends_on": [
+      "E-ADR",
+      "E-RETENTION"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Независимый deletion journal",
+    "dod": "Независимый deletion journal"
+  },
+  {
+    "id": "B-RESTORE",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "DBA + независимый оператор",
+    "action": "Выполнить реальный clean restore DB/files/ACL/sequence, replay без resurrected ПДн, SMTP/ingress закрыты",
+    "depends_on": [
+      "B-OFFSITE",
+      "B-KEYS",
+      "B-JOURNAL",
+      "A-SCHEMA"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Целевой clean restore и deletion replay",
+    "dod": "Целевой clean restore и deletion replay"
+  },
+  {
+    "id": "B-RPO-RTO",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Инфраструктурный владелец",
+    "action": "Зафиксировать target RPO ≤24h и RTO ≤4h полного восстановления",
+    "depends_on": [
+      "B-RESTORE"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Измеренные RPO/RTO",
+    "dod": "Измеренные RPO/RTO"
+  },
+  {
+    "id": "B-OPERATORS",
+    "group": "B",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Заказчик",
+    "action": "Назначить admin/manager, резервного оператора, эскалацию и сроки реакции",
+    "depends_on": [
+      "B-SECRETS"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Операторы, резерв и эскалация",
+    "dod": "Операторы, резерв и эскалация"
+  },
+  {
+    "id": "C-TARGET-LOAD",
+    "group": "C",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Performance reviewer + инфраструктурный владелец",
+    "action": "Измерить на выбранном сервере fixed pilot200-v1: 200/30, p95 300/800/1000, без критических ошибок; resources CPU/RAM/DB/disk",
+    "depends_on": [
+      "B-TARGET",
+      "D-TARGET"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Target load/performance",
+    "dod": "Target load/performance"
+  },
+  {
+    "id": "D-CATALOG",
+    "group": "D",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Заказчик + менеджер",
+    "action": "Утвердить ассортимент, модели, цены/on_request, units/налоги/условия",
+    "depends_on": [
+      "E-SCOPE"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Финальный ассортимент и условия",
+    "dod": "Финальный ассортимент и условия"
+  },
+  {
+    "id": "D-RIGHTS",
+    "group": "D",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Правообладатель + владелец контента",
+    "action": "Проверить права на exact изображения и отдельно полный public-файл",
+    "depends_on": [
+      "D-CATALOG"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Права на изображения и документы",
+    "dod": "Права на изображения и документы"
+  },
+  {
+    "id": "D-EXPERT",
+    "group": "D",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Технический эксперт + владелец контента",
+    "action": "Подтвердить actual expert review и отдельные разрешения фактов применимости, без internal disclosure",
+    "depends_on": [
+      "D-CATALOG"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Экспертная приёмка и применимость",
+    "dod": "Экспертная приёмка и применимость"
+  },
+  {
+    "id": "D-TREES",
+    "group": "D",
+    "priority": "P1",
+    "feature": "diagnose",
+    "kind": "external",
+    "owner": "Технический эксперт + заказчик",
+    "action": "Принять опубликованные версии, минимум моделей/сценариев, каждый путь дерева и рекомендации",
+    "depends_on": [
+      "D-EXPERT"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Диагностические деревья и согласованный минимум",
+    "dod": "Диагностические деревья и согласованный минимум"
+  },
+  {
+    "id": "D-FTS",
+    "group": "D",
+    "priority": "P1",
+    "feature": "knowledge",
+    "kind": "external",
+    "owner": "Эксперт + независимый reviewer",
+    "action": "Проверить реальные заранее согласованные 20+20, HitRate@5 ≥80%, negative safety и 0 ACL incidents",
+    "depends_on": [
+      "D-EXPERT",
+      "D-RIGHTS"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Реальный FTS корпус и безопасность",
+    "dod": "Реальный FTS корпус и безопасность"
+  },
+  {
+    "id": "D-TARGET",
+    "group": "D",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор + независимый reviewer",
+    "action": "Сверить финальные content checksum с actual target; выполнить read/search/ACL walkthrough",
+    "depends_on": [
+      "D-CATALOG",
+      "D-EXPERT"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Финальный контент и независимая целевая сверка",
+    "dod": "Финальный контент и независимая целевая сверка"
+  },
+  {
+    "id": "E-PD-OPERATOR",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Заказчик + юрист",
+    "action": "Назначить оператора ПДн и ответственных; хранить реквизиты вне Git",
+    "depends_on": [],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Оператор персональных данных",
+    "dod": "Оператор персональных данных"
+  },
+  {
+    "id": "E-POLICY",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор ПДн + юрист",
+    "action": "Утвердить основания/цели, политику, отдельные согласия, обращения/идентификацию/отзыв",
+    "depends_on": [
+      "E-PD-OPERATOR"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Правовые основания, политика и согласия",
+    "dod": "Правовые основания, политика и согласия"
+  },
+  {
+    "id": "E-RETENTION",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор ПДн + юрист",
+    "action": "Утвердить все категории/сроки, legacy/holds, review evidence, host log TTL, backup horizon и исполнение удаления",
+    "depends_on": [
+      "E-POLICY"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Privacy retention и исполнение",
+    "dod": "Privacy retention и исполнение"
+  },
+  {
+    "id": "E-ADR",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Владелец продукта + юрист + ИБ",
+    "action": "Отдельно решить ADR-038-A, graph deadline/basis, policy schema, service binding и journal v2",
+    "depends_on": [
+      "E-RETENTION"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "ADR-038-A и обязательные зависимости",
+    "dod": "ADR-038-A и обязательные зависимости"
+  },
+  {
+    "id": "E-PROCESSORS",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Оператор ПДн + юрист + ИБ",
+    "action": "Принять RF размещение/обработчиков/поручения/потоки, РКН, угрозы/доступ/инциденты",
+    "depends_on": [
+      "E-POLICY",
+      "B-TARGET"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Внешние обработчики и организационные меры",
+    "dod": "Внешние обработчики и организационные меры"
+  },
+  {
+    "id": "E-NO-HA",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Заказчик + оператор",
+    "action": "Письменно принять один сервер/no HA, согласовать реакцию/замещение",
+    "depends_on": [
+      "B-OPERATORS"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Принятие ограничений одного сервера",
+    "dod": "Принятие ограничений одного сервера"
+  },
+  {
+    "id": "E-SMTP-RISK",
+    "group": "E",
+    "priority": "P1",
+    "feature": "smtp",
+    "kind": "external",
+    "owner": "Заказчик + оператор",
+    "action": "Письменно принять at-least-once SMTP и возможное повторное письмо",
+    "depends_on": [
+      "B-SMTP"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Принятие риска повторного SMTP",
+    "dod": "Принятие риска повторного SMTP"
+  },
+  {
+    "id": "E-WALKTHROUGH",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Другой назначенный оператор",
+    "action": "Пройти MVP-043 по инструкции без автора, зафиксировать actual postconditions",
+    "depends_on": [
+      "B-OPERATORS",
+      "B-RESTORE"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Независимый operator walkthrough",
+    "dod": "Независимый operator walkthrough"
+  },
+  {
+    "id": "E-SCOPE",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Заказчик + команда",
+    "action": "Явно выбрать FULL_MVP или REDUCED_PILOT; exact exclusions, endpoints и обязательные проверки",
+    "depends_on": [],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Решение о составе пилота",
+    "dod": "Решение о составе пилота"
+  },
+  {
+    "id": "E-CUSTOMER",
+    "group": "E",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Уполномоченный заказчик + оператор",
+    "action": "Независимо рассмотреть все evidence и подписать фактический go/no-go вне инструмента",
+    "depends_on": [
+      "E-SCOPE",
+      "E-WALKTHROUGH"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Фактическое согласование заказчика",
+    "dod": "Фактическое согласование заказчика"
+  },
+  {
+    "id": "MODE-SUPPORTED",
+    "group": "A",
+    "priority": "P1",
+    "feature": "core",
+    "kind": "external",
+    "owner": "Release owner",
+    "action": "Сопоставить заявленные modes с существующим release controller; новый production профиль вне MVP-050",
+    "depends_on": [
+      "E-SCOPE"
+    ],
+    "source": "docs/MVP-050-go-no-go.md",
+    "title": "Поддержка выбранного режима controller",
+    "dod": "Поддержка выбранного режима controller"
+  }
+]

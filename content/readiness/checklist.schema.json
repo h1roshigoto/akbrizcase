@@ -1,0 +1,744 @@
+{
+  "type": "object",
+  "required": [
+    "format",
+    "classification",
+    "pilot",
+    "binding",
+    "checks",
+    "evidence",
+    "artifacts",
+    "scope",
+    "defects"
+  ],
+  "properties": {
+    "format": {
+      "enum": [
+        "MVP050_CHECKLIST/v1"
+      ]
+    },
+    "classification": {
+      "enum": [
+        "SYNTHETIC ONLY",
+        "REAL UNVERIFIED"
+      ]
+    },
+    "pilot": {
+      "enum": [
+        "FULL_MVP",
+        "REDUCED_PILOT",
+        "SYNTHETIC_DEMO"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "release_id",
+        "head",
+        "base",
+        "images",
+        "schema",
+        "modes",
+        "content_sha256",
+        "enabled_features"
+      ],
+      "properties": {
+        "release_id": {
+          "type": "string",
+          "pattern": "rc-[0-9a-f]{32}"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "[0-9a-f]{40}"
+        },
+        "base": {
+          "type": "string",
+          "pattern": "[0-9a-f]{40}"
+        },
+        "images": {
+          "type": "object",
+          "required": [
+            "backend",
+            "frontend",
+            "postgres"
+          ],
+          "properties": {
+            "backend": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "sha256:[0-9a-f]{64}"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "frontend": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "sha256:[0-9a-f]{64}"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "postgres": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "sha256:[0-9a-f]{64}"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "[a-z0-9_]{1,64}"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modes": {
+          "type": "object",
+          "required": [
+            "format",
+            "data",
+            "catalog",
+            "orders",
+            "chat",
+            "knowledge",
+            "files",
+            "smtp",
+            "clamav",
+            "signature_update",
+            "real_pii"
+          ],
+          "properties": {
+            "format": {
+              "enum": [
+                1
+              ]
+            },
+            "data": {
+              "enum": [
+                "synthetic-only"
+              ]
+            },
+            "catalog": {
+              "type": "boolean"
+            },
+            "orders": {
+              "type": "boolean"
+            },
+            "chat": {
+              "type": "boolean"
+            },
+            "knowledge": {
+              "type": "boolean"
+            },
+            "files": {
+              "type": "boolean"
+            },
+            "smtp": {
+              "enum": [
+                "disabled",
+                "required"
+              ]
+            },
+            "clamav": {
+              "enum": [
+                "disabled-files-blocked",
+                "required"
+              ]
+            },
+            "signature_update": {
+              "enum": [
+                "disabled-files-blocked",
+                "required"
+              ]
+            },
+            "real_pii": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "[0-9a-f]{64}"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enabled_features": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "enum": [
+              "catalog",
+              "orders",
+              "manager",
+              "knowledge",
+              "diagnose",
+              "files",
+              "smtp"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "array",
+      "maxItems": 86,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "MVP-001",
+              "MVP-054",
+              "MVP-055",
+              "MVP-056",
+              "MVP-002",
+              "MVP-003",
+              "MVP-004",
+              "MVP-005",
+              "MVP-006",
+              "MVP-007",
+              "MVP-008",
+              "MVP-009",
+              "MVP-010",
+              "MVP-011",
+              "MVP-012",
+              "MVP-013",
+              "MVP-014",
+              "MVP-015",
+              "MVP-016",
+              "MVP-017",
+              "MVP-018",
+              "MVP-019",
+              "MVP-020",
+              "MVP-021",
+              "MVP-022",
+              "MVP-023",
+              "MVP-024",
+              "MVP-025",
+              "MVP-026",
+              "MVP-027",
+              "MVP-028",
+              "MVP-029",
+              "MVP-030",
+              "MVP-031",
+              "MVP-032",
+              "MVP-033",
+              "MVP-034",
+              "MVP-035",
+              "MVP-036",
+              "MVP-037",
+              "MVP-038",
+              "MVP-039",
+              "MVP-040",
+              "MVP-041",
+              "MVP-042",
+              "MVP-043",
+              "MVP-044",
+              "MVP-045",
+              "MVP-046",
+              "MVP-047",
+              "MVP-048",
+              "MVP-049",
+              "A-IMAGES",
+              "A-CI",
+              "A-DEFECTS",
+              "A-SCHEMA",
+              "B-TARGET",
+              "B-TLS",
+              "B-SECRETS",
+              "B-SMTP",
+              "B-AV",
+              "B-MONITORING",
+              "B-OFFSITE",
+              "B-KEYS",
+              "B-JOURNAL",
+              "B-RESTORE",
+              "B-RPO-RTO",
+              "B-OPERATORS",
+              "C-TARGET-LOAD",
+              "D-CATALOG",
+              "D-RIGHTS",
+              "D-EXPERT",
+              "D-TREES",
+              "D-FTS",
+              "D-TARGET",
+              "E-PD-OPERATOR",
+              "E-POLICY",
+              "E-RETENTION",
+              "E-ADR",
+              "E-PROCESSORS",
+              "E-NO-HA",
+              "E-SMTP-RISK",
+              "E-WALKTHROUGH",
+              "E-SCOPE",
+              "E-CUSTOMER",
+              "MODE-SUPPORTED"
+            ]
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "BLOCKED",
+              "NOT RUN",
+              "INCONCLUSIVE",
+              "OUT_OF_SCOPE_APPROVED"
+            ]
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "ev-[0-9a-f]{32}"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "requirement",
+          "scope",
+          "binding_sha256",
+          "artifact"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "ev-[0-9a-f]{32}"
+          },
+          "requirement": {
+            "enum": [
+              "MVP-001",
+              "MVP-054",
+              "MVP-055",
+              "MVP-056",
+              "MVP-002",
+              "MVP-003",
+              "MVP-004",
+              "MVP-005",
+              "MVP-006",
+              "MVP-007",
+              "MVP-008",
+              "MVP-009",
+              "MVP-010",
+              "MVP-011",
+              "MVP-012",
+              "MVP-013",
+              "MVP-014",
+              "MVP-015",
+              "MVP-016",
+              "MVP-017",
+              "MVP-018",
+              "MVP-019",
+              "MVP-020",
+              "MVP-021",
+              "MVP-022",
+              "MVP-023",
+              "MVP-024",
+              "MVP-025",
+              "MVP-026",
+              "MVP-027",
+              "MVP-028",
+              "MVP-029",
+              "MVP-030",
+              "MVP-031",
+              "MVP-032",
+              "MVP-033",
+              "MVP-034",
+              "MVP-035",
+              "MVP-036",
+              "MVP-037",
+              "MVP-038",
+              "MVP-039",
+              "MVP-040",
+              "MVP-041",
+              "MVP-042",
+              "MVP-043",
+              "MVP-044",
+              "MVP-045",
+              "MVP-046",
+              "MVP-047",
+              "MVP-048",
+              "MVP-049",
+              "A-IMAGES",
+              "A-CI",
+              "A-DEFECTS",
+              "A-SCHEMA",
+              "B-TARGET",
+              "B-TLS",
+              "B-SECRETS",
+              "B-SMTP",
+              "B-AV",
+              "B-MONITORING",
+              "B-OFFSITE",
+              "B-KEYS",
+              "B-JOURNAL",
+              "B-RESTORE",
+              "B-RPO-RTO",
+              "B-OPERATORS",
+              "C-TARGET-LOAD",
+              "D-CATALOG",
+              "D-RIGHTS",
+              "D-EXPERT",
+              "D-TREES",
+              "D-FTS",
+              "D-TARGET",
+              "E-PD-OPERATOR",
+              "E-POLICY",
+              "E-RETENTION",
+              "E-ADR",
+              "E-PROCESSORS",
+              "E-NO-HA",
+              "E-SMTP-RISK",
+              "E-WALKTHROUGH",
+              "E-SCOPE",
+              "E-CUSTOMER",
+              "MODE-SUPPORTED",
+              "SCOPE_DECISION"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "CI_SYNTHETIC",
+              "LOCAL_SYNTHETIC",
+              "TARGET",
+              "EXTERNAL_DECISION"
+            ]
+          },
+          "binding_sha256": {
+            "type": "string",
+            "pattern": "[0-9a-f]{64}"
+          },
+          "artifact": {
+            "type": "string",
+            "pattern": "ev-[0-9a-f]{32}"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "sha256",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "ev-[0-9a-f]{32}"
+          },
+          "filename": {
+            "type": "string",
+            "pattern": "[A-Za-z0-9][A-Za-z0-9_.-]{0,119}"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "[0-9a-f]{64}"
+          },
+          "kind": {
+            "enum": [
+              "opaque",
+              "ci",
+              "load"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "decision",
+        "exclusions"
+      ],
+      "properties": {
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "ev-[0-9a-f]{32}"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exclusions": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "required": [
+              "feature",
+              "disabled_endpoints",
+              "checks"
+            ],
+            "properties": {
+              "feature": {
+                "enum": [
+                  "catalog",
+                  "orders",
+                  "manager",
+                  "knowledge",
+                  "diagnose",
+                  "files",
+                  "smtp"
+                ]
+              },
+              "disabled_endpoints": {
+                "type": "array",
+                "maxItems": 30,
+                "items": {
+                  "enum": [
+                    "UI /: catalog",
+                    "GET /api/v1/catalog/items",
+                    "GET /api/v1/catalog/items/{id}",
+                    "UI /: request form",
+                    "POST /api/v1/orders (new and replay)",
+                    "GET /admin/orders",
+                    "GET /admin/orders/{id}",
+                    "POST /admin/orders/{id}/status",
+                    "POST /admin/orders/{id}/retry-notification",
+                    "GET /api/v1/admin/orders",
+                    "GET /api/v1/admin/orders/{id}",
+                    "PATCH /api/v1/admin/orders/{id}/status",
+                    "UI /: knowledge mode",
+                    "GET /api/v1/knowledge/search",
+                    "GET /api/v1/documents",
+                    "GET /api/v1/documents/{id}/versions/{version_id}/file",
+                    "CHAT MODE knowledge via POST /api/v1/chat/messages",
+                    "UI /: chat",
+                    "GET /api/v1/chat/scenarios",
+                    "POST /api/v1/chat/sessions",
+                    "GET /api/v1/chat/sessions/{identifier}",
+                    "POST /api/v1/chat/messages",
+                    "GET /api/v1/catalog/items/{id}/image/{image_key}",
+                    "GET /admin/catalog/items/{record}/image",
+                    "GET /admin/catalog/items/{record}/image/preview",
+                    "POST /admin/catalog/items/{record}/image/replace",
+                    "POST /admin/catalog/items/{record}/image/remove",
+                    "GET /api/v1/documents/{id}/versions/{version_id}/file",
+                    "CLI kb-import",
+                    "WORKER SMTP delivery",
+                    "POST /admin/orders/{id}/retry-notification"
+                  ]
+                }
+              },
+              "checks": {
+                "type": "array",
+                "maxItems": 86,
+                "items": {
+                  "enum": [
+                    "MVP-001",
+                    "MVP-054",
+                    "MVP-055",
+                    "MVP-056",
+                    "MVP-002",
+                    "MVP-003",
+                    "MVP-004",
+                    "MVP-005",
+                    "MVP-006",
+                    "MVP-007",
+                    "MVP-008",
+                    "MVP-009",
+                    "MVP-010",
+                    "MVP-011",
+                    "MVP-012",
+                    "MVP-013",
+                    "MVP-014",
+                    "MVP-015",
+                    "MVP-016",
+                    "MVP-017",
+                    "MVP-018",
+                    "MVP-019",
+                    "MVP-020",
+                    "MVP-021",
+                    "MVP-022",
+                    "MVP-023",
+                    "MVP-024",
+                    "MVP-025",
+                    "MVP-026",
+                    "MVP-027",
+                    "MVP-028",
+                    "MVP-029",
+                    "MVP-030",
+                    "MVP-031",
+                    "MVP-032",
+                    "MVP-033",
+                    "MVP-034",
+                    "MVP-035",
+                    "MVP-036",
+                    "MVP-037",
+                    "MVP-038",
+                    "MVP-039",
+                    "MVP-040",
+                    "MVP-041",
+                    "MVP-042",
+                    "MVP-043",
+                    "MVP-044",
+                    "MVP-045",
+                    "MVP-046",
+                    "MVP-047",
+                    "MVP-048",
+                    "MVP-049",
+                    "A-IMAGES",
+                    "A-CI",
+                    "A-DEFECTS",
+                    "A-SCHEMA",
+                    "B-TARGET",
+                    "B-TLS",
+                    "B-SECRETS",
+                    "B-SMTP",
+                    "B-AV",
+                    "B-MONITORING",
+                    "B-OFFSITE",
+                    "B-KEYS",
+                    "B-JOURNAL",
+                    "B-RESTORE",
+                    "B-RPO-RTO",
+                    "B-OPERATORS",
+                    "C-TARGET-LOAD",
+                    "D-CATALOG",
+                    "D-RIGHTS",
+                    "D-EXPERT",
+                    "D-TREES",
+                    "D-FTS",
+                    "D-TARGET",
+                    "E-PD-OPERATOR",
+                    "E-POLICY",
+                    "E-RETENTION",
+                    "E-ADR",
+                    "E-PROCESSORS",
+                    "E-NO-HA",
+                    "E-SMTP-RISK",
+                    "E-WALKTHROUGH",
+                    "E-SCOPE",
+                    "E-CUSTOMER",
+                    "MODE-SUPPORTED"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "defects": {
+      "type": "object",
+      "required": [
+        "review",
+        "entries"
+      ],
+      "properties": {
+        "review": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "ev-[0-9a-f]{32}"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "severity",
+              "state",
+              "feature"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "ev-[0-9a-f]{32}"
+              },
+              "severity": {
+                "enum": [
+                  "P0",
+                  "P1",
+                  "P2"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "OPEN",
+                  "CLOSED"
+                ]
+              },
+              "feature": {
+                "enum": [
+                  "core",
+                  "catalog",
+                  "orders",
+                  "manager",
+                  "knowledge",
+                  "diagnose",
+                  "files",
+                  "smtp"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

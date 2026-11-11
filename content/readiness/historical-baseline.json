@@ -1,0 +1,15 @@
+{
+  "scope": "HISTORICAL_CI_SYNTHETIC",
+  "head": "f3589ebb275bf2033518882a40165725dc4275be",
+  "run_url": "https://github.com/h1roshigoto/akbrizcase/actions/runs/42962729215",
+  "jobs_success": 9,
+  "jobs_required": 9,
+  "load_job_url": "https://github.com/h1roshigoto/akbrizcase/actions/runs/42962729215/job/130332846379",
+  "profile": "pilot200-v1",
+  "button": {"p95_ms": 932.749545, "threshold_ms": 300, "status": "FAIL"},
+  "order": {"p95_ms": 1762.679099, "threshold_ms": 1000, "status": "FAIL"},
+  "catalog": {"p95_ms": 532.598703, "threshold_ms": 800, "status": "PASS"},
+  "knowledge": {"p95_ms": 632.871447, "threshold_ms": 800, "status": "PASS"},
+  "target_load": "BLOCKED",
+  "valid_for_current_candidate": false
+}

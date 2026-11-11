@@ -1,0 +1,206 @@
+{
+  "type": "object",
+  "required": [
+    "format",
+    "head",
+    "binding_sha256",
+    "repository",
+    "workflow",
+    "event",
+    "branch",
+    "run_id",
+    "attempt",
+    "status",
+    "conclusion",
+    "jobs",
+    "inventories"
+  ],
+  "properties": {
+    "format": {
+      "enum": [
+        "MVP050_CI_SNAPSHOT/v1"
+      ]
+    },
+    "head": {
+      "type": "string",
+      "pattern": "[0-9a-f]{40}"
+    },
+    "binding_sha256": {
+      "type": "string",
+      "pattern": "[0-9a-f]{64}"
+    },
+    "repository": {
+      "enum": [
+        "h1roshigoto/akbrizcase"
+      ]
+    },
+    "workflow": {
+      "enum": [
+        ".github/workflows/ci.yml"
+      ]
+    },
+    "event": {
+      "enum": [
+        "push",
+        "pull_request",
+        "workflow_dispatch"
+      ]
+    },
+    "branch": {
+      "enum": [
+        "main"
+      ]
+    },
+    "run_id": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "in_progress",
+        "queued"
+      ]
+    },
+    "conclusion": {
+      "enum": [
+        "success",
+        "failure",
+        "cancelled",
+        "skipped",
+        "unknown"
+      ]
+    },
+    "jobs": {
+      "type": "array",
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "conclusion",
+          "failures_masked"
+        ],
+        "properties": {
+          "name": {
+            "enum": [
+              "Backend checks",
+              "Frontend checks",
+              "PostgreSQL 16 integration",
+              "Compose build and smoke",
+              "Linked browser E2E acceptance",
+              "Synthetic staging release rehearsal",
+              "Encrypted PG16 backup and clean restore",
+              "Synthetic operator handover rehearsal",
+              "Bounded synthetic load and recovery"
+            ]
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "in_progress",
+              "queued"
+            ]
+          },
+          "conclusion": {
+            "enum": [
+              "success",
+              "failure",
+              "cancelled",
+              "skipped",
+              "unknown"
+            ]
+          },
+          "failures_masked": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "inventories": {
+      "type": "array",
+      "maxItems": 13,
+      "items": {
+        "type": "object",
+        "required": [
+          "suite",
+          "collected_sha256",
+          "executed_sha256",
+          "expected",
+          "passed",
+          "skipped",
+          "failed",
+          "xfailed",
+          "errors"
+        ],
+        "properties": {
+          "suite": {
+            "enum": [
+              "backend",
+              "db-clean-upgrade",
+              "db-core",
+              "db-images",
+              "db-lifecycle",
+              "db-applicability",
+              "db-trees",
+              "db-chat",
+              "db-http-security",
+              "db-commercial-regression",
+              "db-acl-publication-regression",
+              "db-kb-acceptance",
+              "files"
+            ]
+          },
+          "collected_sha256": {
+            "type": "string",
+            "pattern": "[0-9a-f]{64}"
+          },
+          "executed_sha256": {
+            "type": "string",
+            "pattern": "[0-9a-f]{64}"
+          },
+          "expected": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "xfailed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

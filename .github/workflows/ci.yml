@@ -88,6 +88,8 @@ jobs:
         run: make backend-sync
       - name: Offline pilot content guards
         run: make mvp049-guards
+      - name: Offline final readiness guards
+        run: make mvp050-guards
       - name: Pytest
         run: |
           set -o pipefail

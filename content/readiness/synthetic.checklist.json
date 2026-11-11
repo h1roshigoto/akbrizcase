@@ -1,0 +1,481 @@
+{
+  "format": "MVP050_CHECKLIST/v1",
+  "classification": "SYNTHETIC ONLY",
+  "pilot": "FULL_MVP",
+  "binding": {
+    "release_id": "rc-00000000000000000000000000000000",
+    "head": "0000000000000000000000000000000000000000",
+    "base": "0000000000000000000000000000000000000000",
+    "images": {
+      "backend": null,
+      "frontend": null,
+      "postgres": null
+    },
+    "schema": "0011_mvp039_http_security",
+    "modes": {
+      "format": 1,
+      "data": "synthetic-only",
+      "catalog": true,
+      "orders": true,
+      "chat": true,
+      "knowledge": true,
+      "files": true,
+      "smtp": "required",
+      "clamav": "required",
+      "signature_update": "required",
+      "real_pii": true
+    },
+    "content_sha256": null,
+    "enabled_features": [
+      "catalog",
+      "orders",
+      "manager",
+      "knowledge",
+      "diagnose",
+      "files",
+      "smtp"
+    ]
+  },
+  "checks": [
+    {
+      "id": "MVP-001",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-054",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-055",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-056",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-002",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-003",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-004",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-005",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-006",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-007",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-008",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-009",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-010",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-011",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-012",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-013",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-014",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-015",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-016",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-017",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-018",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-019",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-020",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-021",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-022",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-023",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-024",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-025",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-026",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-027",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-028",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-029",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-030",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-031",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-032",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-033",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-034",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-035",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-036",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-037",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-038",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-039",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-040",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-041",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-042",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-043",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-044",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-045",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-046",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-047",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-048",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "MVP-049",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "A-IMAGES",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "A-CI",
+      "status": "NOT RUN",
+      "evidence": null
+    },
+    {
+      "id": "A-DEFECTS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "A-SCHEMA",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-TARGET",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-TLS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-SECRETS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-SMTP",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-AV",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-MONITORING",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-OFFSITE",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-KEYS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-JOURNAL",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-RESTORE",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-RPO-RTO",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "B-OPERATORS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "C-TARGET-LOAD",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-CATALOG",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-RIGHTS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-EXPERT",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-TREES",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-FTS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "D-TARGET",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-PD-OPERATOR",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-POLICY",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-RETENTION",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-ADR",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-PROCESSORS",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-NO-HA",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-SMTP-RISK",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-WALKTHROUGH",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-SCOPE",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "E-CUSTOMER",
+      "status": "BLOCKED",
+      "evidence": null
+    },
+    {
+      "id": "MODE-SUPPORTED",
+      "status": "BLOCKED",
+      "evidence": null
+    }
+  ],
+  "evidence": [],
+  "artifacts": [],
+  "scope": {
+    "decision": null,
+    "exclusions": []
+  },
+  "defects": {
+    "review": null,
+    "entries": []
+  }
+}
