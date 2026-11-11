@@ -319,3 +319,35 @@ jobs:
       - name: Actual age archive, new PG16 and files, deletion completeness and replay
         run: make backup-rehearsal
       # No archives, keys, database dumps, manifests, runtime or pytest logs uploaded.
+
+  load-smoke:
+    name: Bounded synthetic load and recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      MVP048_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12.14'
+      - name: Exact source and deterministic evidence guards
+        run: |
+          test "$(git rev-parse HEAD)" = "$MVP048_EXPECTED_HEAD"
+          make mvp048-guards
+          make mvp048-image-guards
+      - name: Build full disposable synthetic profile
+        run: |
+          cp .env.example .env
+          make init-secrets local-tls
+          docker pull python:3.12.14-alpine
+      - name: Real TLS, 200 client pool, 30 network sources, committed HTTP and recovery
+        run: make mvp048-smoke MVP048_ARGS="--report-dir $RUNNER_TEMP/mvp048-evidence"
+      - name: Remove ephemeral runtime inputs
+        if: always()
+        run: rm -rf -- .secrets .certs .env
+      # No private ledger, child logs, contacts, tokens, mail or SourceRef uploads.
+      # Shared-runner p95 is synthetic evidence; TARGET_LOAD remains BLOCKED.

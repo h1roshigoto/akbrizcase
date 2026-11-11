@@ -67,6 +67,7 @@ def main(
     privacy_lifecycle: bool = False,
     http_security: bool = False,
     mvp046: bool = False,
+    mvp048: bool = False,
 ) -> None:
     if not Path(".certs/localhost.crt").is_file():
         raise SystemExit("Run make local-tls first")
@@ -102,23 +103,35 @@ def main(
                 }
             )
         )
-        if catalog_admin or mvp046:
+        if mvp048:
+            from mvp048_images import build_services, source_trees
+            from mvp048_smoke import source_state
+
+            load_head, load_dirty = source_state()
+            if load_dirty:
+                raise ValueError("MVP048_CLEAN_IMAGE_SOURCE_REQUIRED")
+            load_trees = source_trees(load_head)
+            override = json.loads(labels.read_text())
+            override["services"] = build_services(load_head, load_trees)
+            override["services"]["postgres"] = {"image": "postgres:16.13-alpine"}
+            labels.write_text(json.dumps(override))
+        if catalog_admin or mvp046 or mvp048:
             # Test-only dependency composition: real ClamAV with synthetic ndb,
             # never a production scanner bypass or runtime environment switch.
             override = json.loads(labels.read_text())
-            override["services"] = {
-                "api": {
+            override.setdefault("services", {}).setdefault("api", {}).update(
+                {
                     "command": [
                         "python",
                         "/tmp/browser_media_server.py",
-                        *(["--documents"] if mvp046 else []),
+                        *(["--documents"] if mvp046 or mvp048 else []),
                     ],
                     "volumes": [
                         str(Path("backend/tests/browser_media_server.py").resolve())
                         + ":/tmp/browser_media_server.py:ro"
                     ],
                 }
-            }
+            )
             labels.write_text(json.dumps(override))
         if privacy_lifecycle:
             # Exercise production gates only on this owner's disposable synthetic
@@ -136,16 +149,16 @@ def main(
                 }
             }
             labels.write_text(json.dumps(override))
-        if mvp046 and environment.get("CODEX_PROXY_CERT"):
+        if (mvp046 or mvp048) and environment.get("CODEX_PROXY_CERT"):
             # Optional cloud builder CA is a mount, never an image/context file.
             override = json.loads(labels.read_text())
             override["secrets"] = {
                 "proxy_ca": {"file": environment["CODEX_PROXY_CERT"]}
             }
             for service in ("api", "nginx"):
-                override.setdefault("services", {}).setdefault(service, {})["build"] = {
-                    "secrets": ["proxy_ca"]
-                }
+                override.setdefault("services", {}).setdefault(service, {}).setdefault(
+                    "build", {}
+                ).update({"secrets": ["proxy_ca"]})
             labels.write_text(json.dumps(override))
         prefix = [
             "docker",
@@ -178,6 +191,10 @@ def main(
         stack = SyntheticStack(project, compose, environment)
         try:
             stack.claim()
+            if mvp048:
+                from mvp048_images import build_and_pin
+
+                build_and_pin(compose, stack, labels, load_head, load_trees)
             if mvp046:
                 compose("build")
             compose("up", "--no-build", "--detach", "--wait", "--wait-timeout", "120")
@@ -244,7 +261,7 @@ d.close()
 """,
             )
             support_config = {}
-            if support_handoff or mvp046:
+            if support_handoff or mvp046 or mvp048:
                 support_config = json.loads(
                     compose(
                         "exec",
@@ -289,6 +306,18 @@ d.close()
                     assert error.code == 404
                 else:
                     raise AssertionError("Private storage URL must return 404")
+            if mvp048:
+                from mvp048_smoke import run_load
+
+                run_load(
+                    environment,
+                    {"origin": origin, "passwords": passwords, **support_config},
+                    compose,
+                    stack,
+                    prefix,
+                    temporary,
+                )
+                return
             with browser_trust():
                 browser_environment = environment.copy()
                 browser_environment["NODE_EXTRA_CA_CERTS"] = str(

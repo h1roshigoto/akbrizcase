@@ -187,3 +187,18 @@ operator-rehearsal:
 .PHONY: mvp046-browser-e2e
 mvp046-browser-e2e:
 	python3 scripts/mvp046_browser_smoke.py
+
+.PHONY: mvp048-guards mvp048-smoke mvp048-target-preflight
+mvp048-guards:
+	python3 -m unittest discover -s scripts -p 'test_mvp048.py'
+
+# Same mandatory security limits; fresh PG16/Nginx/TLS only. No target inference.
+mvp048-smoke:
+	python3 scripts/mvp048_smoke.py synthetic $(MVP048_ARGS)
+
+mvp048-target-preflight:
+	python3 scripts/mvp048_smoke.py target $(MVP048_TARGET_ARGS)
+
+.PHONY: mvp048-image-guards
+mvp048-image-guards:
+	python3 scripts/mvp048_image_check.py

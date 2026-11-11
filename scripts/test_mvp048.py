@@ -1,0 +1,793 @@
+"""Independent evidence, timing, safety and runner failure guards."""
+
+import io
+import json
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from dataclasses import asdict
+from pathlib import Path
+from unittest.mock import patch
+
+from mvp048_result import (
+    MIN_SAMPLES,
+    OPERATIONS,
+    PROFILES,
+    Profile,
+    check_sample,
+    make_result,
+    overlap,
+    percentile,
+    publish,
+    statistics,
+    validate_result,
+)
+from mvp048_smoke import Resources, receive, target_preflight
+
+HEAD = "a" * 40
+
+
+def sample(
+    start=1000000, duration=1000000, operation="button", phase="measurement", **extra
+):
+    return {
+        "phase": phase,
+        "operation": operation,
+        "status": 200 if operation != "order" else 201,
+        "ok": True,
+        "timeout": False,
+        "start_ns": start,
+        "end_ns": start + duration,
+        "client": 0,
+        **extra,
+    }
+
+
+def evidence():
+    samples = [
+        sample(start=1_000_000_000 + i * 1_000_000, operation=op, client=i % 200)
+        for op in OPERATIONS
+        for i in range(200)
+    ]
+    resource = Resources(None, None, None).report()
+    resource["metrics"]["runtime_smtp_failures"] = {
+        "status": "observed",
+        "minimum": 1,
+        "maximum": 1,
+        "last": 1,
+    }
+    result = make_result(
+        head=HEAD,
+        dirty=False,
+        profile=PROFILES["pilot200-v1"],
+        samples=samples,
+        complete=True,
+        identities={
+            **{
+                key: "sha256:" + "b" * 64
+                for key in ("backend", "frontend", "postgres", "generator")
+            },
+            "schema": "0011_mvp039_http_security",
+            "application_revision": HEAD,
+            "backend_source_tree": "c" * 40,
+            "frontend_source_tree": "d" * 40,
+        },
+        corpus={"items": 54, "documents": 1, "versions": 1, "sections": 1, "trees": 1},
+        resources=resource,
+        outcomes={
+            key: "PASS" if key != "backup" else "BLOCKED"
+            for key in (
+                "invariants",
+                "https",
+                "contracts",
+                "rate_limits",
+                "smtp",
+                "lease",
+                "database",
+                "backup",
+            )
+        },
+        source_ip_count=30,
+    )
+    return result, samples
+
+
+class Measurements(unittest.TestCase):
+    def test_nearest_rank_is_not_interpolation(self):
+        self.assertEqual(percentile(list(range(1, 21)), 0.95), 19)
+        self.assertEqual(percentile([300, 1, 2], 0.95), 300)
+        self.assertIsNone(percentile([], 0.95))
+
+    def test_real_overlap_differs_from_created_tasks(self):
+        self.assertEqual(
+            overlap([sample(i * 1_000_000 + 1) for i in range(30)])["peak_active"], 1
+        )
+        self.assertEqual(overlap([sample(1) for i in range(30)])["peak_active"], 30)
+        self.assertEqual(overlap([sample(1), sample(500001)])["mean_active"], 4 / 3)
+
+    def test_warmup_and_errors_are_never_removed_silently(self):
+        samples = [sample(phase="warmup", duration=8000000000)]
+        samples += [sample() for _ in range(20)]
+        stats = statistics(samples, "button", 10)
+        self.assertEqual(stats["success_ms"]["p95"], 1)
+        self.assertEqual(stats["successes"], 20)
+        samples.append(sample(status=500, ok=False, duration=9000000000))
+        stats = statistics(samples, "button", 10)
+        self.assertEqual(stats["gate"], "FAIL")
+        self.assertEqual(stats["statuses"], {"200": 20, "500": 1})
+        self.assertEqual(stats["all_attempt_ms"]["p99"], 9000)
+        self.assertEqual(stats["success_ms"]["maximum"], 1)
+
+    def test_small_sample_or_timeout_cannot_pass(self):
+        self.assertEqual(
+            statistics([sample()] * (MIN_SAMPLES - 1), "button", 10)["gate"],
+            "INCONCLUSIVE",
+        )
+        for status, timeout in ((0, True), (429, False), (422, False), (503, False)):
+            stats = statistics(
+                [sample()] * 20 + [sample(status=status, timeout=timeout, ok=False)],
+                "button",
+                10,
+            )
+            self.assertEqual(stats["gate"], "FAIL")
+            self.assertEqual(stats["errors"], 1)
+            self.assertEqual(stats["timeouts"], int(timeout))
+
+    def test_slow_correct_response_fails_threshold(self):
+        stats = statistics([sample(duration=301000000)] * 20, "button", 10)
+        self.assertEqual(stats["gate"], "FAIL")
+        self.assertEqual(stats["all_attempt_ms"]["maximum"], 301)
+
+    def test_profile_limits_and_fixed_digest(self):
+        self.assertEqual(PROFILES["pilot200-v1"].clients, 200)
+        self.assertEqual(PROFILES["pilot200-v1"].concurrency, 30)
+        for key, value in [
+            ("clients", 201),
+            ("sources", 31),
+            ("concurrency", 31),
+            ("measurement_seconds", 121),
+            ("orders_per_source", 6),
+            ("total_timeout", 1201),
+            ("request_timeout", 0),
+            ("clients", True),
+        ]:
+            data = asdict(PROFILES["pilot200-v1"])
+            data[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                Profile(**data)
+
+    def test_sample_types_and_ranges(self):
+        for extra in (
+            {"status": True},
+            {"client": 200},
+            {"timeout": 1},
+            {"ok": True, "status": 429},
+            {"timeout": True, "status": 200},
+            {"end_ns": 0},
+            {"token": "secret"},
+        ):
+            with self.subTest(extra=list(extra)), self.assertRaises(ValueError):
+                check_sample(sample(**extra))
+
+
+class Evidence(unittest.TestCase):
+    def test_saved_json_key_order_cannot_change_percentile_validity(self):
+        result, _ = evidence()
+        for operation in result["operations"].values():
+            for kind in ("success_ms", "all_attempt_ms"):
+                operation[kind] = {"p50": 1, "p95": 2, "p99": 3, "maximum": 4}
+        saved = json.loads(json.dumps(result, sort_keys=True))
+        self.assertEqual(validate_result(saved, expected_head=HEAD), saved)
+
+    def test_closed_complete_synthetic_is_never_target_admission(self):
+        result, _ = evidence()
+        self.assertEqual(result["gates"]["SYNTHETIC_SMOKE"], "PASS")
+        self.assertEqual(result["gates"]["TARGET_LOAD"], "BLOCKED")
+        self.assertEqual(result["gates"]["PRODUCTION_ADMISSION"], "BLOCKED")
+        self.assertEqual(
+            result["resources"]["metrics"]["pg_connections"]["status"], "unavailable"
+        )
+
+    def test_stale_head(self):
+        result, _ = evidence()
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head="c" * 40)
+
+    def test_profile_tampering_even_with_new_digest(self):
+        result, _ = evidence()
+        result["profile"]["concurrency"] = 1
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_inconsistent_totals_codes_percentiles_and_gates(self):
+        for mutation in (
+            lambda r: r["operations"]["order"].update(successes=201),
+            lambda r: r["operations"]["order"]["statuses"].update({"201": 199}),
+            lambda r: r["operations"]["order"].update(attempt_rps=0),
+            lambda r: r["operations"]["order"]["success_ms"].update(p50=100),
+            lambda r: r["operations"]["order"].update(gate="BLOCKED"),
+            lambda r: r["gates"].update(TARGET_LOAD="PASS"),
+            lambda r: r["phases"].update(measurement=1),
+            lambda r: r["activity"].update(peak_active=31),
+            lambda r: r["network"].update(source_ip_count=1),
+            lambda r: r["resources"]["metrics"]["pg_connections"].update(last=0),
+            lambda r: r["corpus"].update(items=101),
+        ):
+            result, _ = evidence()
+            mutation(result)
+            with self.assertRaises(ValueError):
+                validate_result(result, expected_head=HEAD)
+
+    def test_sensitive_and_arbitrary_fields_rejected_at_every_level(self):
+        for keys in (
+            (),
+            ("operations", "order"),
+            ("resources",),
+            ("resources", "metrics"),
+            ("identities",),
+            ("outcomes",),
+            ("network",),
+            ("corpus",),
+        ):
+            result, _ = evidence()
+            node = result
+            for key in keys:
+                node = node[key]
+            node["contact"] = "canary@example.invalid"
+            with self.assertRaises(ValueError):
+                validate_result(result, expected_head=HEAD)
+
+    def test_publication_checks_private_ledger_before_writing(self):
+        result, samples = evidence()
+        samples[-1]["end_ns"] += 2000000000
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ValueError):
+                publish(result, samples, directory, HEAD)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_safe_publication_private_mode_no_overwrite(self):
+        result, samples = evidence()
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            publish(result, samples, directory, HEAD)
+            for path in Path(directory).iterdir():
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            text = output.getvalue()
+            for forbidden in (
+                "@",
+                "X-Chat-Token",
+                "cookie",
+                "SourceRef",
+                "http://",
+                "https://",
+                "/tmp/",
+            ):
+                self.assertNotIn(forbidden, text)
+            with self.assertRaises(FileExistsError):
+                publish(result, samples, directory, HEAD)
+
+    def test_incomplete_recovery_never_passes(self):
+        result, _ = evidence()
+        result["complete"] = False
+        result["gates"]["SYNTHETIC_SMOKE"] = "INCONCLUSIVE"
+        result["outcomes"]["smtp"] = "NOT RUN"
+        result["gates"]["OPERATIONAL_RECOVERY"] = "BLOCKED"
+        validate_result(result, expected_head=HEAD)
+        result["gates"]["SYNTHETIC_SMOKE"] = "PASS"
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+
+class Runner(unittest.TestCase):
+    def test_target_without_machine_or_adapter_blocks_without_io(self):
+        with patch("subprocess.run", side_effect=AssertionError("must not run")):
+            self.assertEqual(target_preflight(None)["TARGET_LOAD"], "BLOCKED")
+            self.assertEqual(
+                target_preflight(Path("/not/a/target"))["TARGET_LOAD"], "BLOCKED"
+            )
+
+    def test_receive_timeout_and_incomplete_child(self):
+        for code in ("import time; time.sleep(1)", "pass"):
+            process = subprocess.Popen(
+                [sys.executable, "-c", code], stdout=subprocess.PIPE, text=True
+            )
+            try:
+                with self.assertRaises((TimeoutError, ValueError)):
+                    receive([process], "ready", time.monotonic() + 0.05)
+            finally:
+                process.kill()
+                process.wait(timeout=3)
+                process.stdout.close()
+
+    def test_cancelled_child_and_wrong_phase_are_not_success(self):
+        for payload in (
+            {"stage": "done", "source": 0},
+            {"stage": "failed"},
+            {"stage": "ready", "source": 1},
+        ):
+            code = "import json; print(" + repr(json.dumps(payload)) + ", flush=True)"
+            process = subprocess.Popen(
+                [sys.executable, "-c", code], stdout=subprocess.PIPE, text=True
+            )
+            try:
+                with self.assertRaises(ValueError):
+                    receive([process], "ready", time.monotonic() + 3)
+            finally:
+                process.wait(timeout=3)
+                process.stdout.close()
+
+    def test_empty_resource_sources_are_unavailable_never_zero(self):
+        resources = Resources(None, None, None).report()
+        self.assertEqual(resources["samples"], 0)
+        for metric in resources["metrics"].values():
+            self.assertEqual(
+                metric,
+                {
+                    "status": "unavailable",
+                    "minimum": None,
+                    "maximum": None,
+                    "last": None,
+                },
+            )
+
+
+class TargetPreflight(unittest.TestCase):
+    def packet(self):
+        from datetime import UTC, datetime, timedelta
+
+        return {
+            "schema": "MVP048_AUTHORIZATION/v1",
+            "head": HEAD,
+            "profile_digest": PROFILES["pilot200-v1"].digest,
+            "host_identity_sha256": "c" * 64,
+            "operator_reference_sha256": "d" * 64,
+            "expires_at": (datetime.now(UTC) + timedelta(minutes=30)).isoformat(),
+            "project": "akbrizcase-https-test-0123456789",
+            "images": {
+                key: "sha256:" + "b" * 64
+                for key in ("backend", "frontend", "postgres", "generator")
+            },
+            "origin": "https://localhost:8443",
+            "ca_file": "/protected/ca.crt",
+            "dataset_sha256": "e" * 64,
+            "synthetic_only": True,
+            "ssd_attested": True,
+            "backup_receipt": "/protected/backup.json",
+            "runtime_journal": "/protected/runtime.jsonl",
+        }
+
+    def check(self, packet):
+        from datetime import UTC, datetime
+
+        from mvp048_target import checked_packet
+
+        return checked_packet(
+            packet, head=HEAD, host_digest="c" * 64, now=datetime.now(UTC)
+        )
+
+    def test_exact_bound_packet_is_eligible_for_live_preflight_only(self):
+        self.assertEqual(self.check(self.packet())["head"], HEAD)
+
+    def test_target_preflight_rejects_all_unbound_inputs(self):
+        mutations = [
+            ("head", "b" * 40),
+            ("host_identity_sha256", "a" * 64),
+            ("profile_digest", "f" * 64),
+            ("synthetic_only", False),
+            ("synthetic_only", 1),
+            ("expires_at", "2000-01-01T00:00:00+00:00"),
+            ("expires_at", "2099-01-01T00:00:00+00:00"),
+            ("origin", "http://localhost:8443"),
+            ("origin", "https://example.com:8443"),
+            ("origin", "https://localhost:8443/?token=secret"),
+            ("origin", "https://user:secret@localhost:8443"),
+            ("project", "production"),
+            ("ca_file", "relative.crt"),
+            ("operator_reference_sha256", "invented"),
+            ("ssd_attested", False),
+            ("runtime_journal", None),
+            ("backup_receipt", "relative.json"),
+        ]
+        for key, value in mutations:
+            packet = self.packet()
+            packet[key] = value
+            with self.subTest(field=key), self.assertRaises((ValueError, TypeError)):
+                self.check(packet)
+
+    def test_missing_fields_and_unknown_personal_fields_rejected(self):
+        for key in self.packet():
+            packet = self.packet()
+            del packet[key]
+            with self.subTest(field=key), self.assertRaises(ValueError):
+                self.check(packet)
+        packet = self.packet()
+        packet["contact"] = "canary@example.invalid"
+        with self.assertRaises(ValueError):
+            self.check(packet)
+
+    def test_absent_authorization_or_resource_cannot_promote_target(self):
+        result, _ = evidence()
+        result["environment"] = "authorized_target"
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+        result["authorization_digest"] = "f" * 64
+        validate_result(result, expected_head=HEAD)
+        self.assertEqual(result["gates"]["TARGET_LOAD"], "BLOCKED")
+        result["gates"]["TARGET_LOAD"] = "PASS"
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_dirty_source_cannot_have_final_smoke_pass(self):
+        result, _ = evidence()
+        result["dirty"] = True
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_error_attempt_prevents_smoke_pass(self):
+        from mvp048_result import derive_gates
+
+        result, _ = evidence()
+        result["operations"]["knowledge"]["errors"] = 1
+        self.assertEqual(derive_gates(result)["SYNTHETIC_SMOKE"], "FAIL")
+
+
+class Cleanup(unittest.TestCase):
+    def test_cancel_cleanup_stops_every_owned_source_and_preserves_volumes(self):
+        from unittest.mock import Mock
+
+        from mvp048_smoke import cleanup_sources
+
+        stack = Mock(project="project")
+
+        def docker(*args):
+            if args[0] == "inspect":
+                return json.dumps(
+                    [{"Config": {"Labels": {"com.akbrizcase.load-owner": "project"}}}]
+                )
+            return ""
+
+        stack.docker.side_effect = docker
+        process = Mock(
+            stdin=io.StringIO(),
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            returncode=0,
+        )
+        self.assertTrue(cleanup_sources(stack, ["a", "b"], [process]))
+        calls = [call.args for call in stack.docker.call_args_list]
+        self.assertEqual([v for v in calls if v[0] == "rm"], [("rm", "a"), ("rm", "b")])
+        self.assertFalse(any("volume" in call or "--volumes" in call for call in calls))
+        self.assertTrue(
+            process.stdin.closed and process.stdout.closed and process.stderr.closed
+        )
+
+    def test_foreign_source_is_preserved_but_other_owned_sources_are_cleaned(self):
+        from unittest.mock import Mock
+
+        from mvp048_smoke import cleanup_sources
+
+        stack = Mock(project="project")
+
+        def docker(*args):
+            if args[0] == "inspect":
+                owner = "foreign" if args[1] == "a" else "project"
+                return json.dumps(
+                    [{"Config": {"Labels": {"com.akbrizcase.load-owner": owner}}}]
+                )
+            return ""
+
+        stack.docker.side_effect = docker
+        self.assertFalse(cleanup_sources(stack, ["a", "b"], []))
+        calls = [call.args for call in stack.docker.call_args_list]
+        self.assertNotIn(("rm", "a"), calls)
+        self.assertIn(("rm", "b"), calls)
+
+    def test_failed_child_cannot_have_successful_cleanup_outcome(self):
+        from unittest.mock import Mock
+
+        from mvp048_smoke import cleanup_sources
+
+        stack = Mock(project="project")
+        process = Mock(
+            stdin=io.StringIO(),
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            returncode=1,
+        )
+        self.assertFalse(cleanup_sources(stack, [], [process]))
+
+
+class ResourceTimeline(unittest.TestCase):
+    def test_private_timepoints_are_closed_and_never_in_public_summary(self):
+        result, samples = evidence()
+        result["resources"]["samples"] = 2
+        points = [
+            {"at_seconds": 1.0, "pg_connections": 2},
+            {"at_seconds": 3.5, "pg_connections": 4},
+        ]
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            publish(
+                result,
+                samples,
+                directory,
+                HEAD,
+                resource_samples=points,
+                resource_origin_ns=1,
+            )
+            saved = json.loads((Path(directory) / "measurement.json").read_text())
+            self.assertEqual(saved["resource_samples"], points)
+            self.assertEqual(saved["resource_origin_ns"], 1)
+            self.assertNotIn("at_seconds", output.getvalue())
+
+    def test_missing_reversed_sensitive_or_invalid_timepoints_rejected(self):
+        result, samples = evidence()
+        result["resources"]["samples"] = 1
+        for points in (
+            [],
+            [{"at_seconds": -1}],
+            [{"at_seconds": 9999}],
+            [{"at_seconds": 1, "contact": "canary@example.invalid"}],
+            [{"at_seconds": 1, "pg_connections": float("nan")}],
+        ):
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                self.assertRaises(ValueError),
+            ):
+                publish(
+                    result,
+                    samples,
+                    directory,
+                    HEAD,
+                    resource_samples=points,
+                    resource_origin_ns=1,
+                )
+        result["resources"]["samples"] = 2
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
+            publish(
+                result,
+                samples,
+                directory,
+                HEAD,
+                resource_samples=[{"at_seconds": 2}, {"at_seconds": 1}],
+                resource_origin_ns=1,
+            )
+
+
+class DiskSource(unittest.TestCase):
+    def source(self, disk):
+        from unittest.mock import Mock
+
+        data = {
+            "disk": disk,
+            "backup": {"status": "not_configured"},
+            "runtime": {"status": "unavailable"},
+            "database": {
+                "postgres_connections": 3,
+                "outbox": {
+                    "counts": dict.fromkeys(
+                        ("pending", "sending", "failed", "sent"), 0
+                    ),
+                    "oldest_pending_seconds": None,
+                },
+            },
+            "pg_active": 1,
+            "pg_max_connections": 100,
+            "outbox_attempts": 0,
+        }
+        resource = Resources(Mock(return_value=""), Mock(), Mock(return_value=data))
+        resource.snapshot()
+        return resource.report()
+
+    def test_files_disk_uses_protected_volume_observation(self):
+        report = self.source({"status": "low", "total_bytes": 1000, "free_bytes": 10})
+        self.assertEqual(report["metrics"]["files_disk_free_bytes"]["last"], 10)
+        self.assertEqual(report["metrics"]["files_disk_total_bytes"]["last"], 1000)
+
+    def test_missing_files_disk_does_not_fall_back_to_checkout_disk(self):
+        report = self.source({"status": "unavailable"})
+        self.assertEqual(
+            report["metrics"]["files_disk_free_bytes"]["status"], "unavailable"
+        )
+        self.assertIsNone(report["metrics"]["files_disk_total_bytes"]["last"])
+
+
+class ImageBinding(unittest.TestCase):
+    def setup_images(self):
+        from unittest.mock import Mock
+
+        from mvp048_images import REVISION, SOURCE_TREE
+
+        trees = {"backend": "c" * 40, "frontend": "d" * 40}
+        images = {
+            key: "sha256:" + char * 64
+            for key, char in [("api", "1"), ("nginx", "2"), ("worker", "1")]
+        }
+        services = {key: {"Image": value} for key, value in images.items()}
+        metadata = {
+            images["api"]: {
+                "Id": images["api"],
+                "Config": {"Labels": {REVISION: HEAD, SOURCE_TREE: trees["backend"]}},
+            },
+            images["nginx"]: {
+                "Id": images["nginx"],
+                "Config": {"Labels": {REVISION: HEAD, SOURCE_TREE: trees["frontend"]}},
+            },
+        }
+        docker = Mock(side_effect=lambda *args: json.dumps([metadata[args[-1]]]))
+        return trees, services, metadata, docker
+
+    def test_both_modes_share_verified_head_tree_and_worker_binding(self):
+        from mvp048_images import verify_application_images
+
+        trees, services, _, docker = self.setup_images()
+        result = verify_application_images(docker, services, HEAD, trees)
+        self.assertEqual(result["application_revision"], HEAD)
+        self.assertEqual(result["backend_source_tree"], trees["backend"])
+        self.assertEqual(result["backend"], services["worker"]["Image"])
+
+    def test_stale_unlabelled_context_or_worker_mismatch_blocks(self):
+        from mvp048_images import REVISION, SOURCE_TREE, verify_application_images
+
+        for kind in ("stale", "unlabelled", "context", "worker"):
+            trees, services, metadata, docker = self.setup_images()
+            if kind == "stale":
+                metadata[services["api"]["Image"]]["Config"]["Labels"][REVISION] = (
+                    "f" * 40
+                )
+            if kind == "unlabelled":
+                metadata[services["nginx"]["Image"]]["Config"]["Labels"] = {}
+            if kind == "context":
+                metadata[services["nginx"]["Image"]]["Config"]["Labels"][
+                    SOURCE_TREE
+                ] = "f" * 40
+            if kind == "worker":
+                services["worker"]["Image"] = "sha256:" + "f" * 64
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                verify_application_images(docker, services, HEAD, trees)
+
+    def test_synthetic_build_pins_all_consumers_and_refuses_cached_stale_images(self):
+        from unittest.mock import Mock
+
+        from mvp048_images import (
+            BACKEND_SERVICES,
+            REVISION,
+            build_and_pin,
+            build_services,
+        )
+
+        trees, services, metadata, _ = self.setup_images()
+        config = {"services": build_services(HEAD, trees)}
+        refs = {
+            config["services"][name]["image"]: services[name]["Image"]
+            for name in ("api", "nginx", "worker")
+        }
+
+        def docker(*args):
+            value = args[-1]
+            return json.dumps([metadata[refs.get(value, value)]])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "override.json"
+            path.write_text(json.dumps(config))
+            compose = Mock()
+            stack = Mock()
+            stack.docker.side_effect = docker
+            build_and_pin(compose, stack, path, HEAD, trees)
+            pinned = json.loads(path.read_text())
+            self.assertTrue(
+                all(
+                    pinned["services"][name]["image"] == services["api"]["Image"]
+                    for name in BACKEND_SERVICES
+                )
+            )
+            self.assertEqual(
+                pinned["services"]["nginx"]["image"], services["nginx"]["Image"]
+            )
+            path.write_text(json.dumps(config))
+            metadata[services["api"]["Image"]]["Config"]["Labels"][REVISION] = "f" * 40
+            with self.assertRaises(ValueError):
+                build_and_pin(compose, stack, path, HEAD, trees)
+            self.assertEqual(json.loads(path.read_text()), config)
+            self.assertTrue(
+                all(
+                    call.args == ("build", "api", "nginx")
+                    for call in compose.call_args_list
+                )
+            )
+
+
+class EvidenceCorrections(unittest.TestCase):
+    def test_one_shot_failure_survives_closed_protocol_and_public_statistics(self):
+        from mvp048_result import checked_outage
+
+        payload = {
+            "smtp_outage": "PASS",
+            "retry_seconds": 300,
+            "events": [
+                {
+                    "event_code": "SMTP_FAILURE",
+                    "at": "2026-01-01T00:00:00+00:00",
+                    "errors": 1,
+                }
+            ],
+        }
+        self.assertEqual(checked_outage(payload)[0]["errors"], 1)
+        for events in (
+            [],
+            [
+                {
+                    "event_code": "SMTP_SENT",
+                    "at": "2026-01-01T00:00:00+00:00",
+                    "errors": 1,
+                }
+            ],
+            [{**payload["events"][0], "token": "secret"}],
+        ):
+            with self.assertRaises(ValueError):
+                checked_outage({**payload, "events": events})
+
+    def test_outage_pass_cannot_publish_missing_or_zero_failure(self):
+        for status, value in [("observed", 0), ("unavailable", None)]:
+            result, _ = evidence()
+            result["resources"]["metrics"]["runtime_smtp_failures"] = dict(
+                status=status, minimum=value, maximum=value, last=value
+            )
+            with self.assertRaises(ValueError):
+                validate_result(result, expected_head=HEAD)
+
+    def test_configuration_is_not_pg_telemetry_and_legacy_schema_rejected(self):
+        result, _ = evidence()
+        pool = {
+            "status": "configured",
+            "source": "application_factory",
+            "pool_size": 5,
+            "max_overflow": 5,
+            "timeout_seconds": 3,
+        }
+        result["resources"]["configuration"]["sqlalchemy_pool"] = pool
+        validate_result(
+            json.loads(json.dumps(result, sort_keys=True)), expected_head=HEAD
+        )
+        self.assertNotIn("pg_pool_size", result["resources"]["metrics"])
+        result["resources"]["metrics"]["pg_pool_size"] = {
+            "status": "observed",
+            "minimum": 5,
+            "maximum": 5,
+            "last": 5,
+        }
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+        result, _ = evidence()
+        result["schema"] = "MVP048_RESULT/v1"
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_image_evidence_cannot_claim_another_revision(self):
+        result, _ = evidence()
+        result["identities"]["application_revision"] = "f" * 40
+        with self.assertRaises(ValueError):
+            validate_result(result, expected_head=HEAD)
+
+    def test_latency_gates_stay_separate_from_functional_smoke(self):
+        from mvp048_result import derive_gates
+
+        result, _ = evidence()
+        operation = result["operations"]["button"]
+        for key in ("all_attempt_ms", "success_ms"):
+            operation[key] = dict(p50=400, p95=500, p99=600, maximum=700)
+        operation["gate"] = "FAIL"
+        result["gates"] = derive_gates(result)
+        validate_result(result, expected_head=HEAD)
+        self.assertEqual(result["gates"]["SYNTHETIC_SMOKE"], "PASS")
+        self.assertEqual(operation["threshold_ms"], 300)
+
+
+if __name__ == "__main__":
+    unittest.main()
