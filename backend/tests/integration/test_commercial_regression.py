@@ -906,7 +906,14 @@ def test_distinct_parallel_keys_unique_numbers_and_quota(
 ) -> None:
     client, db = commercial_client, commercial_db
     body = commercial(db, ("DEMO-P-001", "DEMO-S-001"))
-    with held_statement(db, "INSERT INTO app.orders") as (locked, release, pids):
+    # Distinct orders may now share catalog snapshot locks. Retain the real
+    # PostgreSQL waiter assertion at the shared-IP quota write, where committed
+    # quota consumption must still serialize; business/uniqueness checks follow.
+    with held_statement(db, "INSERT INTO app.rate_limit_buckets") as (
+        locked,
+        release,
+        pids,
+    ):
         with ThreadPoolExecutor(max_workers=2) as pool:
             a = pool.submit(
                 client.post, "/api/v1/orders", json=body, headers=order_headers()
