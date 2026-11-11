@@ -202,3 +202,11 @@ mvp048-target-preflight:
 .PHONY: mvp048-image-guards
 mvp048-image-guards:
 	python3 scripts/mvp048_image_check.py
+
+.PHONY: mvp049-guards mvp049-rehearsal
+mvp049-guards:
+	python3 -m unittest discover -s scripts -p 'test_mvp049.py'
+
+# Extends the existing operator run once; never publishes real content.
+mvp049-rehearsal:
+	python3 scripts/operator_rehearsal.py --pilot-content

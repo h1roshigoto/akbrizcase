@@ -1,0 +1,393 @@
+{
+  "format": "MVP049_CONTENT_MANIFEST/v1",
+  "classification": "SYNTHETIC ONLY",
+  "release_id": "synthetic-schema-fixture",
+  "git": {
+    "base": "5d14de62534e93907a5ca15c874e372199fddd39",
+    "head": "5d14de62534e93907a5ca15c874e372199fddd39",
+    "previous_manifest_sha256": null
+  },
+  "artifacts": [
+    {
+      "id": "document-original",
+      "filename": "document-original.bin",
+      "sha256": "c64546704066c66977664eee1b47b8d2696f4f55d91780566dde83edd15b6a2e",
+      "kind": "original"
+    },
+    {
+      "id": "section-intro",
+      "filename": "section-intro.bin",
+      "sha256": "6a34655cc94a45249136d8901d7ea1d4faf083962b421f568aa8120d51e83c29",
+      "kind": "section"
+    },
+    {
+      "id": "document-import",
+      "filename": "document-import.json",
+      "sha256": "31fbdb138176d59d65e6a34b600457ce45d4d10e93182d486b05d33b4635be62",
+      "kind": "import"
+    },
+    {
+      "id": "branching-yaml",
+      "filename": "branching-yaml.bin",
+      "sha256": "bf7ece4060787d794fe848599e9b98b62b2478461010b7e575bd0108ba66beca",
+      "kind": "yaml"
+    },
+    {
+      "id": "image-original",
+      "filename": "image-original.bin",
+      "sha256": "c47dd9465c00e9a0c8b85e9ea58d3034a0d23b9cf926113602f3460752a4eb96",
+      "kind": "original"
+    },
+    {
+      "id": "image-output",
+      "filename": "image-output.bin",
+      "sha256": "c47dd9465c00e9a0c8b85e9ea58d3034a0d23b9cf926113602f3460752a4eb96",
+      "kind": "original"
+    },
+    {
+      "id": "image-observation",
+      "filename": "image-observation.bin",
+      "sha256": "927916e75fcc477c0175d7595f3779297666a0c469cdac9c5fd16d3b501186de",
+      "kind": "image_observation"
+    },
+    {
+      "id": "branching-paths",
+      "filename": "branching-paths.json",
+      "sha256": "3eb15052ee47108e95dd779264c1a08980a5b3469ed62e1e50347f633502c036",
+      "kind": "paths"
+    },
+    {
+      "id": "schema-corpus",
+      "filename": "schema-corpus.json",
+      "sha256": "0419ea270d65ef1c5a93ce2d7a55fad803cb74d932a1971317736d2aebd744b8",
+      "kind": "corpus"
+    },
+    {
+      "id": "model-business",
+      "filename": "model-business.bin",
+      "sha256": "bc8bab352dab7d70e956b64c8452b579659d4f91e7ff443ce20b1e6199aefaba",
+      "kind": "approval"
+    },
+    {
+      "id": "product-business",
+      "filename": "product-business.bin",
+      "sha256": "0c2871563de4dcff6b17929f1db6b18912036a60cdf22cc56e3058bf17649c77",
+      "kind": "approval"
+    },
+    {
+      "id": "service-business",
+      "filename": "service-business.bin",
+      "sha256": "c4938ebf3685741278f4fb91a37772af613df2bb6d3fcafbe7200d840ebdd88f",
+      "kind": "approval"
+    },
+    {
+      "id": "image-rights",
+      "filename": "image-rights.bin",
+      "sha256": "e0ddb970fb9deb83575ea7ede227c07ebfbf4c53498c1c451e9d657a3bf43af4",
+      "kind": "approval"
+    },
+    {
+      "id": "document-review",
+      "filename": "document-review.bin",
+      "sha256": "042c19f7727fcab81018095d654d84382bcdc8ccd82735aa686fbc25cb15084a",
+      "kind": "approval"
+    },
+    {
+      "id": "document-fullfile",
+      "filename": "document-fullfile.bin",
+      "sha256": "617f48691c218f971eb038968d4c3dfe8751dd1c723694dbd4287d9b095d4389",
+      "kind": "approval"
+    },
+    {
+      "id": "applicability-review",
+      "filename": "applicability-review.bin",
+      "sha256": "d9c1782e507b7f4179bd83e8c5dded2a3bc47d979b4aaabc108c05f38857bfa5",
+      "kind": "approval"
+    },
+    {
+      "id": "applicability-disclosure",
+      "filename": "applicability-disclosure.bin",
+      "sha256": "40e26c9cbd8618ccf50abbfa3dbd4084d0b7671cd568e4535c71ce21df0c1776",
+      "kind": "approval"
+    },
+    {
+      "id": "tree-review",
+      "filename": "tree-review.bin",
+      "sha256": "c1651f5ddc369250bf69b54027af1bc39b6e64da1d2b2267d9baa990851372e8",
+      "kind": "approval"
+    },
+    {
+      "id": "schema-expectations",
+      "filename": "schema-expectations.bin",
+      "sha256": "035a50c16d81b3767785bb0060b2e83f9402f62636487918b53952988d311cfa",
+      "kind": "approval"
+    },
+    {
+      "id": "minimum-agreement",
+      "filename": "minimum-agreement.bin",
+      "sha256": "51f2f97771afbba51d28a8927d98c75a1e6723574b0dfe249f656e9babb6b470",
+      "kind": "approval"
+    }
+  ],
+  "approvals": [
+    {
+      "id": "model-business",
+      "scope": "business",
+      "subject_sha256": "25444e3245f5ff5f6a3e761efb82889599767acedcae03c36fe00bf1739dc1cc",
+      "record_artifact": "model-business",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "product-business",
+      "scope": "business",
+      "subject_sha256": "72a92fae7a68a90f54d632de37f976b4f99208027e11579e0d69d1e3a61b95fe",
+      "record_artifact": "product-business",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "service-business",
+      "scope": "business",
+      "subject_sha256": "c917cd8ed83e907d1799313d636401de5b4013676c2f9e438f7e8321a0b82a13",
+      "record_artifact": "service-business",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "image-rights",
+      "scope": "image_rights",
+      "subject_sha256": "d3ce81955fa373af1a6df119341fa9b39682da6f3bc7a182b61c8368d69fcebd",
+      "record_artifact": "image-rights",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "document-review",
+      "scope": "document_review",
+      "subject_sha256": "1dbf3b318528021cee776c9b7106c6c42f1b5e99e0f2e0c0a5271c87fd5673cd",
+      "record_artifact": "document-review",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "document-fullfile",
+      "scope": "full_file",
+      "subject_sha256": "c480889e752ab8c970007e62d94f3958b3c9307eac9eab8af8baf64ad5570a9f",
+      "record_artifact": "document-fullfile",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "applicability-review",
+      "scope": "applicability_review",
+      "subject_sha256": "4c5a5f06c5f66cf71c21ee4a9442d2e105b140ed9437a6283a0ec8d83d33762d",
+      "record_artifact": "applicability-review",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "applicability-disclosure",
+      "scope": "disclosure",
+      "subject_sha256": "74abc97e787d629a4d7e33f48b7e0853e53187dce205f10a332414ce691f4e32",
+      "record_artifact": "applicability-disclosure",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "tree-review",
+      "scope": "tree_review",
+      "subject_sha256": "7f0021db95792f789b369f0dca8a9b96287c2cd2fd603c95feda1bae8bf6f8da",
+      "record_artifact": "tree-review",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "schema-expectations",
+      "scope": "search_expectations",
+      "subject_sha256": "45ce341cbf24dfe180665694ef6548c9bbc93c5a5c0abc0896d138777771d3be",
+      "record_artifact": "schema-expectations",
+      "classification": "SYNTHETIC ONLY"
+    },
+    {
+      "id": "minimum-agreement",
+      "scope": "minimum",
+      "subject_sha256": "c084867b80967a1ad9d18f8849379af495cbd87c9f390c3ed3bc68f6865bf195",
+      "record_artifact": "minimum-agreement",
+      "classification": "SYNTHETIC ONLY"
+    }
+  ],
+  "content": {
+    "minimum": {
+      "models": [
+        "DEMO-MODEL-001"
+      ],
+      "scenarios": 1,
+      "agreement_approval": "minimum-agreement"
+    },
+    "catalog": {
+      "models": [
+        {
+          "code": "DEMO-MODEL-001",
+          "status": "published",
+          "revision": "9fa91c03e52aeb6ab1c819eb44012f7d94c5671960cfd9edfb06883997624a07",
+          "business_approval": "model-business"
+        }
+      ],
+      "items": [
+        {
+          "revision": 3,
+          "status": "published",
+          "currency": "RUB",
+          "unit": "SYNTHETIC UNIT",
+          "tax_note": "SYNTHETIC ONLY - no tax assertion",
+          "delivery_tariff": null,
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sku": "22222222-2222-4222-8222-222222222222",
+          "kind": "product",
+          "price_mode": "fixed",
+          "price": "1.00",
+          "requires_shipping": true,
+          "business_approval": "product-business"
+        },
+        {
+          "revision": 3,
+          "status": "published",
+          "currency": "RUB",
+          "unit": "SYNTHETIC UNIT",
+          "tax_note": "SYNTHETIC ONLY - no tax assertion",
+          "delivery_tariff": null,
+          "id": "33333333-3333-4333-8333-333333333333",
+          "sku": "SYNTHETIC-SERVICE",
+          "kind": "service",
+          "price_mode": "on_request",
+          "price": null,
+          "requires_shipping": false,
+          "business_approval": "service-business"
+        }
+      ]
+    },
+    "images": [
+      {
+        "id": "synthetic-product-image",
+        "item": "22222222-2222-4222-8222-222222222222",
+        "revision": 3,
+        "original_artifact": "image-original",
+        "original_sha256": "c47dd9465c00e9a0c8b85e9ea58d3034a0d23b9cf926113602f3460752a4eb96",
+        "output_sha256": "c47dd9465c00e9a0c8b85e9ea58d3034a0d23b9cf926113602f3460752a4eb96",
+        "pipeline": "VERIFIED",
+        "output_artifact": "image-output",
+        "pipeline_artifact": "image-observation",
+        "rights_approval": "image-rights"
+      },
+      {
+        "id": "synthetic-service-placeholder",
+        "item": "SYNTHETIC-SERVICE",
+        "revision": 3,
+        "original_artifact": null,
+        "original_sha256": null,
+        "output_sha256": null,
+        "pipeline": "ABSENT",
+        "output_artifact": null,
+        "pipeline_artifact": null,
+        "rights_approval": null
+      }
+    ],
+    "documents": [
+      {
+        "code": "SYNTHETIC-EXAMPLE",
+        "version": 1,
+        "status": "published",
+        "document_status": "active",
+        "visibility": "public",
+        "original_artifact": "document-original",
+        "original_sha256": "c64546704066c66977664eee1b47b8d2696f4f55d91780566dde83edd15b6a2e",
+        "import_artifact": "document-import",
+        "import_sha256": "31fbdb138176d59d65e6a34b600457ce45d4d10e93182d486b05d33b4635be62",
+        "sections": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "key": "intro",
+            "artifact": "section-intro",
+            "sha256": "6a34655cc94a45249136d8901d7ea1d4faf083962b421f568aa8120d51e83c29",
+            "assistant_allowed": true
+          }
+        ],
+        "sections_sha256": "e454a2ef994fd6cc019315f7c180f3f76e7f3455396b3dda732623ec3ca9366a",
+        "section_inventory_sha256": "12f6f62bb4cd16d2ba1bf4d354d60d607d714ca311af97c6105f188ff7fbefff",
+        "review_approval": "document-review",
+        "full_file_public_allowed": true,
+        "full_file_approval": "document-fullfile"
+      }
+    ],
+    "applicability": [
+      {
+        "item": "22222222-2222-4222-8222-222222222222",
+        "model": "DEMO-MODEL-001",
+        "section": "11111111-1111-4111-8111-111111111111",
+        "status": "confirmed",
+        "review_approval": "applicability-review",
+        "disclosure_allowed": true,
+        "disclosure_approval": "applicability-disclosure",
+        "public_sources": [
+          "11111111-1111-4111-8111-111111111111"
+        ]
+      }
+    ],
+    "trees": [
+      {
+        "key": "SYNTHETIC-027-BRANCH",
+        "version": 1,
+        "git_commit": "5d14de62534e93907a5ca15c874e372199fddd39",
+        "model": "DEMO-MODEL-001",
+        "status": "published",
+        "yaml_artifact": "branching-yaml",
+        "yaml_sha256": "bf7ece4060787d794fe848599e9b98b62b2478461010b7e575bd0108ba66beca",
+        "start": "observe",
+        "nodes": [
+          {
+            "id": "observe",
+            "type": "question",
+            "next": [
+              "finish",
+              "specialist"
+            ],
+            "source_refs": [
+              "11111111-1111-4111-8111-111111111111"
+            ],
+            "recommendations": []
+          },
+          {
+            "id": "finish",
+            "type": "result",
+            "next": [],
+            "source_refs": [
+              "11111111-1111-4111-8111-111111111111"
+            ],
+            "recommendations": [
+              {
+                "item": "22222222-2222-4222-8222-222222222222",
+                "qty": 1
+              }
+            ]
+          },
+          {
+            "id": "specialist",
+            "type": "handoff",
+            "next": [],
+            "source_refs": [],
+            "recommendations": []
+          }
+        ],
+        "paths_artifact": "branching-paths",
+        "review_approval": "tree-review",
+        "binding_sha256": "4d7ca17eec2c1b062b1c23cd5af2da0771bd46607df9f24dcaa235743c05afe5",
+        "inventory_sha256": "a768453d8d2bdc9330ec2788d0f6121230941ed861c438bcd309a0417f619b1a",
+        "git_blob": {
+          "path": "content/trees/valid/branching.yaml",
+          "sha1": "850d3b35541e3db335bb2c016f0a6732076ab1f9"
+        }
+      }
+    ],
+    "search": {
+      "version": "SYNTHETIC-SCHEMA-ONLY",
+      "corpus_artifact": "schema-corpus",
+      "corpus_sha256": "0419ea270d65ef1c5a93ce2d7a55fad803cb74d932a1971317736d2aebd744b8",
+      "expectations_approval": "schema-expectations",
+      "measurement_artifact": null
+    }
+  },
+  "state_artifact": null,
+  "rehearsal_artifact": null
+}

@@ -129,7 +129,7 @@ def checked_backup(output, head):
     return evidence
 
 
-def main():
+def main(*, pilot_content=False):
     environment = local_environment(os.environ)
     # No caller-supplied project, endpoints, credentials, stages or success flags.
     with tempfile.TemporaryDirectory(prefix="akbriz-operator-") as temporary:
@@ -154,13 +154,22 @@ def main():
                 check=True,
                 timeout=30,
             ).stdout.strip()
+            if pilot_content and environment.get("MVP049_EXPECTED_HEAD", head) != head:
+                raise ValueError("Unexpected content rehearsal HEAD")
             evidence = {
                 "head": head,
                 "stages": {},
                 "production": "BLOCKED",
                 "human_handover": "BLOCKED",
             }
-            for index, (stage, paths) in enumerate(STAGES.items()):
+            stages = dict(STAGES)
+            counts = {}
+            fts = None
+            if pilot_content:
+                from mvp049_rehearsal import PILOT_STAGES
+
+                stages.update(PILOT_STAGES)
+            for index, (stage, paths) in enumerate(stages.items()):
                 print("OPERATOR_STAGE_START " + stage, flush=True)
                 log = root / (stage + ".log")
                 with (
@@ -171,7 +180,9 @@ def main():
                     log.chmod(0o600)
                     run(
                         "akbrizcase-dbtest-" + uuid.uuid4().hex[:12],
-                        suite="operator-" + stage,
+                        suite="kb-acceptance"
+                        if stage == "pilot-search"
+                        else "operator-" + stage,
                         reuse_image=index != 0,
                         test_paths=paths,
                         command_timeout=600,
@@ -188,6 +199,27 @@ def main():
                     r"\b(skipped|xfailed|xpassed|failed|error)\b", summaries[0]
                 ):
                     raise ValueError("Incomplete operator stage")
+                if pilot_content:
+                    from mvp049_rehearsal import passed_count
+
+                    counts[stage] = passed_count(log.read_text())
+                    if stage == "pilot-search":
+                        from kb_acceptance_result import strict_json, validate
+
+                        records = re.findall(
+                            r"KB_ACCEPTANCE_RESULT (.+)", log.read_text()
+                        )
+                        if len(records) != 1:
+                            raise ValueError("Incomplete FTS evidence")
+                        measured = validate(strict_json(records[0]), head, False)
+                        fts = {
+                            "corpus_sha256": measured["corpus_sha256"],
+                            "relevant": measured["relevant_count"],
+                            "negative": measured["negative_count"],
+                            "hits": measured["hits"],
+                            "negative_safe": measured["negative_passed"],
+                            "acl_incidents": measured["acl_incidents"],
+                        }
                 evidence["stages"][stage] = "PASS"
                 print("OPERATOR_STAGE_PASS " + stage, flush=True)
             stage = "backup"
@@ -204,16 +236,46 @@ def main():
             checked_backup(result.stdout, head)
             evidence["stages"][stage] = "PASS"
             print("OPERATOR_STAGE_PASS backup", flush=True)
+            content_result = None
+            record = None
+            if pilot_content:
+                from mvp049_rehearsal import check_schema_fixture, receipt
+
+                record = receipt(REPO, head, counts, fts)
+                content_result = check_schema_fixture(
+                    REPO, head, record, root / "schema-fixture"
+                )
+                # Only this live control flow has observed every successful
+                # stage and checked restore on the exact HEAD. A receipt read
+                # from disk (even one emitted here earlier) has no such authority.
+                content_result["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "PASS"
+                content_result["codes"].remove("UNVERIFIED_REHEARSAL_RECEIPT")
+                content_result["codes"].append("CURRENT_PROCESS_REHEARSAL")
             print(
                 "OPERATOR_EVIDENCE " + json.dumps(evidence, sort_keys=True), flush=True
             )
+            if pilot_content:
+                from mvp049_content_gate import canonical
+
+                print("MVP049_REHEARSAL " + canonical(record).decode(), flush=True)
+                print("MVP049_RESULT " + canonical(content_result).decode(), flush=True)
             return 0
         except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
             # Child logs/secrets/paths/DB exceptions are never emitted or uploaded.
             # The shared harness stops owned containers and retains all volumes.
             print("OPERATOR_STAGE_FAIL " + stage, file=sys.stderr, flush=True)
+            if pilot_content:
+                from mvp049_content_gate import canonical, empty_result
+
+                failure = empty_result()
+                failure["gates"]["SYNTHETIC_CONTENT_REHEARSAL"] = "FAIL"
+                failure["codes"] = ["REHEARSAL_FAILED"]
+                print("MVP049_RESULT " + canonical(failure).decode(), flush=True)
             return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if sys.argv[1:] not in ([], ["--pilot-content"]):
+        print("OPERATOR_STAGE_FAIL arguments", file=sys.stderr)
+        sys.exit(1)
+    sys.exit(main(pilot_content=sys.argv[1:] == ["--pilot-content"]))
