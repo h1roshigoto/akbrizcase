@@ -3,6 +3,7 @@
 import ast
 import asyncio
 from datetime import UTC, date, datetime, timedelta
+from inspect import unwrap
 from pathlib import Path
 from unittest.mock import Mock
 from uuid import uuid4
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
+from starlette.responses import Response
 
 from app.admin.stats import StatsView
 from app.schemas.admin_stats import OrderStats, StatsPeriod
@@ -67,8 +69,18 @@ def test_closed_count_projection_rejects_personal_fields() -> None:
         OrderStats.model_validate(counts | {"total": -1})
 
 
+def call_stats_handler(request: Request) -> Response:
+    # Unit-test the handler body only. SQLAdmin's @expose uses functools.wraps;
+    # inspect.unwrap is independent of whether another test registered the view.
+    # Real route authentication remains covered by test_admin_stats.py on PG16.
+    handler = unwrap(StatsView.stats_page)
+    assert handler is not StatsView.stats_page
+    response: Response = asyncio.run(handler(StatsView(), request))
+    return response
+
+
 def test_view_validation_never_queries_and_errors_never_echo_input(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     read = Mock(side_effect=AssertionError("Invalid range must not query"))
     monkeypatch.setattr("app.admin.stats.read_statistics", read)
@@ -80,9 +92,10 @@ def test_view_validation_never_queries_and_errors_never_echo_input(
         }
     )
     request.state.request_id = uuid4()
-    response = asyncio.run(StatsView().stats_page(request))
+    response = call_stats_handler(request)
     assert response.status_code == 422
     assert b"synthetic-stats" not in response.body
+    assert "synthetic-stats" not in caplog.text
     read.assert_not_called()
 
 
@@ -98,11 +111,13 @@ def test_view_database_failure_is_not_success_or_raw_exception(
     request = Request({"type": "http", "query_string": b"", "headers": []})
     request.state.request_id = uuid4()
     request.state.staff_db = Mock(spec=Session)
-    response = asyncio.run(StatsView().stats_page(request))
+    response = call_stats_handler(request)
     assert response.status_code == 503
     assert b"synthetic-db-secret" not in response.body
     assert b"SELECT" not in response.body
     assert "synthetic-db-secret" not in caplog.text
+    assert "SELECT private" not in caplog.text
+    read.assert_called_once()
 
 
 def test_existing_ci_collects_stats_in_core_without_another_job() -> None:
