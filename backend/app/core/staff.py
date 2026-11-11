@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import exists, select, text, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.audit import StaffAction, StaffResult, record_staff_event
 from app.core.auth import (
@@ -104,24 +104,67 @@ def create_staff(
     password: str,
     role: StaffRole,
 ) -> StaffOutcome:
-    lock_staff(session)
-    actor = authenticate(session, admin_login, admin_password)
+    actor = authenticate_operator(session, admin_login, admin_password)
     if actor is None:
         return _finish(session, "staff.create", "authentication_denied")
-    if not has_role(actor, "admin"):
-        return _finish(session, "staff.create", "forbidden", actor)
+    return create_staff_as_actor(
+        session, actor=actor, login=login, password=password, role=role
+    )
+
+
+def _current_actor(session: Session, actor: AuthenticatedStaff) -> StaffUser | None:
+    """Refresh a verified identity in its authenticating UoW under staff lock.
+
+    This is an internal adapter contract, never an actor ID from an HTTP form.
+    Browser identities additionally require their still-live database session.
+    """
+    from app.core.staff_sessions import StaffIdentity
+
+    lock_staff(session)
+    if object_session(actor.user) is not session:
+        return None
+    session.refresh(actor.user)
+    if not actor.user.is_active:
+        return None
+    if isinstance(actor, StaffIdentity):
+        if object_session(actor.session) is not session:
+            return None
+        session.refresh(actor.session)
+        if (
+            actor.session.user_id != actor.user.id
+            or actor.session.revoked_at is not None
+            or actor.session.expires_at <= utc_now()
+        ):
+            return None
+    return actor.user
+
+
+def create_staff_as_actor(
+    session: Session,
+    *,
+    actor: AuthenticatedStaff,
+    login: str,
+    password: str,
+    role: StaffRole,
+) -> StaffOutcome:
+    """Create through verified CLI/browser authority; caller owns the UoW."""
+    current = _current_actor(session, actor)
+    if current is None:
+        return _finish(session, "staff.create", "authentication_denied")
+    if not has_role(current, "admin"):
+        return _finish(session, "staff.create", "forbidden", current)
     if (
         role not in ("manager", "admin")
         or not valid_login(login)
         or not valid_password(password)
     ):
-        return _finish(session, "staff.create", "invalid_input", actor)
+        return _finish(session, "staff.create", "invalid_input", current)
     if session.scalar(select(exists().where(StaffUser.login == login))):
-        return _finish(session, "staff.create", "login_exists", actor)
+        return _finish(session, "staff.create", "login_exists", current)
     user = StaffUser(login=login, password_hash=hash_password(password), role=role)
     session.add(user)
     session.flush()
-    return _finish(session, "staff.create", "success", actor, user, role, True)
+    return _finish(session, "staff.create", "success", current, user, role, True)
 
 
 def disable_staff(
@@ -131,19 +174,28 @@ def disable_staff(
     admin_password: str,
     user_id: UUID,
 ) -> StaffOutcome:
-    lock_staff(session)
-    actor = authenticate(session, admin_login, admin_password)
+    actor = authenticate_operator(session, admin_login, admin_password)
     if actor is None:
         return _finish(session, "staff.disable", "authentication_denied")
-    if not has_role(actor, "admin"):
-        return _finish(session, "staff.disable", "forbidden", actor)
+    return disable_staff_as_actor(session, actor=actor, user_id=user_id)
+
+
+def disable_staff_as_actor(
+    session: Session, *, actor: AuthenticatedStaff, user_id: UUID
+) -> StaffOutcome:
+    """Preserve CLI policy, including self/last-admin disable and atomic revoke."""
+    current = _current_actor(session, actor)
+    if current is None:
+        return _finish(session, "staff.disable", "authentication_denied")
+    if not has_role(current, "admin"):
+        return _finish(session, "staff.disable", "forbidden", current)
     user = session.get(StaffUser, user_id)
     if user is None:
-        return _finish(session, "staff.disable", "not_found", actor)
+        return _finish(session, "staff.disable", "not_found", current)
     user.is_active = False
     session.execute(
         update(StaffSession)
         .where(StaffSession.user_id == user.id, StaffSession.revoked_at.is_(None))
         .values(revoked_at=utc_now())
     )
-    return _finish(session, "staff.disable", "success", actor, user, is_active=False)
+    return _finish(session, "staff.disable", "success", current, user, is_active=False)

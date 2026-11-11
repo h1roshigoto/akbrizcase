@@ -1,0 +1,18 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<a href="/admin/staff">Staff list</a>
+<h2>Staff account</h2>
+<dl><dt>ID</dt><dd>{{ row.id }}</dd><dt>Login</dt><dd>{{ row.login }}</dd><dt>Role</dt><dd>{{ row.role }}</dd><dt>Active</dt><dd>{{ row.is_active }}</dd></dl>
+{% if row.is_active %}
+<h3>Disable account</h3>
+<p>Disabling ends every existing session immediately and prevents future sign-in. This UI cannot reactivate accounts.</p>
+<p>Before disabling yourself or the last active administrator, create and verify another administrator. Losing all administrators does not reopen bootstrap.</p>
+{% if is_self %}<p role="alert">This is your account. Disabling it ends your access.</p>{% endif %}
+{% if row.role == 'admin' and active_admins == 1 %}<p role="alert">This is the last active administrator. Disabling it removes all administrative access.</p>{% endif %}
+<form action="/admin/staff/{{ row.id }}/disable" method="post">
+  <input type="hidden" name="csrf_token" value="{{ staff_csrf(request) }}">
+  <label><input type="checkbox" name="confirm" value="disable" required> I confirm disabling this account and ending all its sessions.</label>
+  <button type="submit" class="btn btn-danger">Disable account</button>
+</form>
+{% else %}<p>This account is disabled and cannot sign in.</p>{% endif %}
+{% endblock %}
