@@ -1,0 +1,51 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<h2>Administrative statistics</h2>
+<form action="/admin/stats" method="get" class="mb-3">
+  <label for="from">From (UTC, inclusive)</label>
+  <input id="from" name="from" type="date" required value="{{ stats.period.start.isoformat() }}">
+  <label for="to">To (UTC, inclusive)</label>
+  <input id="to" name="to" type="date" required value="{{ stats.period.end.isoformat() }}">
+  <button type="submit" class="btn btn-primary">Apply (maximum 90 days)</button>
+  <a href="/admin/stats">Last 30 UTC days</a>
+</form>
+<p>Calendar days include both boundaries in UTC. Counts describe only data still stored at query time.
+Retention and deletion can reduce these counts; deleted data is never reconstructed.
+An order that survives personal-data erasure remains counted.</p>
+<p>Order status, session mode and outcome are current values, not immutable historical events.
+Handoff is a referral to a specialist. Resolved records explicit accepted positive feedback.
+Neither handoff nor a created order means a sale, payment or revenue.</p>
+<h3>Orders</h3>
+<p>Filtered by orders.created_at. Chat-linked means a surviving non-null link; source remains chat after session deletion.</p>
+<table class="table table-striped">
+  <caption>Orders created in the selected period</caption>
+  <thead><tr><th scope="col">Counter</th><th scope="col">Count</th></tr></thead>
+  <tbody>
+    {% for key, label in [('total', 'Total orders'), ('commercial', 'Kind: commercial'), ('support', 'Kind: support'), ('new', 'Current status: new'), ('in_progress', 'Current status: in_progress'), ('closed', 'Current status: closed'), ('cancelled', 'Current status: cancelled'), ('site', 'Source: site'), ('chat', 'Source: chat'), ('chat_linked', 'Currently linked to chat')] %}
+    <tr><th scope="row">{{ label }}</th><td data-counter="orders.{{ key }}">{{ stats.orders|attr(key) }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<h3>Chat sessions</h3>
+<p>Filtered by chat_sessions.created_at. Outcome and mode may change after creation.</p>
+<table class="table table-striped">
+  <caption>Surviving sessions created in the selected period</caption>
+  <thead><tr><th scope="col">Counter</th><th scope="col">Count</th></tr></thead>
+  <tbody>
+    {% for key, label in [('total', 'Total sessions'), ('diagnose', 'Current mode: diagnose'), ('knowledge', 'Current mode: knowledge'), ('commerce', 'Current mode: commerce'), ('resolved', 'Current outcome: resolved'), ('handoff', 'Current outcome: handoff (separate referral counter)'), ('unresolved', 'Current outcome: unresolved'), ('no_outcome', 'Current outcome: absent')] %}
+    <tr><th scope="row">{{ label }}</th><td data-counter="sessions.{{ key }}">{{ stats.sessions|attr(key) }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<h3>Explicit accepted feedback</h3>
+<p>Filtered by chat_messages.created_at, independently of session creation date. Counts accepted feedback exchanges,
+not unique people or sessions. Rejected feedback, result views and idempotent replay add no feedback counts.</p>
+<table class="table table-striped">
+  <caption>Accepted feedback exchanges in the selected period</caption>
+  <thead><tr><th scope="col">Counter</th><th scope="col">Count</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Positive (accepted useful=true)</th><td data-counter="feedback.positive">{{ stats.feedback.positive }}</td></tr>
+    <tr><th scope="row">Negative (accepted useful=false)</th><td data-counter="feedback.negative">{{ stats.feedback.negative }}</td></tr>
+  </tbody>
+</table>
+{% endblock %}

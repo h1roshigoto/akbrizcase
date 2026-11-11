@@ -132,6 +132,9 @@ def install_sqladmin(app: FastAPI) -> Admin:
 
     admin.add_view(OrdersView)
     admin.add_view(OrderDetailView)
+    from app.admin.stats import StatsView
+
+    admin.add_view(StatsView)
     from app.admin.catalog import (
         CatalogEditorView,
         CatalogItemsView,

@@ -58,6 +58,8 @@ SUITES["core"] = [
     if name != "clean-upgrade"
     for path in paths
 ]
+# MVP-051 test_admin_stats.py is collected by this existing core selection:
+# it runs all integration files except the explicitly separated suites above.
 
 
 def reset() -> None:
@@ -126,12 +128,14 @@ def run(
         source_head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True
         ).strip()
-        source_dirty = bool(subprocess.check_output(
-            ["git", "status", "--porcelain"], text=True
-        ).strip())
-        if suite == "kb-acceptance" and (
-            expected_head := environment.get("KB_ACCEPTANCE_EXPECTED_HEAD")
-        ) and (source_head != expected_head or source_dirty):
+        source_dirty = bool(
+            subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()
+        )
+        if (
+            suite == "kb-acceptance"
+            and (expected_head := environment.get("KB_ACCEPTANCE_EXPECTED_HEAD"))
+            and (source_head != expected_head or source_dirty)
+        ):
             raise RuntimeError("MVP-047 requires a clean exact expected HEAD")
         prefix = [
             "docker",
@@ -220,7 +224,9 @@ def run(
                                 "KB_ACCEPTANCE_HEAD=" + source_head,
                                 "-e",
                                 "KB_ACCEPTANCE_DIRTY=" + str(source_dirty).lower(),
-                            ] if suite == "kb-acceptance" else []
+                            ]
+                            if suite == "kb-acceptance"
+                            else []
                         ),
                         "tests",
                         "python",
@@ -234,7 +240,11 @@ def run(
                         # Keep each verbose ID/outcome on one line for the
                         # strict CI inventory. Show only captured stdout after
                         # completion; live tee output splits the current ID.
-                        *(["-rP", "--show-capture=stdout"] if suite == "kb-acceptance" else []),
+                        *(
+                            ["-rP", "--show-capture=stdout"]
+                            if suite == "kb-acceptance"
+                            else []
+                        ),
                         *(test_paths if test_paths is not None else SUITES[suite]),
                     )
             else:
