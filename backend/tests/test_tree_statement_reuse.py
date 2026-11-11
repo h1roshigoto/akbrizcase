@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.dialects import postgresql
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.modules.kb.tree_reads import load_tree
@@ -28,7 +28,9 @@ def test_parallel_lookups_do_not_cache_results_or_capture_identifiers(
         assert session.execute.call_count == 2
         statement, parameters = session.execute.call_args.args
         assert parameters == {"tree_lookup": identifier if exact else key}
-        compiled = statement.compile(dialect=postgresql.dialect())
+        compiled = statement.compile(
+            dialect=create_engine("postgresql+psycopg://").dialect
+        )
         assert compiled.params["tree_lookup"] is None
         assert str(identifier) not in str(compiled)
         assert key not in str(compiled)
