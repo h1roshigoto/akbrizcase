@@ -46,7 +46,11 @@ def test_diagnostic_render_ignores_stored_text_buttons_and_never_steps(
     monkeypatch.setattr("app.modules.chat.diagnosis.step", forbidden)
     with Session() as session:
         projector = ChatReplyProjector(session)
-        monkeypatch.setattr(projector.knowledge, "get_source", lambda _: source())
+        monkeypatch.setattr(
+            projector.actions.knowledge,
+            "get_sources",
+            lambda ids: [source() for _ in ids],
+        )
         monkeypatch.setattr(projector.actions, "validate", lambda a, **k: a)
         reply = projector.project(value)
     assert reply.text == tree.content.nodes["root"].text

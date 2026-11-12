@@ -1,5 +1,43 @@
 # PERF-001 — load latency investigation
 
+## Measurement-driven continuation (PR #68)
+
+Confirmed baseline HEAD `d2e8fc43077d78257bf0342a0f804f8b7039b13c`,
+[run 43104269436, attempt 2](https://github.com/h1roshigoto/akbrizcase/actions/runs/43104269436/attempts/2),
+load job 130803594143: all nine jobs SUCCESS. Diagnostic/order/catalog/knowledge
+p95 = **614.207 / 815.498 / 206.810 / 297.798 ms**. Only diagnostic fails.
+All 660 requests correlate, coverage COMPLETE, zero measured errors/timeouts.
+The original pilot200-v1 remains 200 clients, 30 sources and peak concurrency 30.
+
+Diagnostic pool queue p95 426.393 ms, acquisition 426.408 ms, occupancy 10/10,
+holding 247.758 ms, SQL wall 221.534 ms, worker CPU 18.030 ms, dispatch 9.404 ms,
+commit 21.997 ms and fresh projection 132.238 ms; 22 statements, two checkouts
+and two transactions per button. The 11 slow-tail requests average 533.204 ms
+queue, 133.361 ms SQL, 152.330 ms holding, 2.578 ms TLS, occupancy 10/10.
+Order queue/holding/SQL p95 = 537.558 / 288.897 / 266.005 ms. These overlapping
+percentiles must not be added. Pool waiting and holding are the supported focus;
+these observations do not establish another root cause.
+
+First focused change: diagnostic source links and document actions now come from
+one public, exact-edition metadata SELECT per render, instead of reading each
+source once for display and again for its action. This avoids loading section
+text, search vectors and full ORM entities. It supports multiple sources in one
+snapshot and preserves input order; one missing/inaccessible source rejects the
+whole reply. The action payload is constructed from the checked source, so it
+cannot differ from that source. Generic proposed actions retain their separate
+validation/equality checks. Only the public SQL shape is reused; no results or
+staff credentials are cached. The writer and fresh post-commit projection each
+execute their own read; tree validation, catalog checks, locks, state validation,
+commit/rollback, timeouts and pool capacity remain unchanged.
+
+Targeted unit tests cover one-read construction, missing-source denial, fresh
+reads, empty inputs and metadata-only SQL; new PG16 cases compare exact metadata
+and actions, then change visibility, revocation, assistant permission or retirement
+in the same Session. Existing HTTP revoke/history/replay, intervening post-commit
+revocation, ownership/expiry/version, atomic rollback and recovery checks remain.
+Exact-HEAD CI measurements are pending; **PERFORMANCE_GATE=FAIL** until accepted.
+No synthetic performance result grants production or pilot admission.
+
 Base: `daaf30b427a29d0e9e9155030ab1fbb08468f6d7`, post-merge CI
 [43076987813](https://github.com/h1roshigoto/akbrizcase/actions/runs/43076987813).
 

@@ -22,6 +22,7 @@ from app.schemas.chat import (
     OpenItemAction,
     OpenRequestFormAction,
 )
+from app.schemas.sources import SourceRef
 
 _ACTION = TypeAdapter[ChatAction](ChatAction)
 
@@ -35,6 +36,22 @@ class ActionValidator:
         self.session = session
         self.catalog = CatalogService(CatalogRepository(session))
         self.knowledge = KnowledgeReadService(session, PUBLIC_VIEWER)
+
+    def read_documents(
+        self, section_ids: tuple[UUID, ...]
+    ) -> tuple[list[SourceRef], list[ChatAction]]:
+        """Build links and actions together from one fresh public SQL projection.
+
+        Accept identifiers from the authorized diagnostic result, never proposed
+        SourceRefs. The action payload is exactly the checked source by construction.
+        Generic/untrusted actions still go through validate and its equality check.
+        Call separately in the writer and the mandatory post-commit snapshot.
+        """
+        sources = self.knowledge.get_sources(section_ids)
+        return sources, [
+            OpenDocumentAction(type="open_document", payload=source)
+            for source in sources
+        ]
 
     def validate(
         self,
