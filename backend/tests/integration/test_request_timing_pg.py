@@ -101,7 +101,7 @@ def test_real_pool_wait_at_configured_connection_cap(
     engine = observed_db.engine
     assert isinstance(engine.pool, TimedQueuePool)
     capacity = engine.pool.size() + engine.pool._max_overflow
-    assert (engine.pool.size(), engine.pool._max_overflow) in {(5, 5), (20, 10)}
+    assert (engine.pool.size(), engine.pool._max_overflow) in {(5, 5), (15, 0)}
     held = [engine.connect() for _ in range(capacity)]
     entered = Event()
     original = TimedQueue.get

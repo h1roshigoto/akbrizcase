@@ -26,10 +26,11 @@ from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0011_mvp039_http_security"
-# One API process, bounded by pilot200-v1's 30 concurrent requests. Other
-# processes retain 5+5; see PERF-001 for the whole-stack connection budget.
-API_POOL_SIZE = 20
-API_MAX_OVERFLOW = 10
+# Retain a bounded 15-connection API pool instead of churning overflow
+# connections or admitting all 30 workers into SQL at once. Other processes
+# retain 5+5; see PERF-001 for the whole-stack connection budget.
+API_POOL_SIZE = 15
+API_MAX_OVERFLOW = 0
 
 
 class DatabaseConfigurationError(ValueError):

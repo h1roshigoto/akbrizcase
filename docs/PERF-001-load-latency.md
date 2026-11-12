@@ -16,13 +16,27 @@ with `allowed=False` before publication, rejects the entire mixed-source batch,
 and retains fresh internal/revoked/retired checks and a readable-source control.
 No trigger or published-content immutability rule changes.
 
-The API lifespan selects **20 persistent + 10 overflow = 30** connections per
-process, matching this profile's maximum 30 concurrent requests. Ordinary engines
+The first capacity experiment, HEAD `50f7e0d50863d0275f7dbda0b0d98581fec27950`,
+[run 43185432288](https://github.com/h1roshigoto/akbrizcase/actions/runs/43185432288),
+used 20+10=30. Its unchanged pilot200-v1 measured button/order/catalog/knowledge
+p95 **777.312 / 1250.789 / 320.900 / 404.245 ms** (FAIL/FAIL/PASS/PASS).
+All 660 attempts succeeded and phase coverage was COMPLETE. Button queue p95
+fell to 0.014 ms but holding rose to 487.613 ms; connect p95 was 73.786 ms and
+8 of the 11 slow-tail requests opened a new connection. API process CPU was
+10.054 seconds versus baseline 6.535 seconds. These are shared-runner comparisons,
+not proof that capacity alone caused every change. Thirty connections removed
+pool queuing but failed the actual end-to-end gates, so it is not accepted.
+
+The next bounded experiment selects **15 persistent + 0 overflow = 15** API
+connections per process: half the fixed profile's peak concurrency, a 50% ceiling
+increase over the original ten. All connections can be retained after a burst;
+there is no transient overflow creation/discard cycle. This deliberately bounds
+SQL concurrency below the rejected 30-capacity experiment. Ordinary engines
 (worker, sampler and CLI) retain **5 + 5 = 10**. Timing enabled/disabled select the
 same capacities. There is no arbitrary environment capacity knob. Pre-ping,
 3-second pool/connect/lock timeouts, 5-second statement timeout, UoWs, fresh
 post-commit projection, security checks and the entire pilot200-v1 workload and
-thresholds remain. Pools open lazily; returned overflow connections are discarded.
+thresholds remain. Pools open lazily and close on process shutdown.
 The sampler reports the API factory constants as static configuration, while its
 own short-lived engine retains 5+5. These are not measured occupancy statistics.
 
@@ -30,25 +44,25 @@ Connection budget for the current single-API/single-worker Compose topology:
 
 | Process class (at most one each) | Hard pool maximum |
 | --- | ---: |
-| API, one Uvicorn process | 30 |
+| API, one Uvicorn process | 15 |
 | Background worker | 10 |
 | Authenticated resource sampler / operations probe | 10 |
 | Maintenance CLI (KB/privacy/operations, mutually exclusive) | 10 |
 | Backup process | 10 |
 | Migration process | 10 |
-| **Total non-superuser budget** | **80** |
+| **Total non-superuser budget** | **65** |
 
 The baseline measures `max_connections=100`; PG16's default 3 superuser-reserved
-slots leave 97 ordinary slots, hence **17 ordinary slots of headroom**, including
+slots leave 97 ordinary slots, hence **32 ordinary slots of headroom**, including
 administration and transient health/tool access. API readiness shares its engine;
 `pg_isready` does not create another application pool. The sum conservatively
 uses each pool's ceiling even for sequential tools that normally hold one
 connection. It is an explicit topology/concurrency envelope, not a production
-capacity certification: a second API adds 30 and exceeds 97. Recalculate the
+capacity certification: each additional API adds 15. Recalculate the
 budget before additional replicas, processes or simultaneous maintenance tools.
 No PostgreSQL connection/server limit or role privilege is raised.
 
-PG regression coverage exercises both 10 and 30 actual held connections, blocks
+PG regression coverage exercises both 10 and 15 actual held connections, blocks
 the next checkout until release, and checks unchanged timeout/release plus order
 flush/commit rollback, denied requests and replay under both capacities. Unit
 checks verify identical bounded policy with and without diagnostics. Exact-HEAD

@@ -51,7 +51,7 @@ def test_api_capacity_is_bounded_and_independent_of_timing(
     try:
         pool = database.engine.pool
         assert isinstance(pool, QueuePool)
-        assert (pool.size(), pool._max_overflow) == ((20, 10) if api else (5, 5))
+        assert (pool.size(), pool._max_overflow) == ((15, 0) if api else (5, 5))
         assert pool.timeout() == 3 and pool._pre_ping
         assert isinstance(pool, TimedQueuePool) is timed
         assert pool.checkedout() == 0
