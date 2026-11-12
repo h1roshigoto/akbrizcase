@@ -12,12 +12,13 @@ import type {
 } from '../api/types'
 
 export const PENDING_KEY = 'akbrizcase.pending-order'
-type Rejection = Exclude<OrderResult['kind'], 'success' | 'uncertain'>
+type Rejection = Exclude<OrderResult['kind'], 'success' | 'uncertain' | 'rate_limited'>
 export type SubmissionState =
   | { kind: 'editing' }
   | { kind: 'sending' | 'uncertain' | 'recovered' | 'storage_error' }
   | { kind: 'rejected'; reason: Rejection }
   | { kind: 'success'; receipt: OrderReceipt }
+  | { kind: 'rate_limited'; retryAt: number }
 
 /** Lives above the catalog/form view switch. No POST from effects or mount. */
 export class Submission {
@@ -88,7 +89,8 @@ export class Submission {
     await this.send()
   }
   async retry() {
-    if (this.state.kind !== 'uncertain' || !this.pending) return
+    if (!this.pending || (this.state.kind !== 'uncertain' && this.state.kind !== 'rate_limited')) return
+    if (this.state.kind === 'rate_limited' && Date.now() < this.state.retryAt) return
     this.set({ kind: 'sending' })
     await this.send()
   }
@@ -112,6 +114,8 @@ export class Submission {
         /* Reload remains conservatively blocked. */
       }
       this.set({ kind: 'success', receipt: result.receipt })
+    } else if (result.kind === 'rate_limited') {
+      this.set({ kind: 'rate_limited', retryAt: Date.now() + result.retryAfter * 1000 })
     } else if (result.kind === 'uncertain') this.set({ kind: 'uncertain' })
     else this.set({ kind: 'rejected', reason: result.kind })
   }

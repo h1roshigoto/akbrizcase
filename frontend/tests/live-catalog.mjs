@@ -41,7 +41,7 @@ try {
   let selection = config.selection;
 
   if (config.mode === 'outage') {
-    await page.goto(config.origin);
+    await page.goto(config.origin + '/#catalog');
     await expect(list.getByRole('alert')).toBeVisible();
     await expect(cards).toHaveCount(0);
     await expect(page.getByText('Не удалось загрузить модели.', { exact: false })).toBeVisible();
@@ -55,7 +55,7 @@ try {
     assert(network.some(row => row.path.startsWith('/api/v1/catalog/items/') && row.status === 503));
   } else {
     const firstPage = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/catalog/items');
-    await page.goto(config.origin);
+    await page.goto(config.origin + '/#catalog');
     const response = await firstPage;
     assert.equal(response.status(), 200);
     const catalog = await response.json();

@@ -140,6 +140,13 @@ export function RequestPage({
   onKeepChat?: () => void
 }) {
   const state = useSyncExternalStore(submission.subscribe, submission.snapshot)
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (state.kind !== 'rate_limited') return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [state])
   const anchor = useRef<HTMLElement>(null)
   const [values, setValues] = useState<FormValues>(() => ({
     ...emptyForm,
@@ -221,7 +228,7 @@ export function RequestPage({
       setAttempt((n) => n + 1)
   }, [state])
   useEffect(() => {
-    if (!['sending', 'uncertain', 'recovered'].includes(state.kind)) return
+    if (!['sending', 'uncertain', 'recovered', 'rate_limited'].includes(state.kind)) return
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
@@ -372,7 +379,7 @@ export function RequestPage({
         ) : (
           <p>
             Проверьте позиции и предварительные цены. Выбранное сохраняется при
-            возвращении в каталог.
+            возвращении в каталог. Полный адрес, сроки и цена доставки согласуются менеджером после отправки заявки.
           </p>
         )}
         {isSupport && independentRequested && owner && (
@@ -425,6 +432,10 @@ export function RequestPage({
         {state.kind === 'sending' && (
           <p role="status">Отправляем заявку… Дождитесь подтверждения.</p>
         )}
+        {state.kind === 'rate_limited' && <div role="alert" className="inline-error">
+          <p>Слишком много запросов. Данные и подтверждённый запрос сохранены в открытой форме. Повтор станет доступен через {Math.max(0, Math.ceil((state.retryAt - now) / 1000))} сек. Автоматическая отправка не выполняется.</p>
+          <button className="primary-button" disabled={now < state.retryAt} onClick={() => void submission.retry()}>Повторить после ограничения</button>
+        </div>}
         {state.kind === 'rejected' && (
           <div role="alert" className="inline-error">
             <p>{messages[state.reason]}</p>

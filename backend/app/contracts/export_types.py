@@ -30,6 +30,7 @@ from app.schemas.chat import (
 )
 from app.schemas.common import MONEY_PATTERN, ChatHeaders, ErrorEnvelope, OrderHeaders
 from app.schemas.consent import ConsentText, PrivacyPolicy
+from app.schemas.documents import DocumentPage, DocumentQuery
 from app.schemas.orders import OrderCreate, OrderReceipt
 from app.schemas.sources import KnowledgePage, KnowledgeQuery
 
@@ -59,6 +60,8 @@ MODELS: tuple[type[BaseModel], ...] = (
     OrderStatusResult,
     KnowledgeQuery,
     KnowledgePage,
+    DocumentQuery,
+    DocumentPage,
 )
 
 FIXTURES: dict[str, tuple[type[BaseModel], bool]] = {

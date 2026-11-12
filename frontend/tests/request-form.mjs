@@ -58,7 +58,7 @@ try {
     if (url.pathname === '/api/v1/orders' && request.method() === 'POST')
       posts++
   })
-  await page.goto(config.origin)
+  await page.goto(config.origin + '/#catalog')
   safe(
     await page.evaluate(() => isSecureContext),
     'Real secure context is required for Web Crypto',

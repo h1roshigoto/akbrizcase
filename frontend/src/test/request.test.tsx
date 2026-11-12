@@ -584,6 +584,7 @@ it('connects App catalog → form → real same-origin consent and POST adapters
     return { ok: true, json: async () => fixtures.models }
   })
   vi.stubGlobal('fetch', fetcher)
+  window.history.replaceState(null, '', '/#catalog')
   render(<App />)
   await userEvent.click(screen.getByRole('button', { name: 'Оформить заявку' }))
   await fill()

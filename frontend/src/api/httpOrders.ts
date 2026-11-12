@@ -11,6 +11,7 @@ import { toKopecks } from '../state/money'
 
 export type OrderResult =
   | { kind: 'success'; status: 200 | 201; receipt: OrderReceipt }
+  | { kind: 'rate_limited'; retryAfter: number }
   | {
       kind:
         | 'catalog_changed'
@@ -198,6 +199,10 @@ export const httpOrders: OrdersSource = {
       )
         return { kind: 'uncertain' }
       const code = value.error.code
+      if (response.status === 429 && code === 'RATE_LIMITED') {
+        const seconds = Number(response.headers.get('Retry-After'))
+        return { kind: 'rate_limited', retryAfter: Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 60 }
+      }
       if (response.status === 409) {
         if (code === 'CATALOG_CHANGED') return { kind: 'catalog_changed' }
         if (code === 'CONSENT_CHANGED') return { kind: 'consent_changed' }

@@ -96,7 +96,7 @@ try {
 
   step = 'React catalog and selection';
   const react = await context.newPage();
-  await react.goto(config.origin);
+  await react.goto(config.origin + '/#catalog');
   const list = react.getByRole('region', { name: 'Результаты каталога' });
   const search = async query => {
     await react.getByRole('searchbox').fill(query);

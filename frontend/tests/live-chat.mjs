@@ -14,7 +14,7 @@ page.on('request', request => {
 })
 const current = () => page.getByRole('article', { name: 'Актуальный ответ', exact: true })
 try {
-  await page.goto(config.origin)
+  await page.goto(config.origin + '/#catalog')
   await page.getByRole('heading', { name: 'Товары и услуги', exact: true }).waitFor()
   assert.equal(creations, 0)
   await page.getByRole('link', { name: 'Помощник', exact: true }).click()
