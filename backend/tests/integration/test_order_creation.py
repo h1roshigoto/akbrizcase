@@ -479,7 +479,7 @@ def test_catalog_update_serializes_with_snapshot(
     ) -> None:
         if "catalog_items" in statement and (
             (writer_first and statement.startswith("UPDATE"))
-            or (not writer_first and "FOR UPDATE" in statement)
+            or (not writer_first and "FOR SHARE" in statement)
         ):
             locked.set()
             assert release.wait(10)

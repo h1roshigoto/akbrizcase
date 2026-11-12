@@ -7,10 +7,12 @@ when a formerly confirmed applicability flag was accidentally left enabled.
 
 import copy
 from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import cast, exists, func, literal, select
+from sqlalchemy import Select, bindparam, cast, exists, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -76,6 +78,47 @@ def load_tree(
     """
     if (key is None) == (tree_id is None):
         raise ValueError("Select exactly one tree key or pin")
+    row = session.execute(
+        _tree_statement(tree_id is not None),
+        {"tree_lookup": key if key is not None else tree_id},
+    ).one_or_none()
+    if row is None:
+        return None
+    graph = copy.deepcopy(row.graph)
+    try:
+        nodes = graph["nodes"]
+        for node in nodes.values():
+            if "source_refs" in node or "recommendations" in node:
+                return None
+        for node_key, section_id in row.sources:
+            nodes[node_key].setdefault("source_refs", []).append(section_id)
+        for node_key, item_id, qty in row.items:
+            nodes[node_key].setdefault("recommendations", []).append(
+                {"item_id": item_id, "qty": qty}
+            )
+        content = TreeInput.model_validate(
+            {
+                "key": row.key,
+                "version": row.version,
+                "title": row.title,
+                "model_code": row.code,
+                **graph,
+            }
+        )
+        if validate_graph(content):
+            return None
+    except (KeyError, TypeError, AttributeError, ValidationError):
+        return None
+    return TreeSnapshot(row.id, row.model_id, row.status == "retired", content)
+
+
+@lru_cache(maxsize=2)
+def _tree_statement(exact: bool) -> Select[Any]:
+    """Cache only the two SQL shapes, never content or authorization results.
+
+    The lookup remains a bound parameter. Every call executes the complete ACL,
+    publication and recommendation predicates against its current DB snapshot.
+    """
     readable_source = exists(
         select(DocumentSection.id)
         .join(
@@ -84,7 +127,7 @@ def load_tree(
         .join(Document, Document.id == DocumentVersion.document_id)
         .where(
             DocumentSection.id == DiagnosticTreeSource.section_id,
-            accessible_version(PUBLIC_VIEWER, exact=tree_id is not None),
+            accessible_version(PUBLIC_VIEWER, exact=exact),
             DocumentSection.assistant_allowed.is_(True),
         )
         .correlate(DiagnosticTreeSource)
@@ -136,7 +179,7 @@ def load_tree(
         .correlate(DiagnosticTree)
         .scalar_subquery()
     )
-    row = session.execute(
+    return (
         select(
             DiagnosticTree.id,
             DiagnosticTree.model_id,
@@ -151,11 +194,11 @@ def load_tree(
         )
         .join(EquipmentModel, EquipmentModel.id == DiagnosticTree.model_id)
         .where(
-            DiagnosticTree.key == key
-            if key is not None
-            else DiagnosticTree.id == tree_id,
+            DiagnosticTree.key == bindparam("tree_lookup")
+            if not exact
+            else DiagnosticTree.id == bindparam("tree_lookup"),
             DiagnosticTree.status.in_(("published", "retired"))
-            if tree_id is not None
+            if exact
             else DiagnosticTree.status == "published",
             DiagnosticTree.expert_name.is_not(None),
             DiagnosticTree.review_reference.is_not(None),
@@ -165,32 +208,4 @@ def load_tree(
             EquipmentModel.status == "published",
             ~unavailable,
         )
-    ).one_or_none()
-    if row is None:
-        return None
-    graph = copy.deepcopy(row.graph)
-    try:
-        nodes = graph["nodes"]
-        for node in nodes.values():
-            if "source_refs" in node or "recommendations" in node:
-                return None
-        for node_key, section_id in row.sources:
-            nodes[node_key].setdefault("source_refs", []).append(section_id)
-        for node_key, item_id, qty in row.items:
-            nodes[node_key].setdefault("recommendations", []).append(
-                {"item_id": item_id, "qty": qty}
-            )
-        content = TreeInput.model_validate(
-            {
-                "key": row.key,
-                "version": row.version,
-                "title": row.title,
-                "model_code": row.code,
-                **graph,
-            }
-        )
-        if validate_graph(content):
-            return None
-    except (KeyError, TypeError, AttributeError, ValidationError):
-        return None
-    return TreeSnapshot(row.id, row.model_id, row.status == "retired", content)
+    )

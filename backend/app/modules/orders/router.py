@@ -6,13 +6,13 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
 from app.contracts.canonical import parse_order_json
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.core.http_security import ip_subjects
 from app.core.rate_limits import RateLimited, check_limit
+from app.core.timing import mark, run_timed
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.orders.privacy_service import PrivacyUnavailable, public_policy
 from app.modules.orders.security import OrderSecurity
@@ -179,6 +179,7 @@ async def orders(
     request_token: Annotated[SecretToken, Header(alias="X-Request-Token")],
     chat_token: Annotated[SecretToken | None, Header(alias="X-Chat-Token")] = None,
 ) -> OrderReceipt | JSONResponse:
+    mark("route_start_ns")
     raw = bytearray()
     try:
         if (
@@ -208,7 +209,7 @@ async def orders(
         {"Idempotency-Key": idempotency_key, "X-Request-Token": request_token}
     )
     try:
-        receipt, response.status_code = await run_in_threadpool(
+        receipt, response.status_code = await run_timed(
             persist_order, request, body, headers, chat_token
         )
         return receipt

@@ -27,7 +27,7 @@ from app.modules.chat.diagnosis import DiagnosisState
 from app.modules.chat.mode_router import ModeRouter
 from app.modules.kb.access import PUBLIC_VIEWER, cookie_viewer
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
-from app.modules.kb.read_service import KnowledgeReadService
+from app.modules.kb.read_service import KnowledgeReadService, SourceNotFound
 from app.modules.kb.tree_models import DiagnosticTree
 from app.modules.kb.tree_reads import published_scenarios
 from app.schemas.chat import (
@@ -39,6 +39,46 @@ from app.schemas.chat import (
 from app.schemas.sources import KnowledgeQuery, SourceRef
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize("change", ["internal", "revoked", "disallowed", "retired"])
+def test_combined_document_actions_recheck_source_lifecycle(
+    session: Session, change: str
+) -> None:
+    c = corpus(session)
+    first = edition(session, c.actor)
+    second = edition(session, c.actor)
+    validator = ActionValidator(session)
+    refs, actions = validator.read_documents((second.section_id, first.section_id))
+    assert refs == [second, first]
+    assert [a.payload for a in actions] == refs
+    if change == "internal":
+        session.execute(
+            update(Document)
+            .where(Document.id == first.document_id)
+            .values(visibility="internal")
+        )
+    elif change in {"revoked", "retired"}:
+        session.execute(
+            update(DocumentVersion)
+            .where(DocumentVersion.id == first.document_version_id)
+            .values(status=change)
+        )
+    else:
+        # Published sections are immutable; set permission while still draft.
+        first = edition(session, c.actor, allowed=False)
+    if change == "retired":
+        refs, actions = validator.read_documents((first.section_id,))
+        assert refs == [
+            KnowledgeReadService(session, PUBLIC_VIEWER).get_source(first.section_id)
+        ]
+        assert [a.payload for a in actions] == refs
+        assert refs[0].title.endswith(" (предыдущая редакция)")
+    else:
+        with pytest.raises(SourceNotFound):
+            validator.read_documents((second.section_id, first.section_id))
+        refs, actions = validator.read_documents((second.section_id,))
+        assert refs == [second] and [a.payload for a in actions] == refs
 
 
 def edition(

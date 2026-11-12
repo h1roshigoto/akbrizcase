@@ -7,12 +7,15 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from app.core.timing_schema import checked_timings
+
 EVENT_CODES = frozenset(
     {
         "RUNTIME_LOG_SUPPRESSED",
         "API_STARTED",
         "API_STOPPED",
         "HTTP_REQUEST",
+        "HTTP_PHASES",
         "API_ERROR",
         "DB_ERROR",
         "FILE_ERROR",
@@ -81,10 +84,20 @@ def checked_event(value: object) -> dict[str, Any]:
         "status",
         "endpoint",
         "duration_ms",
+        "timings",
         *COUNTERS,
     }:
         raise ValueError("EVENT_SCHEMA_INVALID")
     if value.get("event_code") not in EVENT_CODES:
+        raise ValueError("EVENT_SCHEMA_INVALID")
+    if value["event_code"] == "HTTP_PHASES":
+        if (
+            not {"request_id", "status", "endpoint", "duration_ms", "timings"}
+            <= value.keys()
+        ):
+            raise ValueError("EVENT_SCHEMA_INVALID")
+        checked_timings(value["timings"])
+    elif "timings" in value:
         raise ValueError("EVENT_SCHEMA_INVALID")
     at = datetime.fromisoformat(value["at"])
     if at.tzinfo is None:

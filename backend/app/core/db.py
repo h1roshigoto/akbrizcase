@@ -20,9 +20,17 @@ from app.core.csrf import StaffSecurity
 from app.core.http_security import TrustedProxy
 from app.core.observability import emit
 from app.core.rate_limits import IpSecurity
+from app.core.timing import enabled as timing_enabled
+from app.core.timing import span
+from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0011_mvp039_http_security"
+# Bound the whole API tier to 3 * 8 = 24 connections, retained between bursts.
+# Other processes retain 5+5; see PERF-001 for the full connection budget.
+API_WORKERS = 3
+API_POOL_SIZE = 8
+API_MAX_OVERFLOW = 0
 
 
 class DatabaseConfigurationError(ValueError):
@@ -74,12 +82,13 @@ class DatabaseSettings:
         )
 
 
-def create_database_engine(settings: DatabaseSettings) -> Engine:
-    return create_engine(
+def create_database_engine(settings: DatabaseSettings, *, api: bool = False) -> Engine:
+    engine = create_engine(
         settings.url(),
+        **({"poolclass": TimedQueuePool} if timing_enabled() else {}),
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=5,
+        pool_size=API_POOL_SIZE if api else 5,
+        max_overflow=API_MAX_OVERFLOW if api else 5,
         pool_timeout=3,
         hide_parameters=True,
         connect_args={
@@ -89,11 +98,14 @@ def create_database_engine(settings: DatabaseSettings) -> Engine:
             "-c search_path=app,public",
         },
     )
+    if timing_enabled():
+        observe_engine(engine)
+    return engine
 
 
 class Database:
-    def __init__(self, settings: DatabaseSettings) -> None:
-        self.engine = create_database_engine(settings)
+    def __init__(self, settings: DatabaseSettings, *, api: bool = False) -> None:
+        self.engine = create_database_engine(settings, api=api)
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     @contextmanager
@@ -106,9 +118,11 @@ class Database:
         with self.sessions() as session:
             try:
                 yield session
-                session.commit()
+                with span("commit_ms", count="commit_calls"):
+                    session.commit()
             except BaseException:
-                session.rollback()
+                with span("rollback_ms", count="rollback_calls"):
+                    session.rollback()
                 raise
 
     def ready(self) -> bool:
@@ -152,7 +166,7 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Configure lazily, without connecting or migrating on API startup."""
     database = None
     try:
-        database = Database(DatabaseSettings.from_environment())
+        database = Database(DatabaseSettings.from_environment(), api=True)
     except DatabaseConfigurationError:
         pass
     app.state.database = database

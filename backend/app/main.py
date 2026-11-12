@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.core.observability import configure_logging, emit
 from app.core.release import release_modes
+from app.core.timing import TimingMiddleware
 from app.modules.catalog.router import router as catalog_router
 from app.modules.chat.router import router as chat_router
 from app.modules.kb.router import router as kb_router
@@ -62,3 +63,4 @@ def readyz(request: Request) -> JSONResponse:
 
 
 admin = install_sqladmin(app)
+app.add_middleware(TimingMiddleware)

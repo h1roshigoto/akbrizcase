@@ -1,17 +1,56 @@
 """ACL-before-rank/count/page, exact saved excerpts and revalidated sources."""
 
+from functools import lru_cache
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, true
+from sqlalchemy import Select, bindparam, case, func, select, true
 from sqlalchemy.orm import Session
 
-from app.modules.kb.access import Viewer, accessible_version
+from app.modules.kb.access import PUBLIC_VIEWER, Viewer, accessible_version
 from app.modules.kb.models import Document, DocumentSection, DocumentVersion
 from app.schemas.documents import DocumentPage, DocumentQuery, PublishedDocument
 from app.schemas.sources import KnowledgeHit, KnowledgePage, KnowledgeQuery, SourceRef
 
 EXCERPT_CHARACTERS = 600
 PREVIOUS_EDITION = " (предыдущая редакция)"
+
+
+@lru_cache(maxsize=1)
+def _public_sources_statement() -> Select[Any]:
+    # SQL shape only: every execution rechecks all predicates in its own snapshot.
+    return _sources_statement(PUBLIC_VIEWER)
+
+
+def _sources_statement(viewer: Viewer) -> Select[Any]:
+    return (
+        select(
+            DocumentSection.id.label("section_id"),
+            Document.id.label("document_id"),
+            DocumentVersion.id.label("document_version_id"),
+            case(
+                (
+                    DocumentVersion.status == "retired",
+                    func.substr(Document.title, 1, 200 - len(PREVIOUS_EDITION))
+                    + PREVIOUS_EDITION,
+                ),
+                else_=Document.title,
+            ).label("title"),
+            DocumentSection.title.label("section"),
+            DocumentSection.page_from,
+            DocumentSection.page_to,
+        )
+        .select_from(DocumentSection)
+        .join(
+            DocumentVersion, DocumentVersion.id == DocumentSection.document_version_id
+        )
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(
+            DocumentSection.id.in_(bindparam("source_ids", expanding=True)),
+            DocumentSection.assistant_allowed.is_(True),
+            accessible_version(viewer, exact=True),
+        )
+    )
 
 
 class SourceNotFound(Exception):
@@ -171,6 +210,30 @@ class KnowledgeReadService:
 
     def get_source(self, section_id: UUID) -> SourceRef:
         return source_ref(*self._source_row(section_id))
+
+    def get_sources(self, section_ids: tuple[UUID, ...]) -> list[SourceRef]:
+        """One consistent metadata/ACL read, preserving requested order.
+
+        No ORM identities, section text, search vectors or credentials are cached.
+        Missing even one dependency fails the entire technical reply closed.
+        """
+        if not section_ids:
+            return []
+        statement = (
+            _public_sources_statement()
+            if self.viewer == PUBLIC_VIEWER
+            else _sources_statement(self.viewer)
+        )
+        rows = self.session.execute(statement, {"source_ids": section_ids}).mappings()
+        sources = {
+            row["section_id"]: SourceRef(
+                **row, url=file_url(row["document_id"], row["document_version_id"])
+            )
+            for row in rows
+        }
+        if any(identifier not in sources for identifier in section_ids):
+            raise SourceNotFound
+        return [sources[identifier] for identifier in section_ids]
 
     def get_excerpt(self, section_id: UUID) -> KnowledgeHit:
         """Exact approved edition with current ACL, metadata and verbatim text.

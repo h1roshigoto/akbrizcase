@@ -193,14 +193,16 @@ def create_order(
         raise OrderRejected(409, "CONSENT_CHANGED", "Consent has changed")
 
     selections = {item.item_id: item for item in request.items}
-    # One PostgreSQL statement locks rows in UUID order, independent of input order.
+    # Concurrent orders only read catalog rows. SHARE allows their snapshots to
+    # overlap while still blocking UPDATE/DELETE through the outer UoW's commit.
+    # UUID ordering remains independent of input order.
     catalog = (
         list(
             session.scalars(
                 select(CatalogItem)
                 .where(CatalogItem.id.in_(selections))
                 .order_by(CatalogItem.id)
-                .with_for_update()
+                .with_for_update(read=True)
                 .execution_options(populate_existing=True)
             )
         )

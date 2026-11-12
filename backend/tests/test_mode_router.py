@@ -230,7 +230,9 @@ def test_approved_option_exceeding_wire_label_limit_hands_off(
     )
     with Session() as session:
         router = ModeRouter(session)
-        monkeypatch.setattr(router.knowledge, "get_source", lambda identifier: source())
+        monkeypatch.setattr(
+            router.actions.knowledge, "get_sources", lambda ids: [source() for _ in ids]
+        )
         monkeypatch.setattr(
             router.actions, "validate", lambda proposed, **kwargs: proposed
         )

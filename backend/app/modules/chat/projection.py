@@ -242,7 +242,7 @@ class ChatReplyProjector:
         if rendered.resolution == "handoff" or tree is None:
             return safe_reply("diagnose")
         # Node, options, sources, quantities and result come from the exact pin.
-        sources = [self.knowledge.get_source(s) for s in rendered.source_ids]
+        sources, document_actions = self.actions.read_documents(rendered.source_ids)
         cards: list[CatalogCard] = []
         selected = []
         for recommendation in rendered.recommendations:
@@ -266,7 +266,7 @@ class ChatReplyProjector:
             + mode_buttons(),
             sources=sources,
             items=cards,
-            actions=self._document_actions(sources)
+            actions=document_actions
             + self._item_actions(selected, tree.model_id)
             + [support_handoff()],
             resolution=rendered.resolution,

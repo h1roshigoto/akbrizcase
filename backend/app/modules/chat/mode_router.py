@@ -301,7 +301,9 @@ class ModeRouter:
         result = step(state, event, tree)
         model_id = tree.model_id if tree is not None else None
         try:
-            sources = [self.knowledge.get_source(s) for s in result.reply.source_ids]
+            sources, document_actions = self.actions.read_documents(
+                result.reply.source_ids
+            )
             cards, selected = [], []
             for recommendation in result.reply.recommendations:
                 try:
@@ -318,15 +320,7 @@ class ModeRouter:
                 cards.append(card)
                 selected.append(SuggestedItem(item_id=card.id, qty=recommendation.qty))
             actions: list[ChatAction] = [*result.reply.actions]
-            actions += [
-                self.actions.validate(
-                    OpenDocumentAction(
-                        type="open_document",
-                        payload=source,
-                    )
-                )
-                for source in sources
-            ]
+            actions += document_actions
             actions += self._item_actions(selected, model_id)
             reply = ChatReply(
                 mode=result.reply.mode,

@@ -4,12 +4,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
 
 from app.core.api_errors import error_response
 from app.core.db import Database
 from app.core.http_security import ip_subjects
 from app.core.rate_limits import check_limit
+from app.core.timing import mark, projection, run_timed, span
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.chat.message_request import parse_message_json
 from app.modules.chat.message_state import StoredStateUnavailable
@@ -104,12 +104,12 @@ def read(
 def persist_message(
     request: Request, body: ChatMessageCreate, token: str | None
 ) -> ChatMessageResult:
-    with database_for(request).unit_of_work() as session:
+    with span("chat_write_ms"), database_for(request).unit_of_work() as session:
         message_id = create_message(session, body, token)
     # A failed flush/COMMIT must never emit an HTTP success.
     # Fresh snapshot after COMMIT: dependency validation in the writer's UoW
     # does not authorize disclosure. Never reroute or apply an input here.
-    with database_for(request).unit_of_work() as session:
+    with projection(), database_for(request).unit_of_work() as session:
         begin_projection_read(session)
         return read_message_result(session, body.session_id, message_id, token)
 
@@ -137,6 +137,7 @@ async def message(
     request: Request,
     chat_token: Annotated[str | None, Header(alias="X-Chat-Token")] = None,
 ) -> ChatMessageResult | JSONResponse:
+    mark("route_start_ns")
     raw = bytearray()
     try:
         if (
@@ -157,7 +158,7 @@ async def message(
         )
     token = chat_token if len(request.headers.getlist("X-Chat-Token")) == 1 else None
     try:
-        return await run_in_threadpool(persist_message, request, body, token)
+        return await run_timed(persist_message, request, body, token)
     except ChatNotFound:
         raise HTTPException(404) from None
     except ChatExpired:

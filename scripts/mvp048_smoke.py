@@ -130,6 +130,7 @@ class Resources:
         self.compose, self.stack, self.probe = compose, stack, probe
         self.stopping = threading.Event()
         self.samples = []
+        self.perf_intervals = []
         self.thread = threading.Thread(target=self.loop, daemon=True)
         self.previous_cpu = None
         self.started_monotonic = time.monotonic()
@@ -145,6 +146,9 @@ class Resources:
         }
 
     def snapshot(self):
+        perf_started = time.monotonic_ns()
+        perf_auth = {}
+        probe_ms = None
         row = {}
         try:
             mem = {
@@ -208,7 +212,10 @@ class Resources:
         except (subprocess.SubprocessError, ValueError, TypeError, KeyError):
             pass
         try:
+            probe_started = time.monotonic_ns()
             data = self.probe("report")
+            probe_ms = (time.monotonic_ns() - probe_started) / 1e6
+            perf_auth = data.get("perf_auth", {})
             self.pool_configuration = data.get("configuration", {}).get(
                 "sqlalchemy_pool", self.pool_configuration
             )
@@ -259,6 +266,19 @@ class Resources:
         except (subprocess.SubprocessError, ValueError, KeyError):
             pass
         self.record(row)
+        with self.sample_lock:
+            self.perf_intervals.append(
+                {
+                    "start_ns": perf_started,
+                    "end_ns": time.monotonic_ns(),
+                    "probe_ms": probe_ms,
+                    **{
+                        key: value
+                        for key, value in perf_auth.items()
+                        if value is not None
+                    },
+                }
+            )
 
     def record(self, row):
         with self.sample_lock:
@@ -453,6 +473,24 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
         or initial["runtime"]["status"] != "observed"
     ):
         raise ValueError("TARGET_OPERATIONAL_SOURCES_BLOCKED")
+
+    def pg_timing_snapshot():
+        # Numeric database-wide counters only; no SQL text, user/PID/address.
+        return json.loads(
+            stack.sql(
+                "SELECT json_build_object("
+                "'stats_reset',extract(epoch FROM stats_reset),"
+                "'track_activities',(current_setting('track_activities')='on')::int,"
+                "'track_io_timing',(current_setting('track_io_timing')='on')::int,"
+                "'active_time_ms',active_time,'sessions',sessions,"
+                "'xact_commit',xact_commit,'xact_rollback',xact_rollback,"
+                "'deadlocks',deadlocks,'blks_read',blks_read,'blks_hit',blks_hit,"
+                "'blk_read_time_ms',blk_read_time,'blk_write_time_ms',blk_write_time) "
+                "FROM pg_stat_database WHERE datname=current_database()"
+            )
+        )
+
+    pg_before = pg_after = None
     resources = Resources(compose, stack, probe)
     outcomes = {
         key: "NOT RUN"
@@ -470,6 +508,7 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
     outcomes["backup"] = "BLOCKED"
     complete = False
     runtime_observed = False
+    phase_result = None
     source_addresses = set()
     try:
         stack.docker("image", "inspect", GENERATOR_IMAGE)
@@ -563,6 +602,8 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             + str(profile.clients),
             flush=True,
         )
+        if not target:
+            pg_before = pg_timing_snapshot()
         signal(processes, {"start_ns": time.monotonic_ns() + 3 * 10**9})
         receive(
             processes,
@@ -570,6 +611,8 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             min(deadline, time.monotonic() + profile.measurement_seconds + 45),
             samples,
         )
+        if not target:
+            pg_after = pg_timing_snapshot()
         signal(processes, {"functional": True})
         reports = receive(
             processes, "done", min(deadline, time.monotonic() + 90), samples
@@ -582,12 +625,65 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
         outcomes.update(
             invariants="PASS", https="PASS", contracts="PASS", rate_limits="PASS"
         )
+        if not target:
+            # Existing HTTP samples/timers/gates are untouched. Correlate numeric
+            # side measurements by the already public server-generated UUID;
+            # never publish IDs, requests, SQL, timestamps or raw per-request rows.
+            timing_events = []
+            for line in compose(
+                "logs", "--no-log-prefix", "--no-color", "api"
+            ).splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and event.get("event_code") == "HTTP_PHASES":
+                    timing_events.append(event)
+            phase_result = json.loads(
+                compose(
+                    "exec",
+                    "-T",
+                    "api",
+                    "python",
+                    "-c",
+                    (ROOT / "scripts/perf001_timing_result.py").read_text(),
+                    input_text=json.dumps(
+                        {
+                            "head": head,
+                            "postgres": {"before": pg_before, "after": pg_after},
+                            "samples": samples,
+                            "events": timing_events,
+                            "sampler_intervals": list(resources.perf_intervals),
+                            "clients": [
+                                row
+                                for report in reports
+                                for row in report["phase_timings"]
+                            ],
+                        }
+                    ),
+                )
+            )
+            print("PERF001_PHASES " + json.dumps(phase_result), flush=True)
         if target:
             outcomes["backup"] = (
                 "PASS" if resources.backup_status == "observed" else "BLOCKED"
             )
             complete = True
         else:
+            # PERF-001 investigation runs AFTER measured HTTP and invariants.
+            # Fresh synthetic stack only; every probe write rolls back. This
+            # separate aggregate cannot affect MVP048_RESULT or target gates.
+            diagnostic = json.loads(
+                compose(
+                    "exec",
+                    "-T",
+                    "api",
+                    "python",
+                    "-c",
+                    (ROOT / "scripts/perf001_probe.py").read_text(),
+                )
+            )
+            print("PERF001_PROBE " + json.dumps(diagnostic), flush=True)
             # HTTP side effects are verified before/after the controlled DB outage.
             # Only this freshly claimed DB is stopped; target mode cannot reach here.
             import ssl
@@ -786,6 +882,21 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             or (target and result["gates"]["TARGET_LOAD"] != "PASS")
         ):
             raise ValueError("MVP048_EVIDENCE_NOT_PASS")
+        if (
+            not failure_in_flight
+            and not target
+            and (phase_result is None or phase_result["coverage"] != "COMPLETE")
+        ):
+            raise ValueError("PERF001_DIAGNOSTICS_INCOMPLETE")
+        if (
+            not failure_in_flight
+            and not target
+            and phase_result["api_process_cpu"]["process_count"]
+            != initial["perf_api_workers"]
+        ):
+            # Check the measured topology after the unchanged recovery/result
+            # publication, rather than accepting a silently single-worker fixture.
+            raise ValueError("PERF001_API_WORKER_COVERAGE_MISMATCH")
 
 
 def target_preflight(path):

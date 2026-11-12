@@ -113,6 +113,7 @@ def main(
             load_trees = source_trees(load_head)
             override = json.loads(labels.read_text())
             override["services"] = build_services(load_head, load_trees)
+            override["services"]["api"]["environment"] = {"PERF001_TIMING": "1"}
             override["services"]["postgres"] = {"image": "postgres:16.13-alpine"}
             labels.write_text(json.dumps(override))
         if catalog_admin or mvp046 or mvp048:
