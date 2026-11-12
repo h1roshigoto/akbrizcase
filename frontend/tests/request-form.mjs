@@ -58,7 +58,7 @@ try {
     if (url.pathname === '/api/v1/orders' && request.method() === 'POST')
       posts++
   })
-  await page.goto(config.origin)
+  await page.goto(config.origin + '/#catalog')
   safe(
     await page.evaluate(() => isSecureContext),
     'Real secure context is required for Web Crypto',
@@ -360,7 +360,7 @@ try {
     )
       conflictKeys.push(request.headers()['idempotency-key'])
   })
-  await changed.goto(config.origin)
+  await changed.goto(config.origin + '/#catalog')
   await openForm(changed)
   await approve(changed)
   await rpc('change_consent')
@@ -446,7 +446,7 @@ try {
       rows,
     )
     const target = await focused.newPage()
-    await target.goto(config.origin)
+    await target.goto(config.origin + '/#catalog')
     await openForm(target)
     await target.route(
       '**/api/v1/orders',
@@ -507,7 +507,7 @@ try {
   recovered.on('request', (r) => {
     if (r.method() === 'POST') reloadPosts++
   })
-  await recovered.goto(config.origin)
+  await recovered.goto(config.origin + '/#catalog')
   await recovered
     .getByRole('button', { name: 'Оформить заявку', exact: true })
     .click()

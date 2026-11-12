@@ -29,6 +29,28 @@ beforeEach(() => {
 })
 
 describe('exact logical submission lifecycle', () => {
+  it('honours a rate-limit delay and retries only the frozen request after an explicit action', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    const source = makeSource({ kind: 'rate_limited', retryAfter: 10 })
+    const submission = new Submission(source)
+    await submission.confirm(body)
+    const original = structuredClone(vi.mocked(source.submit).mock.calls[0]!)
+    expect(submission.snapshot()).toEqual({ kind: 'rate_limited', retryAt: 11000 })
+    expect(submission.beginNew()).toBe(false)
+    expect(submission.review()).toBe(false)
+    await submission.retry()
+    expect(source.submit).toHaveBeenCalledTimes(1)
+    now.mockReturnValue(11000)
+    vi.mocked(source.submit).mockResolvedValue({ kind: 'success', status: 201, receipt })
+    await submission.retry()
+    expect(vi.mocked(source.submit).mock.calls[1]).toEqual(original)
+    expect(submission.snapshot().kind).toBe('success')
+    expect(sessionStorage.getItem(PENDING_KEY)).toBeNull()
+  })
+  it('reads the backend rate-limit envelope and Retry-After without claiming success', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 'RATE_LIMITED', message: 'wait', details: {} }, request_id: fixtures.catalog_item.id }, { status: 429, headers: { 'Retry-After': '12' } })))
+    expect(await httpOrders.submit(JSON.stringify(body), newOrderHeaders())).toEqual({ kind: 'rate_limited', retryAfter: 12 })
+  })
   it('keeps chat ownership and the immutable support body through uncertain retry, never allowing site fallback', async () => {
     const source = makeSource({ kind: 'uncertain' })
     const submission = new Submission(source)

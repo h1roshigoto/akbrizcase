@@ -424,7 +424,7 @@ describe('catalog UI on approved fixtures', () => {
     )
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('[onerror]')).toBeNull()
-    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('.catalog-column img')).toBeNull()
   })
 
   it('supports pagination with the contract limit and offset', async () => {

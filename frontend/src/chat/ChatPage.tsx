@@ -20,6 +20,8 @@ export function ChatPage({
   onRequest,
   onSupport,
   onBack,
+  presentation = 'chat',
+  onPresentation,
 }: {
   controller: ChatController
   catalog: CatalogSource
@@ -31,6 +33,8 @@ export function ChatPage({
     owner: { session_id: UUID; session_token: string },
   ) => void
   onBack: () => void
+  presentation?: 'chat' | 'steps'
+  onPresentation?: (view: 'chat' | 'steps') => void
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.snapshot)
   const [opened, setOpened] = useState(false)
@@ -138,7 +142,12 @@ export function ChatPage({
       <button className="text-button" onClick={onBack}>
         Вернуться в каталог
       </button>
-      <h1>Помощник по оборудованию</h1>
+      <div className="page-heading"><div><p className="eyebrow">ПОМОЩЬ ПО ОПУБЛИКОВАННЫМ ДОКУМЕНТАМ</p><h1>Помощник по оборудованию</h1></div></div>
+      <nav className="assistant-tabs" aria-label="Способ поиска неисправности">
+        <button className="secondary-button" aria-pressed={presentation === 'chat'} onClick={() => onPresentation?.('chat')}>Чат с помощником</button>
+        <button className="secondary-button" aria-pressed={presentation === 'steps'} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button>
+      </nav>
+      {presentation === 'steps' && <p className="training-notice">Пошаговый вид использует ту же серверную сессию. Для начала выберите режим «Диагностика», модель и опубликованный сценарий.</p>}
       <p className="chat-privacy">
         Не указывайте в чате ФИО, телефон, email и другие персональные данные.
         Для обращения используйте предназначенную для этого форму.
@@ -227,7 +236,7 @@ export function ChatPage({
               }}
             />
           )}
-          <section aria-label="История ответов">
+          <section aria-label="История ответов" hidden={presentation === 'steps'}>
             {state.next && (
               <button
                 className="secondary-button"

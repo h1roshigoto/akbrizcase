@@ -4,5 +4,5 @@ import { PrivacyPage } from './pages/PrivacyPage'
 
 export default function App() {
   if (window.location.pathname === '/privacy-policy') return <PrivacyPage />
-  return <CatalogPage source={httpCatalog} />
+  return <CatalogPage source={httpCatalog} defaultView="home" />
 }

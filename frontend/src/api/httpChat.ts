@@ -60,7 +60,7 @@ export function sourceURL(source: SourceRef): string | null {
     ? source.url
     : null
 }
-function isSource(v: unknown): v is SourceRef {
+export function isSource(v: unknown): v is SourceRef {
   return (
     record(v) &&
     uuid(v.section_id) &&

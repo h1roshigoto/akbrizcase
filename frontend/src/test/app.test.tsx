@@ -15,6 +15,7 @@ it('composes the real HTTP source and retries a 503 without fixture fallback', a
       : { ok: true, json: async () => fixtures.catalog_page }
   })
   vi.stubGlobal('fetch', fetcher)
+  window.history.replaceState(null, '', '/#catalog')
   render(<App />)
   const results = within(screen.getByRole('region', { name: 'Результаты каталога' }))
   await results.findByRole('alert')
@@ -35,6 +36,7 @@ it('composes the real HTTP source and retries a 503 without fixture fallback', a
 
 it('shows an error for an invalid HTTP response instead of rendering fixtures', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }))
+  window.history.replaceState(null, '', '/#catalog')
   render(<App />)
   const results = within(screen.getByRole('region', { name: 'Результаты каталога' }))
   await results.findByRole('alert')

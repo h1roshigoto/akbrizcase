@@ -8,7 +8,7 @@ export async function catalogMedia({ browser, context, page, origin, created, su
     const react = await anonymous.newPage();
     const detail = async id => (await anonymous.request.get(`${origin}/api/v1/catalog/items/${id}`)).json();
     const show = async () => {
-      await react.goto(origin);
+      await react.goto(origin + '/#catalog');
       await react.getByRole('searchbox').fill('MVP016');
       await react.getByRole('button', { name: 'Найти', exact: true }).click();
     };

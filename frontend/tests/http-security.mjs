@@ -28,7 +28,7 @@ try {
     }
   }
 
-  const root = await page.goto(config.origin);
+  const root = await page.goto(config.origin + '/#catalog');
   assert.equal(root.status(), 200);
   const scriptPolicy = root.headers()['content-security-policy'].split('script-src ')[1].split(';')[0];
   assert.equal(scriptPolicy, "'self'");

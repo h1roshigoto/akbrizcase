@@ -14,48 +14,53 @@ import { Submission } from '../state/submission'
 import { httpChat, type ChatSource } from '../api/httpChat'
 import { ChatController } from '../chat/controller'
 import { ChatPage } from '../chat/ChatPage'
+import { SiteHeader, SiteFooter, type PortalView, type PortalHash } from '../components/SiteHeader'
+import { SelectionDrawer } from '../components/SelectionDrawer'
+import { HomePage } from './HomePage'
+import { DocumentsPage } from './DocumentsPage'
+import { TechnicalPage } from './TechnicalPage'
 
-type PageView = 'catalog' | 'chat' | 'request' | 'support'
-const viewFromHash = (): PageView =>
-  window.location.hash === '#support'
-    ? 'support'
-    : window.location.hash === '#chat'
-      ? 'chat'
-      : window.location.hash === '#request'
-        ? 'request'
-        : 'catalog'
+const viewFromHash = (defaultView: PortalView): PortalView => {
+  const key = window.location.hash.slice(1)
+  return ['home', 'catalog', 'chat', 'wizard', 'request', 'support', 'docs', 'tech'].includes(key)
+    ? key as PortalView
+    : key === 'selection' ? 'catalog' : defaultView
+}
 
 export function CatalogPage({
   source,
   orders = httpOrders,
   chat = httpChat,
+  defaultView = 'catalog',
 }: {
   source: CatalogSource
   orders?: OrdersSource
   chat?: ChatSource
+  defaultView?: PortalView
 }) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [chatController] = useState(() => new ChatController(chat))
-  const [view, setView] = useState(viewFromHash)
+  const [view, setView] = useState(() => viewFromHash(defaultView))
   const [requestVisited, setRequestVisited] = useState(
-    () => viewFromHash() === 'request',
+    () => viewFromHash(defaultView) === 'request',
   )
-  const chatOpen = view === 'chat'
+  const chatOpen = view === 'chat' || view === 'wizard'
   const requestOpen = view === 'request'
   const supportOpen = view === 'support'
   const [independentRequested, setIndependentRequested] = useState(false)
   const [requestGeneration, setRequestGeneration] = useState(0)
   const [supportGeneration, setSupportGeneration] = useState(0)
   const [supportContext, setSupportContext] = useState<SupportContext | null>(
-    () => (viewFromHash() === 'support' ? { draft: null, owner: null } : null),
+    () => (viewFromHash(defaultView) === 'support' ? { draft: null, owner: null } : null),
   )
   const syncView = useCallback(() => {
-    const next = viewFromHash()
+    const next = viewFromHash(defaultView)
     setView(next)
     if (next !== 'support') setIndependentRequested(false)
     if (next === 'request') setRequestVisited(true)
     if (next === 'support')
       setSupportContext((current) => current ?? { draft: null, owner: null })
-  }, [])
+  }, [defaultView])
   useEffect(() => {
     window.addEventListener('hashchange', syncView)
     window.addEventListener('popstate', syncView)
@@ -65,8 +70,9 @@ export function CatalogPage({
     }
   }, [syncView])
   const navigate = (
-    hash: '#catalog' | '#chat' | '#request' | '#selection' | '#support',
+    hash: PortalHash,
   ) => {
+    setDrawerOpen(false)
     window.location.hash = hash
     syncView()
   }
@@ -132,61 +138,10 @@ export function CatalogPage({
       >
         Перейти к каталогу
       </a>
-      <header className="site-header">
-        <div className="header-inner">
-          <a
-            className="brand"
-            href="#catalog"
-            onClick={() => {
-              setActiveId(null)
-              navigate('#catalog')
-            }}
-          >
-            <span className="brand-mark">
-              <Icon name="box" />
-            </span>
-            <span>
-              B2B-портал<small>Оборудование и сервис</small>
-            </span>
-          </a>
-          <nav aria-label="Основная навигация">
-            <a
-              className={!chatOpen ? 'nav-active' : undefined}
-              href="#catalog"
-              onClick={() => {
-                setActiveId(null)
-                navigate('#catalog')
-              }}
-            >
-              Каталог
-            </a>
-            <a
-              href="#selection"
-              onClick={() => {
-                navigate('#selection')
-              }}
-            >
-              Выбранное <span>{selection.items.length}</span>
-            </a>
-            <a
-              href="#chat"
-              className={chatOpen ? 'nav-active' : undefined}
-              onClick={() => {
-                navigate('#chat')
-              }}
-            >
-              Помощник
-            </a>
-            <a href="#support" onClick={openSiteSupport}>
-              Обратиться к специалисту
-            </a>
-            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">
-              Политика обработки ПДн
-            </a>
-          </nav>
-          <span className="header-note">Для вашего оборудования</span>
-        </div>
-      </header>
+      <SiteHeader view={view} count={selection.items.length} navigate={navigate} onSupport={openSiteSupport} onCart={() => setDrawerOpen(true)} />
+      {view === 'home' && <HomePage />}
+      {view === 'docs' && <DocumentsPage />}
+      {view === 'tech' && <TechnicalPage />}
       {source.mode === 'fixtures' && (
         <div className="demo-banner">
           <span className="demo-tag">ДЕМО</span>
@@ -199,6 +154,8 @@ export function CatalogPage({
       {chatOpen && (
         <ChatPage
           controller={chatController}
+          presentation={view === 'wizard' ? 'steps' : 'chat'}
+          onPresentation={(next) => navigate(next === 'steps' ? '#wizard' : '#chat')}
           catalog={source}
           selection={selection}
           onBack={() => {
@@ -223,14 +180,14 @@ export function CatalogPage({
       )}
       <main
         className="page-shell"
-        hidden={requestOpen || chatOpen || supportOpen}
+        hidden={view !== 'catalog'}
       >
         <div className="breadcrumb">
           Главная <span>/</span> Каталог
         </div>
         <section className="page-heading">
           <div>
-            <p className="eyebrow">КАТАЛОГ РЕШЕНИЙ</p>
+            <p className="eyebrow">ЗАПАСНЫЕ ЧАСТИ И СЕРВИС</p>
             <h1>Товары и услуги</h1>
             <p>
               Подберите нужные позиции для оборудования.
@@ -239,7 +196,7 @@ export function CatalogPage({
             </p>
           </div>
           <div className="heading-index" aria-hidden="true">
-            01 <span>/ КАТАЛОГ</span>
+            МТД-КА <span>/ КАТАЛОГ</span>
           </div>
         </section>
         <div className="workspace-grid">
@@ -441,12 +398,9 @@ export function CatalogPage({
               </p>
             </div>
           </div>
-          <SelectedItems
-            source={source}
-            selection={selection}
-            onOpen={openItem}
-            onRequest={openRequest}
-          />
+          <div hidden={drawerOpen}>
+            <SelectedItems source={source} selection={selection} onOpen={openItem} onRequest={openRequest} />
+          </div>
         </div>
       </main>
       {requestVisited && (
@@ -486,13 +440,10 @@ export function CatalogPage({
           />
         </div>
       )}
-      <footer className="site-footer">
-        <span>
-          B2B-портал <span className="footer-divider">/</span> Оборудование и
-          сервис
-        </span>
-        <span>Каталог и заявки</span>
-      </footer>
+      {drawerOpen && <SelectionDrawer onClose={() => setDrawerOpen(false)}>
+        <SelectedItems source={source} selection={selection} onOpen={id => { navigate('#catalog'); openItem(id) }} onRequest={openRequest} />
+      </SelectionDrawer>}
+      <SiteFooter />
     </>
   )
 }

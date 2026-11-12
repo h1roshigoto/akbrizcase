@@ -394,7 +394,9 @@ def run(temporary: str, *, worker_acceptance: bool = False) -> None:
         assert assets
         bundles = [http(asset) for asset in assets]
         assert all(status == 200 for status, _ in bundles)
-        assert any("B2B-портал" in body for _, body in bundles)
+        assert any(
+            "АК Бриз" in body and "Оформление заявки" in body for _, body in bundles
+        )
         status, body = http("/api/v1/not-implemented")
         assert status == 404 and json.loads(body)["error"]["code"] == "NOT_FOUND"
         print("PASS: Nginx health, UI/assets and API proxy", flush=True)

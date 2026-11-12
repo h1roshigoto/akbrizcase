@@ -179,6 +179,19 @@ export type ContactSpecialistAction = {
   "payload": SpecialistPayload
 }
 
+export type DocumentPage = {
+  "items": Array<PublishedDocument>
+  "total": number
+  "limit": number
+  "offset": number
+}
+
+export type DocumentQuery = {
+  "limit"?: number
+  "offset"?: number
+  "kind"?: ("manual" | "regulation" | "article" | "other" | null)
+}
+
 export type EquipmentModel = {
   "id": UUID
   "code": string
@@ -310,6 +323,17 @@ export type PrivacyPolicy = {
   "consent_version": string
   "synthetic": boolean
   "collection_enabled": boolean
+}
+
+export type PublishedDocument = {
+  "id": UUID
+  "code": string
+  "title": string
+  "kind": "manual" | "regulation" | "article" | "other"
+  "visibility": "public" | "internal"
+  "document_version_id": UUID
+  "version": number
+  "url": string
 }
 
 export type SelectModeInput = {
