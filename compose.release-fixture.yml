@@ -2,11 +2,13 @@
 services:
   api:
     command: [python, /opt/release/browser_media_server.py, --documents]
-    volumes: &fixture-mounts
+    volumes:
       - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
+      - ./backend/tests/integration/operator_terminal.py:/opt/release/operator_terminal.py:ro
   probe:
     command: [python, /opt/release/browser_media_server.py, --release-probe]
-    volumes: *fixture-mounts
+    volumes:
+      - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
   worker:
     environment:
       PYTHONPATH: /app:/opt/release

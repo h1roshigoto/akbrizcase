@@ -120,6 +120,13 @@ def create_document_app() -> FastAPI:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--release-kb"]:
+        from app.modules.kb.cli import main as kb_main
+
+        # Explicit test-only composition for the ordinary protected KB CLI.
+        # Its hidden input, authentication, role and lifecycle checks stay intact.
+        with release_scanner():
+            raise SystemExit(kb_main(sys.argv[2:]))
     if sys.argv[1:2] == ["--release-probe"]:
         from app.core.release_probe import main
 

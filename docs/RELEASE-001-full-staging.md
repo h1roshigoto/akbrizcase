@@ -159,6 +159,15 @@ The existing closed sink receives actual DATA and cannot relay. Acceptance check
 Message-ID and exact payload-free message fields without duplicate business rows.
 SMTP is at-least-once; this does not claim exactly-once mail or external delivery.
 
+The synthetic AV composition is also explicit for a separate protected KB CLI
+process: use `python /opt/release/browser_media_server.py --release-kb` followed
+by the existing `app.modules.kb.cli` arguments inside the claimed API container.
+The wrapper exists only in the verified test bind, requires full authority and
+the DB marker, and preserves hidden terminal input, roles, transactions and real
+ClamAV execution. Rehearsal reuses MVP-043's real PTY driver for admin preview and
+manager denial, with no echoed credentials. Ordinary `python -m app.modules.kb.cli`
+continues to require signed CVD; use it unchanged with the `signed-cvd` composition.
+
 Operator AV (`av: signed-cvd`) requires an immutable 0555 signatures directory in
 the private root with exactly main.cvd/daily.cvd/bytecode.cvd, regular 0444 files.
 The unmodified production scanner checks sigtool signatures, freshness, bounds,

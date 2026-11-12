@@ -330,6 +330,7 @@ class Release:
                 paths += [
                     "compose.release-fixture.yml",
                     "backend/tests/browser_media_server.py",
+                    "backend/tests/integration/operator_terminal.py",
                     "scripts/worker_probe.py",
                     "scripts/notification_retry_probe.py",
                 ]

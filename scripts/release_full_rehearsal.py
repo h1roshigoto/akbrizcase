@@ -176,6 +176,29 @@ print(json.dumps({'api_workers':workers,'oom_kills':int(oom_kills) if oom_kills 
     return json.loads(output)
 
 
+def protected_cli(release, config):
+    # Reuse the existing bounded real PTY driver; the ordinary CLI still owns
+    # getpass, authentication, RBAC, scan and publication authorization.
+    execute(
+        release,
+        """
+import json,sys,os,runpy
+p=json.load(sys.stdin)
+os.environ['PYTHONPATH']='/app:/opt/release'
+terminal=runpy.run_path('/opt/release/operator_terminal.py')['terminal']
+for role in ('admin','manager'):
+ code,output=terminal('browser_media_server',
+  ['--release-kb','kb-preview','--document',p['document_id']],
+  [(b'Acting admin login: ','browser-'+role),(b'Acting admin password: ',p['passwords'][role])])
+ assert code==(0 if role=='admin' else 1)
+ if role=='manager': assert b'FORBIDDEN' in output
+print('PASS')
+""",
+        config,
+    )
+    print("FULL_REHEARSAL_PROTECTED_CLI_PASS", flush=True)
+
+
 def exercise_full(root: Path, first: dict, second: dict) -> None:
     release = Release(root, first)
     release.preflight()
@@ -259,6 +282,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         )
         print("FULL_REHEARSAL_LINKED_BROWSER", flush=True)
         config = seed(release)
+        protected_cli(release, config)
 
         def verify_database():
             require(
