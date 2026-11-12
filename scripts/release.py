@@ -141,7 +141,7 @@ def write_json(path: Path, value: object) -> None:
 
 def protected(path: Path, *, readable: bool = False) -> None:
     info = path.lstat()
-    require(stat.S_ISREG(info.st_mode) and not path.is_symlink())
+    require(stat.S_ISREG(info.st_mode) and not path.is_symlink() and info.st_nlink == 1)
     require(info.st_uid == os.getuid())
     require(info.st_size > 0 and not info.st_mode & 0o022)
     require(readable or not info.st_mode & 0o077)
@@ -422,6 +422,10 @@ class Release:
             RELEASE_POSTGRES=self.manifest["postgres"],
         )
         self.env["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+        if self.full:
+            # Include the sink in no-argument stop/config operations as well as
+            # explicit dependency startup. Ambient profiles were stripped above.
+            self.env["COMPOSE_PROFILES"] = "full"
         # Refuse unrelated containers or volumes already using the selected project.
         project = self.config["project"]
         claim = self.config | ({"modes": fingerprint(self.modes)} if self.full else {})

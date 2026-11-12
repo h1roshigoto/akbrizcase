@@ -45,18 +45,21 @@ def test_password_file_and_separate_migration_credentials(
 
 @pytest.mark.parametrize("timed", [False, True])
 @pytest.mark.parametrize("api", [False, True])
+@pytest.mark.parametrize("release_guard", [False, True])
 def test_api_capacity_is_bounded_and_independent_of_timing(
-    monkeypatch: pytest.MonkeyPatch, timed: bool, api: bool
+    monkeypatch: pytest.MonkeyPatch, timed: bool, api: bool, release_guard: bool
 ) -> None:
     monkeypatch.setenv("PERF001_TIMING", "1" if timed else "0")
     database = Database(
         DatabaseSettings("127.0.0.1", 1, "synthetic", "synthetic", "synthetic"),
         api=api,
+        release_guard=release_guard,
     )
     try:
         pool = database.engine.pool
         assert isinstance(pool, QueuePool)
-        assert (pool.size(), pool._max_overflow) == ((8, 0) if api else (5, 5))
+        expected = (1, 0) if release_guard else ((8, 0) if api else (5, 5))
+        assert (pool.size(), pool._max_overflow) == expected
         assert pool.timeout() == 3 and pool._pre_ping
         assert isinstance(pool, TimedQueuePool) is timed
         assert pool.checkedout() == 0

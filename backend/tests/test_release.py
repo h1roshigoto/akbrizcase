@@ -275,3 +275,35 @@ def test_full_smtp_is_fixed_and_test_transport_stays_test_only(
     monkeypatch.setenv("SMTP_TEST_DOUBLE", "1")
     with pytest.raises(SMTPConfigurationError):
         SMTPSettings.from_environment()
+
+
+def test_concurrent_file_guards_construct_only_one_bounded_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from unittest.mock import Mock
+
+    from app.core.release import _file_guard_pool, file_guard_database
+
+    secret = tmp_path / "synthetic-password"
+    secret.write_text("SYNTHETIC ONLY")
+    monkeypatch.setenv("DB_PASSWORD_FILE", str(secret))
+    pool = Mock()
+
+    def construct(*args: object, **kwargs: object) -> object:
+        # Yield long enough for simultaneous first callers to race the cache.
+        Event().wait(0.05)
+        return pool
+
+    factory = Mock(side_effect=construct)
+    monkeypatch.setattr("app.core.db.Database", factory)
+    _file_guard_pool.cache_clear()
+    try:
+        with ThreadPoolExecutor(8) as executor:
+            results = list(executor.map(lambda _: file_guard_database(), range(16)))
+        assert all(result is pool for result in results)
+        assert factory.call_count == 1
+        assert factory.call_args.kwargs == {"release_guard": True}
+    finally:
+        _file_guard_pool.cache_clear()

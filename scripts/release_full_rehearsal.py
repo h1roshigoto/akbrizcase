@@ -130,14 +130,16 @@ print(hashlib.sha256(json.dumps(sorted((str(p.relative_to(root)),hashlib.sha256(
 def files_and_resources(release):
     # Actual safe/infected ClamAV plus sandbox work overlapping Argon2 in the
     # same bounded API container. The test composition never enters app images.
-    execute(
+    output = execute(
         release,
         """
-import sys,io,concurrent.futures,threading
+import sys,io,concurrent.futures,threading,json
+from pathlib import Path
 sys.path.insert(0,'/opt/release')
 from browser_media_server import release_scanner
 from app.modules.kb.files import FilePipeline,FileRejected
 from argon2 import PasswordHasher
+from app.core.db import API_WORKERS
 barrier=threading.Barrier(6)
 def scan(infected):
  barrier.wait()
@@ -156,9 +158,22 @@ def password():
 with release_scanner(), concurrent.futures.ThreadPoolExecutor(6) as pool:
  futures=[pool.submit(scan,n==0) for n in range(3)] + [pool.submit(password) for _ in range(3)]
  for future in futures: future.result(timeout=60)
-print('PASS')
+workers=0
+for process in Path('/proc').glob('[0-9]*/cmdline'):
+ try: arguments=process.read_bytes().split(bytes([0]))
+ except (OSError,ProcessLookupError): continue
+ workers+=b'--multiprocessing-fork' in arguments
+assert workers==API_WORKERS
+events=Path('/sys/fs/cgroup/memory.events')
+oom_kills=None
+if events.exists():
+ oom_kills=dict(line.split() for line in events.read_text().splitlines()).get('oom_kill')
+ assert oom_kills=='0'
+peak=Path('/sys/fs/cgroup/memory.peak')
+print(json.dumps({'api_workers':workers,'oom_kills':int(oom_kills) if oom_kills is not None else None,'memory_peak_bytes':int(peak.read_text()) if peak.exists() else None}))
 """,
     )
+    return json.loads(output)
 
 
 def exercise_full(root: Path, first: dict, second: dict) -> None:
@@ -227,7 +242,11 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         sampler.start()
         release.compose("stop", "worker")
         print("FULL_REHEARSAL_FILES_RESOURCES", flush=True)
-        files_and_resources(release)
+        runtime_resources = files_and_resources(release)
+        print(
+            "FULL_REHEARSAL_RUNTIME_RESOURCES " + json.dumps(runtime_resources),
+            flush=True,
+        )
         print("FULL_REHEARSAL_LINKED_BROWSER", flush=True)
         config = seed(release)
 
@@ -259,6 +278,27 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         environment = os.environ.copy()
         environment["NODE_EXTRA_CA_CERTS"] = str(root / "ca.crt")
         with browser_trust(root / "ca.crt"):
+            # Focused staff acceptance does not touch the linked business graph.
+            # Run it first for a precise early failure. Passwords use stdin only.
+            child = subprocess.run(
+                ["node", "frontend/tests/release-staff.mjs"],
+                env=environment,
+                input=json.dumps(config),
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            if child.returncode:
+                import re
+
+                for line in child.stderr.splitlines():
+                    if re.fullmatch(
+                        r"RELEASE_STAFF_FAILED_[A-Z_]+_LINE_(?:[0-9]+|unknown)_ACTUAL_(?:[0-9]+|NONE)",
+                        line,
+                    ):
+                        print(line, flush=True)
+                print("FULL_REHEARSAL_STAFF_FAILED", flush=True)
+            require(child.returncode == 0)
             print("FULL_REHEARSAL_BROWSER_START", flush=True)
             result = run_browser(
                 environment,
@@ -271,19 +311,6 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
             )
             require(result.returncode == 0)
             browser_secrets = json.loads(result.stdout)["secrets"]
-            # Separate focused staff acceptance, after the linked suite's fixed
-            # business-count assertions. Passwords enter through stdin only.
-            child = subprocess.run(
-                ["node", "frontend/tests/release-staff.mjs"],
-                env=environment,
-                input=json.dumps(config),
-                text=True,
-                capture_output=True,
-                timeout=120,
-            )
-            if child.returncode:
-                print("FULL_REHEARSAL_STAFF_FAILED", flush=True)
-            require(child.returncode == 0)
         before = retained(release)
         print("FULL_REHEARSAL_DEPENDENCIES", flush=True)
         release.compose("stop", "smtp-test")
@@ -304,6 +331,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         release.sql("COMMENT ON DATABASE akbrizcase IS 'SYNTHETIC-FOREIGN-MARKER'")
         try:
             require(release.http("/readyz")[0] == 503)
+            require(release.http("/api/v1/catalog/items")[0] in {500, 503})
             try:
                 execute(
                     release,
@@ -387,6 +415,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                         {r["MemUsage"] for r in resource_samples}
                     ),
                     "api_connection_ceiling": 24,
+                    "api_cgroup": runtime_resources,
                     "max_cpu_percent": max(
                         float(r["CPUPerc"].rstrip("%")) for r in resource_samples
                     ),

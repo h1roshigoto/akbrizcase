@@ -7,6 +7,7 @@ import re
 import stat
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, StrictBool
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from app.core.db import Database
+
+_file_guard_lock = Lock()
 
 
 class ReleaseModes(BaseModel):
@@ -161,12 +164,19 @@ def validate_session(session: Session) -> None:
 
 
 @lru_cache(maxsize=1)
-def file_guard_database() -> "Database":
+def _file_guard_pool() -> "Database":
     # Cache only a bounded connection pool, never a marker or authorization
     # result. This adds at most one connection per process, including the worker.
     from app.core.db import Database, DatabaseSettings
 
     return Database(DatabaseSettings.from_environment(), release_guard=True)
+
+
+def file_guard_database() -> "Database":
+    # lru_cache can compute concurrent first misses more than once. Serialize
+    # construction, so even the first concurrent file requests share one pool.
+    with _file_guard_lock:
+        return _file_guard_pool()
 
 
 def require_files() -> None:
