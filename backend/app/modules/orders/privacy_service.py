@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.privacy import PrivacyBundle, digest, production_bundle
+from app.core.release import full_synthetic_database
 from app.modules.orders.models import ConsentText
 from app.modules.orders.privacy_models import ConsentPublication
 from app.schemas.consent import ConsentText as ConsentTextDTO
@@ -26,7 +27,7 @@ def lock_privacy(session: Session, *, shared: bool) -> None:
 def synthetic_database(session: Session) -> bool:
     mode = os.environ.get("APP_ENV")
     if mode not in {"demo", "test"}:
-        return False
+        return full_synthetic_database(session)
     marker = session.scalar(
         text(
             "SELECT shobj_description(oid, 'pg_database') FROM pg_database "

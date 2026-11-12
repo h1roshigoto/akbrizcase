@@ -3,12 +3,23 @@
 import contextlib
 import io
 import json
-from pathlib import Path
+import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from release import Blocked, Release, SCHEMA, fingerprint, manifest_valid, write_json
+from release import (
+    FULL_MODES,
+    MODES,
+    SCHEMA,
+    Blocked,
+    Release,
+    fingerprint,
+    manifest_valid,
+    protected,
+    write_json,
+)
 
 
 def manifest():
@@ -25,6 +36,10 @@ def manifest():
 class Harness(Release):
     def __init__(self, root, failure=None):
         super().__init__(root, manifest())
+        self.config = {
+            "project": "akbriz-staging-0123456789ab",
+            "av": "synthetic-fixture",
+        }
         self.calls = []
         self.failure = failure
 
@@ -50,6 +65,54 @@ class Harness(Release):
 
 
 class ReleaseTest(unittest.TestCase):
+    def test_private_runtime_files_cannot_have_external_hardlinks(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic-secret"
+            path.write_text("SYNTHETIC ONLY")
+            path.chmod(0o600)
+            protected(path)
+            alias = Path(name) / "alias"
+            os.link(path, alias)
+            for candidate in (path, alias):
+                with self.assertRaises(Blocked):
+                    protected(candidate)
+
+    def test_receipts_bind_profile_and_modes_and_preserve_legacy(self):
+        release = Harness(Path("/tmp/unused-release-contract"))
+        legacy = {"manifest": manifest(), "fingerprint": fingerprint(manifest())}
+        self.assertTrue(release.accepted({"releases": [legacy]}))
+        reduced_receipt = release.receipt()
+        release.full = True
+        release.modes = FULL_MODES.copy()
+        self.assertFalse(release.accepted({"releases": [legacy, reduced_receipt]}))
+        full_receipt = release.receipt()
+        self.assertFalse(
+            release.accepted(
+                {
+                    "releases": [
+                        full_receipt | {"project": "akbriz-staging-ffffffffffff"}
+                    ]
+                }
+            )
+        )
+        self.assertFalse(
+            release.accepted({"releases": [full_receipt | {"av": "signed-cvd"}]})
+        )
+        self.assertTrue(release.accepted({"releases": [full_receipt]}))
+        for change in (
+            {"profile": "production"},
+            {"modes": fingerprint(MODES)},
+            {"format": True},
+            {"fingerprint": "0" * 64},
+        ):
+            with self.subTest(change=change), self.assertRaises(Blocked):
+                release.accepted({"releases": [full_receipt | change]})
+        # A valid first receipt cannot hide a malformed later record.
+        with self.assertRaises(Blocked):
+            release.accepted(
+                {"releases": [full_receipt, full_receipt | {"extra": True}]}
+            )
+
     def test_identity_rejects_mutable_missing_and_mismatched(self):
         manifest_valid(manifest())
         for change in (

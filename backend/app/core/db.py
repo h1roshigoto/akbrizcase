@@ -20,6 +20,7 @@ from app.core.csrf import StaffSecurity
 from app.core.http_security import TrustedProxy
 from app.core.observability import emit
 from app.core.rate_limits import IpSecurity
+from app.core.release import FullReleaseModes, release_modes, validate_session
 from app.core.timing import enabled as timing_enabled
 from app.core.timing import span
 from app.core.timing_pool import TimedQueuePool, observe_engine
@@ -82,13 +83,15 @@ class DatabaseSettings:
         )
 
 
-def create_database_engine(settings: DatabaseSettings, *, api: bool = False) -> Engine:
+def create_database_engine(
+    settings: DatabaseSettings, *, api: bool = False, release_guard: bool = False
+) -> Engine:
     engine = create_engine(
         settings.url(),
         **({"poolclass": TimedQueuePool} if timing_enabled() else {}),
         pool_pre_ping=True,
-        pool_size=API_POOL_SIZE if api else 5,
-        max_overflow=API_MAX_OVERFLOW if api else 5,
+        pool_size=1 if release_guard else (API_POOL_SIZE if api else 5),
+        max_overflow=0 if release_guard else (API_MAX_OVERFLOW if api else 5),
         pool_timeout=3,
         hide_parameters=True,
         connect_args={
@@ -104,8 +107,16 @@ def create_database_engine(settings: DatabaseSettings, *, api: bool = False) -> 
 
 
 class Database:
-    def __init__(self, settings: DatabaseSettings, *, api: bool = False) -> None:
-        self.engine = create_database_engine(settings, api=api)
+    def __init__(
+        self,
+        settings: DatabaseSettings,
+        *,
+        api: bool = False,
+        release_guard: bool = False,
+    ) -> None:
+        self.engine = create_database_engine(
+            settings, api=api, release_guard=release_guard
+        )
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     @contextmanager
@@ -115,6 +126,12 @@ class Database:
         An exception, including a failed commit or cancellation, rolls back.
         The session always closes and returns its connection to the pool.
         """
+        # Keep the domain transaction pristine: chat projection must issue SET
+        # TRANSACTION REPEATABLE READ as its first statement. Check the owner
+        # marker in a separate, closed read transaction before yielding a UoW.
+        if isinstance(release_modes(), FullReleaseModes):
+            with self.sessions() as marker_session:
+                validate_session(marker_session)
         with self.sessions() as session:
             try:
                 yield session
@@ -127,6 +144,10 @@ class Database:
 
     def ready(self) -> bool:
         try:
+            modes = release_modes()
+            if isinstance(modes, FullReleaseModes):
+                with self.unit_of_work():
+                    pass
             with self.engine.connect() as connection:
                 version = int(connection.scalar(text("SHOW server_version_num")))
                 revisions = set(
@@ -153,7 +174,7 @@ class Database:
                     and revisions == {SCHEMA_REVISION}
                     and safe_role is True
                 )
-        except (SQLAlchemyError, OSError):
+        except (SQLAlchemyError, OSError, ValueError):
             # DB errors may contain DSNs, hostnames or SQL. Do not expose/log them.
             return False
 

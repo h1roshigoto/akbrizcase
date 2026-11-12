@@ -2,12 +2,11 @@
 
 import hashlib
 import hmac
-import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 from pydantic import ValidationError
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, load_only
 
 from app.core.db_types import utc_now
@@ -134,17 +133,7 @@ def effective_consent(session: Session, *, lock: bool = False) -> ConsentTextDTO
         raise OrderRejected(503, "SERVICE_UNAVAILABLE", "Consent unavailable")
     row = rows[0]
     if row.version == DEMO_VERSION:
-        mode = os.environ.get("APP_ENV")
-        marker = session.scalar(
-            text(
-                "SELECT shobj_description(oid, 'pg_database') FROM pg_database "
-                "WHERE datname = current_database()"
-            )
-        )
-        if (
-            mode not in {"demo", "test"}
-            or marker != f"akbrizcase:synthetic-seed:{mode}"
-        ):
+        if not synthetic_database(session):
             raise OrderRejected(503, "SERVICE_UNAVAILABLE", "Consent unavailable")
     try:
         result = ConsentTextDTO(

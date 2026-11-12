@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.db import Database, DatabaseConfigurationError, DatabaseSettings
 from app.core.privacy import PrivacyBundle, digest
-from app.modules.catalog.seed import SeedRefused, validate_environment
+from app.modules.catalog.seed import SeedRefused, seed_marker, validate_environment
 from app.modules.orders.models import ConsentText
 from app.modules.orders.privacy_models import ConsentPublication
 
@@ -82,8 +82,18 @@ def seed_consent(database: Database, *, mode: str) -> None:
                 "WHERE datname = current_database()"
             )
         )
-        if marker != f"akbrizcase:synthetic-seed:{mode}":
+        if marker != seed_marker(mode):
             raise SeedRefused("Database is not explicitly marked for this seed mode")
+        if mode == "full-synthetic-staging" and any(
+            session.scalar(text(f"SELECT count(*) FROM app.{table}"))
+            for table in (
+                "consent_texts",
+                "consent_publications",
+                "orders",
+                "chat_sessions",
+            )
+        ):
+            raise SeedRefused("Full staging consent requires a fresh owned fixture")
         try:
             bundle = demo_bundle()
         except ValueError:
@@ -114,7 +124,9 @@ def seed_consent(database: Database, *, mode: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", required=True, choices=("demo", "test"))
+    parser.add_argument(
+        "--mode", required=True, choices=("demo", "test", "full-synthetic-staging")
+    )
     args = parser.parse_args()
     database = None
     try:

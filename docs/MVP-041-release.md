@@ -1,5 +1,9 @@
 # MVP-041 — synthetic staging and controlled release
 
+Follow-up: [RELEASE-001 full synthetic staging](RELEASE-001-full-staging.md) adds a
+separate format-2 profile and full rehearsal. The format-1 reduced contract below
+is retained; its disabled modes and historical receipts do not authorize full staging.
+
 Real target infrastructure acceptance: **BLOCKED**. No target RF server, domain,
 public TLS, runtime secrets, network parameters or responsible operator were
 provided. Local/CI acceptance is explicitly `accepted-local-rehearsal`; it never

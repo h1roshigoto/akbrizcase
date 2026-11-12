@@ -13,6 +13,7 @@ from pathlib import Path
 from threading import Event, Timer
 
 from app.core.csrf import https_origin
+from app.core.release import FullReleaseModes, release_modes, require_files
 from app.modules.notify.outbox import Claim
 
 TIMEOUT = 20
@@ -77,7 +78,7 @@ class SMTPSettings:
             or not https_origin(self.admin_origin)
             or self.admin_origin not in self.trusted_origins
             or not all(https_origin(o) for o in self.trusted_origins)
-            or self.mode not in {"tls", "starttls", "test"}
+            or self.mode not in {"tls", "starttls", "test", "staging-sink"}
             or (
                 self.mode == "test"
                 and (
@@ -87,7 +88,7 @@ class SMTPSettings:
                     or self.password is not None
                 )
             )
-            or (self.mode != "test" and self.synthetic)
+            or (self.mode not in {"test", "staging-sink"} and self.synthetic)
             or ((self.username is None) != (self.password is None))
             or (self.username is not None and not _safe(self.username))
             or (
@@ -100,9 +101,45 @@ class SMTPSettings:
             )
         ):
             raise SMTPConfigurationError()
+        if self.mode == "staging-sink":
+            try:
+                if (
+                    not isinstance(release_modes(), FullReleaseModes)
+                    or not self.synthetic
+                    or self.host != "smtp-test"
+                    or self.port != 1025
+                    or self.sender != "notify@example.invalid"
+                    or self.recipient != "manager@example.invalid"
+                    or self.username is not None
+                    or self.password is not None
+                    or self.trusted_origins != frozenset({self.admin_origin})
+                    or not re.fullmatch(
+                        r"https://localhost:[0-9]{4,5}", self.admin_origin
+                    )
+                    or self.admin_origin != os.environ.get("STAFF_TRUSTED_ORIGINS")
+                ):
+                    raise ValueError
+            except ValueError:
+                raise SMTPConfigurationError() from None
 
     @classmethod
     def from_environment(cls) -> "SMTPSettings | None":
+        try:
+            if isinstance(release_modes(), FullReleaseModes):
+                require_files()  # Independent owner-applied synthetic DB marker.
+                origin = os.environ["STAFF_TRUSTED_ORIGINS"]
+                return cls(
+                    "smtp-test",
+                    1025,
+                    "staging-sink",
+                    "notify@example.invalid",
+                    "manager@example.invalid",
+                    origin,
+                    frozenset({origin}),
+                    synthetic=True,
+                )
+        except (KeyError, ValueError):
+            raise SMTPConfigurationError() from None
         names = (
             "SMTP_HOST",
             "SMTP_PORT",
@@ -162,6 +199,17 @@ def notification(settings: SMTPSettings, claim: Claim) -> EmailMessage:
 
 
 def send_notification(settings: SMTPSettings, claim: Claim) -> None:
+    try:
+        modes = release_modes()
+        if modes is not None:
+            if (
+                not isinstance(modes, FullReleaseModes)
+                or settings.mode != "staging-sink"
+            ):
+                raise ValueError
+            require_files()
+    except ValueError:
+        raise SendFailure("SMTP_UNAVAILABLE") from None
     message = notification(settings, claim)
     try:
         context = ssl.create_default_context()

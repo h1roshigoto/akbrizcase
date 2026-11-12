@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.db import Database, DatabaseSettings
+from app.core.release import FullReleaseModes, release_modes
 from app.core.staff import authenticate_operator, bootstrap_admin
 from app.modules.catalog.write_dto import ItemCreate, ItemState, ModelFields, ModelState
 from app.modules.catalog.write_service import CatalogWriteService
@@ -42,7 +43,9 @@ class SyntheticClamAV(ClamAV):
 
 
 def main(*, operator_login=None, operator_password=None):
-    assert os.environ.get("APP_ENV") == "demo"
+    assert os.environ.get("APP_ENV") == "demo" or isinstance(
+        release_modes(), FullReleaseModes
+    )
     database = Database(DatabaseSettings.from_environment())
     login = operator_login or "synthetic035"
     password = operator_password or secrets.token_urlsafe(32)

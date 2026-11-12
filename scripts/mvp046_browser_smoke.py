@@ -39,15 +39,19 @@ def validate_result(checkpoints, counts, numbers):
     assert len(numbers) == len(set(numbers)) == 5, "Duplicate or missing receipt"
 
 
-def run_browser(environment, config, compose, stack, prefix, temporary):
+def run_browser(
+    environment, config, compose, stack, prefix, temporary, *, smtp_probe=None
+):
     started = monotonic()
     checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     assert os.environ.get("MVP046_EXPECTED_HEAD", checkout) == checkout
 
     stack.verify_database()
-    probe = prepare_smtp(config, compose, stack, prefix, temporary)
+    probe = smtp_probe or prepare_smtp(config, compose, stack, prefix, temporary)
 
     def domain(operation, **extra):
+        if smtp_probe is not None:
+            print("FULL_REHEARSAL_DOMAIN_" + operation.upper(), flush=True)
         stack.verify_database()
         return json.loads(
             compose(
