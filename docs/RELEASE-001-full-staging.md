@@ -158,6 +158,9 @@ The existing closed sink receives actual DATA and cannot relay. Acceptance check
 451 failures, five attempts, protected manager retry, successful recovery, stable
 Message-ID and exact payload-free message fields without duplicate business rows.
 SMTP is at-least-once; this does not claim exactly-once mail or external delivery.
+An enabled full-profile sender configuration failure terminates worker startup
+with a closed error. It cannot become a healthy cleanup-only worker after a
+temporary DB/secret failure while loading its settings.
 
 The synthetic AV composition is also explicit for a separate protected KB CLI
 process: use `python /opt/release/browser_media_server.py --release-kb` followed

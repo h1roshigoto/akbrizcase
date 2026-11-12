@@ -338,3 +338,24 @@ def test_reduced_profile_denies_direct_smtp_sender(
         send_notification(settings, Claim(uuid4(), uuid4(), 1, uuid4(), 1))
     assert failure.value.code == "SMTP_UNAVAILABLE"
     transport.assert_not_called()
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_full_worker_does_not_start_with_disabled_sender_after_config_failure(
+    full_authority: Path, monkeypatch: pytest.MonkeyPatch, missing: bool
+) -> None:
+    from app.modules.notify.smtp import SMTPConfigurationError
+    from app.worker import __main__ as worker
+
+    def invalid_settings() -> None:
+        if not missing:
+            raise SMTPConfigurationError()
+
+    monkeypatch.setattr("app.worker.__main__.signal.signal", lambda *args: None)
+    monkeypatch.setattr(worker, "configure_logging", lambda: None)
+    monkeypatch.setattr(worker, "emit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.worker.__main__.SMTPSettings.from_environment", invalid_settings
+    )
+    with pytest.raises(SystemExit, match="^SMTP_CONFIG_INVALID$"):
+        worker.main()
