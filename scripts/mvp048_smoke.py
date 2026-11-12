@@ -888,6 +888,15 @@ def run_load(environment, config, compose, stack, prefix, temporary, *, target=F
             and (phase_result is None or phase_result["coverage"] != "COMPLETE")
         ):
             raise ValueError("PERF001_DIAGNOSTICS_INCOMPLETE")
+        if (
+            not failure_in_flight
+            and not target
+            and phase_result["api_process_cpu"]["process_count"]
+            != initial["perf_api_workers"]
+        ):
+            # Check the measured topology after the unchanged recovery/result
+            # publication, rather than accepting a silently single-worker fixture.
+            raise ValueError("PERF001_API_WORKER_COVERAGE_MISMATCH")
 
 
 def target_preflight(path):

@@ -97,6 +97,17 @@ Missing counters remain unavailable and a reset fails closed. Unit tests cover
 one/two/three processes, unrelated counter origins, reset and identity privacy.
 Actual HTTP p95 and every original request/status/coverage gate stay unchanged.
 
+The initial three-process commit `725186e` exposed a fixture mismatch: the owned
+browser/media adapter overrode Compose with `uvicorn.run(app)` and actually ran
+one process (confirmed by the phase aggregate). It does not establish the proposed
+three-process capacity. The adapter now uses an importable Uvicorn factory with
+the same API_WORKERS setting. Each child's original application lifespan runs
+inside its own temporary real-ClamAV synthetic signature composition. Signatures
+and patches remain alive through shutdown and are then removed; the production
+scanner and document checks are unchanged. After the original full recovery and
+result publication, an additional diagnostic guard requires all configured API
+processes to have been observed. A silent topology mismatch cannot be accepted.
+
 Confirmed baseline HEAD `d2e8fc43077d78257bf0342a0f804f8b7039b13c`,
 [run 43104269436, attempt 2](https://github.com/h1roshigoto/akbrizcase/actions/runs/43104269436/attempts/2),
 load job 130803594143: all nine jobs SUCCESS. Diagnostic/order/catalog/knowledge

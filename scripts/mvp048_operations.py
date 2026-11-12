@@ -14,7 +14,13 @@ from datetime import UTC, datetime
 from logging.handlers import MemoryHandler
 from pathlib import Path
 
-from app.core.db import API_MAX_OVERFLOW, API_POOL_SIZE, Database, DatabaseSettings
+from app.core.db import (
+    API_MAX_OVERFLOW,
+    API_POOL_SIZE,
+    API_WORKERS,
+    Database,
+    DatabaseSettings,
+)
 from app.core.observability import checked_event
 from app.core.operations import (
     authorize,
@@ -88,6 +94,7 @@ def main():
             print(
                 json.dumps(
                     {
+                        "perf_api_workers": API_WORKERS,
                         "perf_auth": {
                             "authorization_ms": authorization_ms,
                             "argon2_ms": auth_trace.metrics["argon2_ms"]
