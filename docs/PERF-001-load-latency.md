@@ -2,6 +2,59 @@
 
 ## Measurement-driven continuation (PR #68)
 
+### Bounded API pool experiment after edb57b6
+
+[Run 43154918593](https://github.com/h1roshigoto/akbrizcase/actions/runs/43154918593)
+at `edb57b63b5ac6206029f3ea78296162a06da24b5` measured button/order/catalog/knowledge
+p95 **534.993 / 709.221 / 188.882 / 237.117 ms** (FAIL/PASS/PASS/PASS).
+All 660 measured attempts succeeded, phase coverage COMPLETE; diagnostic SQL
+count fell from 22 to 20. Button pool queue/hold p95 **355.743 / 160.738 ms**,
+occupancy 10/10, support a bounded pool-capacity experiment. Eight jobs succeeded;
+the PG job contains a real chat failure: its disallowed fixture illegally edits
+an immutable published section. The corrected test creates a separate edition
+with `allowed=False` before publication, rejects the entire mixed-source batch,
+and retains fresh internal/revoked/retired checks and a readable-source control.
+No trigger or published-content immutability rule changes.
+
+The API lifespan selects **20 persistent + 10 overflow = 30** connections per
+process, matching this profile's maximum 30 concurrent requests. Ordinary engines
+(worker, sampler and CLI) retain **5 + 5 = 10**. Timing enabled/disabled select the
+same capacities. There is no arbitrary environment capacity knob. Pre-ping,
+3-second pool/connect/lock timeouts, 5-second statement timeout, UoWs, fresh
+post-commit projection, security checks and the entire pilot200-v1 workload and
+thresholds remain. Pools open lazily; returned overflow connections are discarded.
+The sampler reports the API factory constants as static configuration, while its
+own short-lived engine retains 5+5. These are not measured occupancy statistics.
+
+Connection budget for the current single-API/single-worker Compose topology:
+
+| Process class (at most one each) | Hard pool maximum |
+| --- | ---: |
+| API, one Uvicorn process | 30 |
+| Background worker | 10 |
+| Authenticated resource sampler / operations probe | 10 |
+| Maintenance CLI (KB/privacy/operations, mutually exclusive) | 10 |
+| Backup process | 10 |
+| Migration process | 10 |
+| **Total non-superuser budget** | **80** |
+
+The baseline measures `max_connections=100`; PG16's default 3 superuser-reserved
+slots leave 97 ordinary slots, hence **17 ordinary slots of headroom**, including
+administration and transient health/tool access. API readiness shares its engine;
+`pg_isready` does not create another application pool. The sum conservatively
+uses each pool's ceiling even for sequential tools that normally hold one
+connection. It is an explicit topology/concurrency envelope, not a production
+capacity certification: a second API adds 30 and exceeds 97. Recalculate the
+budget before additional replicas, processes or simultaneous maintenance tools.
+No PostgreSQL connection/server limit or role privilege is raised.
+
+PG regression coverage exercises both 10 and 30 actual held connections, blocks
+the next checkout until release, and checks unchanged timeout/release plus order
+flush/commit rollback, denied requests and replay under both capacities. Unit
+checks verify identical bounded policy with and without diagnostics. Exact-HEAD
+nine-job and comparable load evidence is required before acceptance; this
+experiment is pending until recorded in PR #68. Production admission stays BLOCKED.
+
 Confirmed baseline HEAD `d2e8fc43077d78257bf0342a0f804f8b7039b13c`,
 [run 43104269436, attempt 2](https://github.com/h1roshigoto/akbrizcase/actions/runs/43104269436/attempts/2),
 load job 130803594143: all nine jobs SUCCESS. Diagnostic/order/catalog/knowledge

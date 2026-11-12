@@ -153,7 +153,8 @@ Only the freshly owned synthetic project can enter fault injection:
    Collection overhead is part of this smoke; peaks between samples may be missed.
    Static SQLAlchemy QueuePool settings are reported separately under
    `resources.configuration.sqlalchemy_pool`, with source `application_factory`.
-   These describe the shared engine factory, not live API pool occupancy or a
+   These describe the API engine factory policy (20+10; ordinary CLI/worker
+   engines retain 5+5), not live API pool occupancy or a
    measured PostgreSQL connection limit; they have no extrema/sample statistics.
 5. `app.core.operations` authorization and protected aggregates are reused. Missing
    backup receipts/runtime sources remain unavailable/BLOCKED. Synthetic backup

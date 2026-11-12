@@ -65,11 +65,8 @@ def test_combined_document_actions_recheck_source_lifecycle(
             .values(status=change)
         )
     else:
-        session.execute(
-            update(DocumentSection)
-            .where(DocumentSection.id == first.section_id)
-            .values(assistant_allowed=False)
-        )
+        # Published sections are immutable; set permission while still draft.
+        first = edition(session, c.actor, allowed=False)
     if change == "retired":
         refs, actions = validator.read_documents((first.section_id,))
         assert refs == [
@@ -80,6 +77,8 @@ def test_combined_document_actions_recheck_source_lifecycle(
     else:
         with pytest.raises(SourceNotFound):
             validator.read_documents((second.section_id, first.section_id))
+        refs, actions = validator.read_documents((second.section_id,))
+        assert refs == [second] and [a.payload for a in actions] == refs
 
 
 def edition(

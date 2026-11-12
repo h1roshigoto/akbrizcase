@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from logging.handlers import MemoryHandler
 from pathlib import Path
 
-from app.core.db import Database, DatabaseSettings
+from app.core.db import API_MAX_OVERFLOW, API_POOL_SIZE, Database, DatabaseSettings
 from app.core.observability import checked_event
 from app.core.operations import (
     authorize,
@@ -115,8 +115,8 @@ def main():
                             "sqlalchemy_pool": {
                                 "status": "configured",
                                 "source": "application_factory",
-                                "pool_size": database.engine.pool.size(),
-                                "max_overflow": database.engine.pool._max_overflow,
+                                "pool_size": API_POOL_SIZE,
+                                "max_overflow": API_MAX_OVERFLOW,
                                 "timeout_seconds": database.engine.pool.timeout(),
                             }
                         },

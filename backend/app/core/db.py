@@ -26,6 +26,10 @@ from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0011_mvp039_http_security"
+# One API process, bounded by pilot200-v1's 30 concurrent requests. Other
+# processes retain 5+5; see PERF-001 for the whole-stack connection budget.
+API_POOL_SIZE = 20
+API_MAX_OVERFLOW = 10
 
 
 class DatabaseConfigurationError(ValueError):
@@ -77,13 +81,13 @@ class DatabaseSettings:
         )
 
 
-def create_database_engine(settings: DatabaseSettings) -> Engine:
+def create_database_engine(settings: DatabaseSettings, *, api: bool = False) -> Engine:
     engine = create_engine(
         settings.url(),
         **({"poolclass": TimedQueuePool} if timing_enabled() else {}),
         pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=5,
+        pool_size=API_POOL_SIZE if api else 5,
+        max_overflow=API_MAX_OVERFLOW if api else 5,
         pool_timeout=3,
         hide_parameters=True,
         connect_args={
@@ -99,8 +103,8 @@ def create_database_engine(settings: DatabaseSettings) -> Engine:
 
 
 class Database:
-    def __init__(self, settings: DatabaseSettings) -> None:
-        self.engine = create_database_engine(settings)
+    def __init__(self, settings: DatabaseSettings, *, api: bool = False) -> None:
+        self.engine = create_database_engine(settings, api=api)
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
 
     @contextmanager
@@ -161,7 +165,7 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Configure lazily, without connecting or migrating on API startup."""
     database = None
     try:
-        database = Database(DatabaseSettings.from_environment())
+        database = Database(DatabaseSettings.from_environment(), api=True)
     except DatabaseConfigurationError:
         pass
     app.state.database = database

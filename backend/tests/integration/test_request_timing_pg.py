@@ -1,4 +1,4 @@
-"""Real PG16 timing: unchanged pool cap, transactional failures and fresh projection."""
+"""Real PG16 timing: bounded pools, transactional failures and fresh projection."""
 
 import json
 import logging
@@ -26,13 +26,15 @@ pytestmark = pytest.mark.integration
 __all__ = ["creation_db", "observed_db"]
 
 
-@pytest.fixture
+@pytest.fixture(params=[False, True], ids=["ordinary-pool", "api-pool"])
 def observed_db(
-    monkeypatch: pytest.MonkeyPatch, databases: tuple[Database, Database]
+    monkeypatch: pytest.MonkeyPatch,
+    databases: tuple[Database, Database],
+    request: pytest.FixtureRequest,
 ) -> Iterator[Database]:
     # Reuse the sentinel-guarded integration DB, with a new normal factory/pool.
     monkeypatch.setenv("PERF001_TIMING", "1")
-    database = Database(DatabaseSettings.from_environment())
+    database = Database(DatabaseSettings.from_environment(), api=request.param)
     try:
         assert database.ready()
         yield database
@@ -93,12 +95,14 @@ def test_timing_preserves_order_replay_denial_and_full_rollback(
     assert observed_db.engine.pool.checkedout() == 0
 
 
-def test_real_pool_wait_at_existing_ten_connection_cap(
+def test_real_pool_wait_at_configured_connection_cap(
     observed_db: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = observed_db.engine
     assert isinstance(engine.pool, TimedQueuePool)
-    held = [engine.connect() for _ in range(10)]
+    capacity = engine.pool.size() + engine.pool._max_overflow
+    assert (engine.pool.size(), engine.pool._max_overflow) in {(5, 5), (20, 10)}
+    held = [engine.connect() for _ in range(capacity)]
     entered = Event()
     original = TimedQueue.get
 
@@ -125,14 +129,14 @@ def test_real_pool_wait_at_existing_ten_connection_cap(
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(competing)
             assert entered.wait(2)
-            assert engine.pool.checkedout() == 10 and not future.done()
+            assert engine.pool.checkedout() == capacity and not future.done()
             held[0].close()
             trace = future.result(3)
         assert trace.metrics["pool_queue_ms"] > 0
         assert trace.metrics["pool_acquire_ms"] >= trace.metrics["pool_queue_ms"]
         assert trace.metrics["new_connections"] == 0
         assert trace.metrics["pool_checkouts"] == trace.metrics["sql_calls"] == 1
-        assert engine.pool.size() == 5 and engine.pool._max_overflow == 5
+        assert engine.pool.size() + engine.pool._max_overflow == capacity
         assert engine.pool.timeout() == 3
     finally:
         for connection in held:
