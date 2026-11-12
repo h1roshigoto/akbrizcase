@@ -180,6 +180,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
     release = Release(root, first)
     release.preflight()
     resource_samples = []
+    pg_samples = []
     sampling_done = threading.Event()
 
     def sample():
@@ -201,6 +202,15 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                     )
                     resource_samples.extend(
                         json.loads(line) for line in data.splitlines()
+                    )
+                    pg_samples.append(
+                        json.loads(
+                            release.sql(
+                                "SELECT json_build_object('connections', (SELECT count(*) FROM pg_stat_activity), "
+                                "'max_connections', current_setting('max_connections')::int, "
+                                "'superuser_reserved_connections', current_setting('superuser_reserved_connections')::int)"
+                            )
+                        )
                     )
             except Exception:
                 pass  # Sampling cannot authorize a release or hide test failures.
@@ -404,6 +414,13 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
             ],
         )
         require(resource_samples)
+        require(pg_samples)
+        require(
+            all(
+                p["max_connections"] == 100 and p["superuser_reserved_connections"] == 3
+                for p in pg_samples
+            )
+        )
         # Only aggregate resource readings, never container names/IDs or payloads.
         print(
             "FULL_REHEARSAL_RESOURCES "
@@ -415,6 +432,13 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                         {r["MemUsage"] for r in resource_samples}
                     ),
                     "api_connection_ceiling": 24,
+                    "postgresql": {
+                        "max_observed_connections": max(
+                            p["connections"] for p in pg_samples
+                        ),
+                        "max_connections": 100,
+                        "superuser_reserved_connections": 3,
+                    },
                     "api_cgroup": runtime_resources,
                     "max_cpu_percent": max(
                         float(r["CPUPerc"].rstrip("%")) for r in resource_samples
@@ -424,6 +448,43 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
             flush=True,
         )
         print("FULL_REHEARSAL_PASSED_SYNTHETIC_ONLY_PRODUCTION_BLOCKED", flush=True)
+    except Exception:
+        # Preserve resource evidence even when a later browser/domain gate fails.
+        # Only numeric cgroup counters and sampled bounds may leave the runner.
+        samples = list(resource_samples)
+        if samples:
+            print(
+                "FULL_REHEARSAL_FAILURE_RESOURCES "
+                + json.dumps(
+                    {
+                        "samples": len(samples),
+                        "max_pids": max(int(r["PIDs"]) for r in samples),
+                        "memory_readings": sorted({r["MemUsage"] for r in samples}),
+                    }
+                ),
+                flush=True,
+            )
+        try:
+            counters = json.loads(
+                execute(
+                    release,
+                    """
+import json
+from pathlib import Path
+result={}
+for name in ('memory.events','pids.events'):
+ path=Path('/sys/fs/cgroup')/name
+ if path.exists():
+  values=dict(line.split() for line in path.read_text().splitlines())
+  result[name]={key:int(values[key]) for key in ('max','oom','oom_kill') if key in values}
+print(json.dumps(result))
+""",
+                )
+            )
+            print("FULL_REHEARSAL_FAILURE_CGROUP " + json.dumps(counters), flush=True)
+        except Exception:
+            pass
+        raise
     finally:
         sampling_done.set()
         if sampler.is_alive():

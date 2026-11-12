@@ -3,19 +3,21 @@
 import contextlib
 import io
 import json
-from pathlib import Path
+import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from release import (
-    Blocked,
     FULL_MODES,
     MODES,
-    Release,
     SCHEMA,
+    Blocked,
+    Release,
     fingerprint,
     manifest_valid,
+    protected,
     write_json,
 )
 
@@ -63,6 +65,18 @@ class Harness(Release):
 
 
 class ReleaseTest(unittest.TestCase):
+    def test_private_runtime_files_cannot_have_external_hardlinks(self):
+        with tempfile.TemporaryDirectory() as name:
+            path = Path(name) / "synthetic-secret"
+            path.write_text("SYNTHETIC ONLY")
+            path.chmod(0o600)
+            protected(path)
+            alias = Path(name) / "alias"
+            os.link(path, alias)
+            for candidate in (path, alias):
+                with self.assertRaises(Blocked):
+                    protected(candidate)
+
     def test_receipts_bind_profile_and_modes_and_preserve_legacy(self):
         release = Harness(Path("/tmp/unused-release-contract"))
         legacy = {"manifest": manifest(), "fingerprint": fingerprint(manifest())}

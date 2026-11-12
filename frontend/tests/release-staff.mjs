@@ -51,7 +51,7 @@ try {
   await staff.waitForURL(config.origin + '/admin/');
   stage = 'DIRECT_RBAC';
   const managerCsrf = await staff.locator('input[name=csrf_token]').first().inputValue();
-  for (const path of ['/admin/staff', '/admin/documents', '/admin/catalog/items']) {
+  for (const path of ['/admin/staff', '/admin/documents', '/admin/catalog-items']) {
     assert.equal((await manager.request.get(config.origin + path, { maxRedirects: 0 })).status(), 403);
   }
   for (const path of ['/admin/staff/create-account', `/admin/documents/${config.document_id}/revoke`]) {

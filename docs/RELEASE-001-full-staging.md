@@ -71,7 +71,11 @@ Nginx 0.5 CPU, 128 MiB, 32 PIDs. Sink: 0.25 CPU, 64 MiB, 32 PIDs.
 Full rehearsal overlaps three real scans with three Argon2 hash/verify operations
 in the bounded API container, runs three Uvicorn processes and linked browser
 operations, and emits sampled memory/PID readings. This is synthetic-signature
-capacity evidence only. Large signed CVD memory/CPU requirements must be measured
+capacity evidence only. A preliminary full run observed three API processes,
+zero OOM kills and a cgroup memory peak at the 512 MiB hard cap. This shows memory
+pressure and does not establish spare capacity; final-HEAD samples/counters are
+reported separately. Limits are not raised to mask a fixture failure.
+Large signed CVD memory/CPU requirements must be measured
 separately on the selected closed host; no runner result certifies that capacity.
 An OOM or insufficient resource envelope blocks acceptance, never skips scanning.
 

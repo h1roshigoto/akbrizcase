@@ -307,3 +307,34 @@ def test_concurrent_file_guards_construct_only_one_bounded_pool(
         assert factory.call_args.kwargs == {"release_guard": True}
     finally:
         _file_guard_pool.cache_clear()
+
+
+def test_reduced_profile_denies_direct_smtp_sender(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+    from uuid import uuid4
+
+    from app.modules.notify.outbox import Claim
+    from app.modules.notify.smtp import SendFailure, SMTPSettings, send_notification
+
+    config = tmp_path / "modes.json"
+    config.write_text(json.dumps(packet()))
+    monkeypatch.setenv("APP_ENV", "staging")
+    monkeypatch.setenv("RELEASE_CONFIG_FILE", str(config))
+    transport = Mock()
+    monkeypatch.setattr("app.modules.notify.smtp.smtplib.SMTP", transport)
+    settings = SMTPSettings(
+        "127.0.0.1",
+        1025,
+        "test",
+        "notify@example.invalid",
+        "manager@example.invalid",
+        "https://localhost:8443",
+        frozenset({"https://localhost:8443"}),
+        synthetic=True,
+    )
+    with pytest.raises(SendFailure) as failure:
+        send_notification(settings, Claim(uuid4(), uuid4(), 1, uuid4(), 1))
+    assert failure.value.code == "SMTP_UNAVAILABLE"
+    transport.assert_not_called()
