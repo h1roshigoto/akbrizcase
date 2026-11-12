@@ -568,8 +568,10 @@ try {
         await buyer.page.getByRole('searchbox').fill(item.sku)
         await buyer.page.getByRole('button', { name: 'Найти', exact: true }).click()
         const card = buyer.page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article').filter({ hasText: item.sku })
+        stage = `D.images.${buyer.name}.${item.kind}.${expected ? 'attached' : 'removed'}`
         if (expected) {
           await expect(card.locator('img')).toHaveAttribute('src', images.get(item.id))
+          await card.locator('img').scrollIntoViewIfNeeded()
           await expect.poll(() => card.locator('img').evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true)
           await card.getByRole('button', { name: item.name, exact: true }).click()
           await expect(buyer.page.locator('.item-detail > .item-image img')).toHaveAttribute('src', images.get(item.id))

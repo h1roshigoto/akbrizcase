@@ -2,10 +2,11 @@
 // POST /orders, admin mutation, withdrawal or document revocation. Linked E2E
 // owns those business assertions on its separate disposable database.
 import assert from 'node:assert/strict'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { chromium, expect } from '@playwright/test'
 
-const config = JSON.parse(await readFile(0, 'utf8'))
+const config = JSON.parse(readFileSync(0, 'utf8'))
 const origin = new URL(config.origin).origin
 assert(['localhost', '127.0.0.1'].includes(new URL(origin).hostname))
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE || undefined, args: ['--enable-unsafe-swiftshader'] })
@@ -22,21 +23,23 @@ const navigate = async (page, name) => {
   await link.click()
 }
 let stage = 'setup'
+let lastPage
 try {
   for (const [size, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
     stage = size + '.home'
     const context = await browser.newContext({ viewport, reducedMotion: 'reduce', ignoreHTTPSErrors: false })
     const page = await context.newPage(), errors = [], external = []
+    lastPage = page
     page.on('pageerror', () => errors.push('pageerror'))
     page.on('request', request => { if (new URL(request.url()).origin !== origin) external.push('external') })
     await page.goto(origin)
     await expect(page.locator('mtdka-viewer')).toHaveClass(/ready/)
     await expect(page.getByRole('button', { name: 'Показать габариты', exact: true })).toBeEnabled()
     const oldViewer = await page.locator('mtdka-viewer').elementHandle()
-    await page.getByRole('button', { name: 'Показать габариты', exact: true }).click()
     await page.getByRole('button', { name: 'Верхняя панель макета', exact: true }).click()
     await expect(page.getByRole('region', { name: 'Верхняя панель макета' })).toBeVisible()
     await page.getByRole('button', { name: 'Закрыть подсказку' }).click()
+    await page.getByRole('button', { name: 'Показать габариты', exact: true }).click()
     await layout(page); await shot(page, `${size}-home-light`)
     await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -117,7 +120,9 @@ try {
   await shot(page, 'mobile-webgl-fallback')
   await fallback.close()
   console.log('PASS WebGL-unavailable poster fallback')
-} catch {
-  console.error('FRONT_VISUAL_FAILED stage=' + stage)
+} catch (error) {
+  const line = error.stack?.match(/front-integration-visual\.mjs:(\d+)/)?.[1] ?? 'unknown'
+  if (screenshots && lastPage && !lastPage.isClosed()) await shot(lastPage, 'failure')
+  console.error('FRONT_VISUAL_FAILED stage=' + stage + ' line=' + line)
   process.exitCode = 1
 } finally { await browser.close() }
