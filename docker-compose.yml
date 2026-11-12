@@ -61,7 +61,7 @@ services:
     secrets: [runtime_password, staff_csrf_secret, order_hmac_secret, ip_hmac_secret]
     build:
       context: ./backend
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --workers, "3", --no-proxy-headers, --no-access-log]
     networks: [web, data]
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).close()"]

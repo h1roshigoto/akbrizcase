@@ -51,14 +51,16 @@ DURATIONS = frozenset(
         "projection_commit_ms",
     }
 )
-METRICS = CLOCKS | COUNTS | DURATIONS
+# Private correlation only. Never exported in operation distributions.
+PRIVATE = frozenset({"process_key"})
+METRICS = CLOCKS | COUNTS | DURATIONS | PRIVATE
 
 
 def checked_timings(value: object) -> dict[str, int | float]:
     if not isinstance(value, dict) or set(value) != METRICS:
         raise ValueError("TIMING_SCHEMA_INVALID")
     for name, number in value.items():
-        if name in CLOCKS | COUNTS:
+        if name in CLOCKS | COUNTS | PRIVATE:
             if type(number) is not int or not 0 <= number <= 2**63 - 1:
                 raise ValueError("TIMING_SCHEMA_INVALID")
         elif (

@@ -286,17 +286,34 @@ def aggregate(head, clients, events, samples, sampler_intervals, postgres=None):
         by_id[c["request_id"]]["timings"] for c in clients if c["request_id"] in by_id
     ]
     if correlated and all(
-        m["process_start_cpu_ns"] > 0 and m["process_end_cpu_ns"] > 0
+        m["process_key"] > 0
+        and m["process_start_cpu_ns"] > 0
+        and m["process_end_cpu_ns"] > 0
         for m in correlated
     ):
         first = min(correlated, key=lambda m: m["asgi_start_ns"])
         last = max(correlated, key=lambda m: m["response_end_ns"])
-        cpu_ms = (last["process_end_cpu_ns"] - first["process_start_cpu_ns"]) / 1e6
         wall_ms = (last["response_end_ns"] - first["asgi_start_ns"]) / 1e6
-        if cpu_ms < 0 or wall_ms <= 0:
+        # Counters from different processes have unrelated origins. Sum each
+        # process's correlated envelope once, never overlapping request deltas.
+        groups = {}
+        for metrics in correlated:
+            if metrics["process_end_cpu_ns"] < metrics["process_start_cpu_ns"]:
+                raise ValueError("PERF001_PROCESS_CLOCK_INVALID")
+            groups.setdefault(metrics["process_key"], []).append(metrics)
+        cpu_ms = 0
+        for values in groups.values():
+            low = min(values, key=lambda m: m["asgi_start_ns"])
+            high = max(values, key=lambda m: m["response_end_ns"])
+            delta = high["process_end_cpu_ns"] - low["process_start_cpu_ns"]
+            if delta < 0:
+                raise ValueError("PERF001_PROCESS_CLOCK_INVALID")
+            cpu_ms += delta / 1e6
+        if wall_ms <= 0:
             raise ValueError("PERF001_PROCESS_CLOCK_INVALID")
         output["api_process_cpu"] = {
             "status": "OBSERVED",
+            "process_count": len(groups),
             "cpu_ms": cpu_ms,
             "wall_ms": wall_ms,
             "core_equivalents": cpu_ms / wall_ms,
@@ -304,6 +321,7 @@ def aggregate(head, clients, events, samples, sampler_intervals, postgres=None):
     else:
         output["api_process_cpu"] = {
             "status": "UNAVAILABLE",
+            "process_count": None,
             "cpu_ms": None,
             "wall_ms": None,
             "core_equivalents": None,

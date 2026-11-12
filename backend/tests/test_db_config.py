@@ -6,7 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import QueuePool
 
-from app.core.db import Database, DatabaseConfigurationError, DatabaseSettings
+from app.core.db import (
+    API_WORKERS,
+    Database,
+    DatabaseConfigurationError,
+    DatabaseSettings,
+)
 from app.core.timing_pool import TimedQueuePool
 from app.main import app
 
@@ -51,9 +56,33 @@ def test_api_capacity_is_bounded_and_independent_of_timing(
     try:
         pool = database.engine.pool
         assert isinstance(pool, QueuePool)
-        assert (pool.size(), pool._max_overflow) == ((15, 0) if api else (5, 5))
+        assert (pool.size(), pool._max_overflow) == ((8, 0) if api else (5, 5))
         assert pool.timeout() == 3 and pool._pre_ping
         assert isinstance(pool, TimedQueuePool) is timed
         assert pool.checkedout() == 0
     finally:
         database.close()
+
+
+def test_api_worker_count_matches_both_runtime_commands() -> None:
+    import json
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    commands = [
+        yaml.safe_load((root / name).read_text())["services"]["api"]["command"]
+        for name in ("docker-compose.yml", "compose.release.yml")
+    ]
+    commands.append(
+        json.loads(
+            next(
+                line.removeprefix("CMD ")
+                for line in (root / "backend/Dockerfile").read_text().splitlines()
+                if line.startswith('CMD ["uvicorn"')
+            )
+        )
+    )
+    for command in commands:
+        assert int(command[command.index("--workers") + 1]) == API_WORKERS == 3
+        assert "--no-proxy-headers" in command and "--no-access-log" in command

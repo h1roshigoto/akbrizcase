@@ -27,11 +27,21 @@ fell to 0.014 ms but holding rose to 487.613 ms; connect p95 was 73.786 ms and
 not proof that capacity alone caused every change. Thirty connections removed
 pool queuing but failed the actual end-to-end gates, so it is not accepted.
 
-The next bounded experiment selects **15 persistent + 0 overflow = 15** API
-connections per process: half the fixed profile's peak concurrency, a 50% ceiling
-increase over the original ten. All connections can be retained after a burst;
-there is no transient overflow creation/discard cycle. This deliberately bounds
-SQL concurrency below the rejected 30-capacity experiment. Ordinary engines
+The single-process 15+0 experiment, HEAD `b8dc66e3027ab46362f91c069c017e4670999bcf`,
+[run 43187628273](https://github.com/h1roshigoto/akbrizcase/actions/runs/43187628273),
+also failed: button/order/catalog/knowledge p95 **842.784 / 1219.588 / 259.549 /
+467.197 ms**. All 660 attempts succeeded, coverage COMPLETE, no measured new
+connections. Button queue/hold p95 were 301.839/311.072 ms; order 474.316/545.969
+ms. API process CPU was 9.719 seconds over 13.487 seconds of correlated requests.
+Retaining connections removes churn but does not resolve the measured pipeline.
+
+The next bounded experiment runs **three API processes, each with 8 persistent
+connections and no overflow**, so the API tier has a ceiling of **24**. This
+distributes Python execution and ASGI scheduling across processes while keeping
+per-process SQL concurrency below both rejected experiments. On the prescribed
+4-vCPU runner it leaves one CPU's nominal capacity for PostgreSQL, proxy, worker
+and the unchanged sampler; this is a sizing rationale, not CPU affinity or a
+performance guarantee. All connections can be retained after bursts. Ordinary engines
 (worker, sampler and CLI) retain **5 + 5 = 10**. Timing enabled/disabled select the
 same capacities. There is no arbitrary environment capacity knob. Pre-ping,
 3-second pool/connect/lock timeouts, 5-second statement timeout, UoWs, fresh
@@ -40,34 +50,52 @@ thresholds remain. Pools open lazily and close on process shutdown.
 The sampler reports the API factory constants as static configuration, while its
 own short-lived engine retains 5+5. These are not measured occupancy statistics.
 
-Connection budget for the current single-API/single-worker Compose topology:
+Connection budget for the current single-API-container/single-worker topology:
 
 | Process class (at most one each) | Hard pool maximum |
 | --- | ---: |
-| API, one Uvicorn process | 15 |
+| API, three Uvicorn processes, 8+0 each | 24 |
 | Background worker | 10 |
 | Authenticated resource sampler / operations probe | 10 |
 | Maintenance CLI (KB/privacy/operations, mutually exclusive) | 10 |
 | Backup process | 10 |
 | Migration process | 10 |
-| **Total non-superuser budget** | **65** |
+| **Total non-superuser budget** | **74** |
 
 The baseline measures `max_connections=100`; PG16's default 3 superuser-reserved
-slots leave 97 ordinary slots, hence **32 ordinary slots of headroom**, including
+slots leave 97 ordinary slots, hence **23 ordinary slots of headroom**, including
 administration and transient health/tool access. API readiness shares its engine;
 `pg_isready` does not create another application pool. The sum conservatively
 uses each pool's ceiling even for sequential tools that normally hold one
 connection. It is an explicit topology/concurrency envelope, not a production
-capacity certification: each additional API adds 15. Recalculate the
+capacity certification: each additional API process adds 8; another complete
+three-process API container adds 24 and exceeds 97. Recalculate the
 budget before additional replicas, processes or simultaneous maintenance tools.
 No PostgreSQL connection/server limit or role privilege is raised.
 
-PG regression coverage exercises both 10 and 15 actual held connections, blocks
+PG regression coverage exercises both 10 and 8 actual held connections, blocks
 the next checkout until release, and checks unchanged timeout/release plus order
 flush/commit rollback, denied requests and replay under both capacities. Unit
 checks verify identical bounded policy with and without diagnostics. Exact-HEAD
 nine-job and comparable load evidence is required before acceptance; this
 experiment is pending until recorded in PR #68. Production admission stays BLOCKED.
+
+The Docker image, ordinary Compose and release Compose specify the same three
+Uvicorn processes, guarded against configuration drift. Thread limiters, HTTP
+timers, request IDs, transactions and security behavior remain unchanged. Each
+process independently constructs its bounded pool; no connection is shared across
+processes. The unchanged static result field describes settings **per API process**,
+not the API tier's sum or live occupancy.
+
+Numeric phase events include a private process correlation key. The aggregate
+never exports that key, process IDs or per-process records. CPU deltas are computed
+once over each process's correlated request envelope, then summed; counters from
+different processes never subtract from one another. Core equivalents divide that
+sum by the global correlated wall envelope. Work outside an individual process's
+first/last correlated request remains outside this supplementary observation.
+Missing counters remain unavailable and a reset fails closed. Unit tests cover
+one/two/three processes, unrelated counter origins, reset and identity privacy.
+Actual HTTP p95 and every original request/status/coverage gate stay unchanged.
 
 Confirmed baseline HEAD `d2e8fc43077d78257bf0342a0f804f8b7039b13c`,
 [run 43104269436, attempt 2](https://github.com/h1roshigoto/akbrizcase/actions/runs/43104269436/attempts/2),

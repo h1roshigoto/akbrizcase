@@ -121,6 +121,7 @@ class TimingMiddleware:
             await self.app(scope, receive, send)
             return
         trace = RequestTiming()
+        trace.metrics["process_key"] = os.getpid()
         trace.metrics["asgi_start_ns"] = monotonic_ns()
         trace.metrics["process_start_cpu_ns"] = process_time_ns()
         token = current.set(trace)

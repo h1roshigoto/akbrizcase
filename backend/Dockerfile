@@ -30,7 +30,7 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 RUN chmod -R a+rX /app/app /app/migrations /app/alembic.ini
 USER 10001:10001
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--no-access-log"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "3", "--no-proxy-headers", "--no-access-log"]
 
 # Disposable integration runner; the default final image remains runtime-only.
 FROM runtime AS integration

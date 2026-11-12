@@ -82,7 +82,7 @@ services:
 
   api:
     <<: *app
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --no-proxy-headers, --no-access-log]
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '3', --no-proxy-headers, --no-access-log]
     environment: *api-env
     secrets: *api-secrets
     networks: [web, data]

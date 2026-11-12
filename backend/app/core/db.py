@@ -26,10 +26,10 @@ from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
 SCHEMA_REVISION = "0011_mvp039_http_security"
-# Retain a bounded 15-connection API pool instead of churning overflow
-# connections or admitting all 30 workers into SQL at once. Other processes
-# retain 5+5; see PERF-001 for the whole-stack connection budget.
-API_POOL_SIZE = 15
+# Bound the whole API tier to 3 * 8 = 24 connections, retained between bursts.
+# Other processes retain 5+5; see PERF-001 for the full connection budget.
+API_WORKERS = 3
+API_POOL_SIZE = 8
 API_MAX_OVERFLOW = 0
 
 

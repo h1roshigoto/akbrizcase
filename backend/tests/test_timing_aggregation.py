@@ -212,3 +212,35 @@ def test_failed_validation_is_not_dropped_or_changed_to_zero() -> None:
     assert metrics["http_all_attempt_ms"]["p95"] == 38
     assert metrics["p95_and_above"]["count"] == 2
     assert metrics["all"]["client_validate_ms"]["count"] == 19
+
+
+@pytest.mark.parametrize("processes", [1, 2, 3])
+def test_process_cpu_envelopes_are_separate_and_keys_never_exported(
+    processes: int,
+) -> None:
+    data = packet()
+    groups: dict[int, list[int]] = {}
+    for index, event in enumerate(data["events"]):
+        group = index % processes
+        groups.setdefault(group, []).append(index)
+        # Deliberately unrelated counter origins, including overlapping spans.
+        start = (group + 1) * 100_000_000_000 + index * 1_000_000
+        event["timings"].update(
+            process_key=987654321 + group,
+            process_start_cpu_ns=start,
+            process_end_cpu_ns=start + 200_000,
+        )
+    result = aggregate(**data)
+    cpu = result["api_process_cpu"]
+    assert cpu["status"] == "OBSERVED" and cpu["process_count"] == processes
+    assert cpu["cpu_ms"] == pytest.approx(
+        sum(indices[-1] - indices[0] + 0.2 for indices in groups.values())
+    )
+    assert cpu["core_equivalents"] == cpu["cpu_ms"] / cpu["wall_ms"]
+    rendered = json.dumps(result)
+    assert "process_key" not in rendered
+    assert all(str(987654321 + group) not in rendered for group in groups)
+    # A reset in just one process must not borrow another process's counter.
+    data["events"][0]["timings"]["process_end_cpu_ns"] = 1
+    with pytest.raises(ValueError, match="PROCESS_CLOCK_INVALID"):
+        aggregate(**data)
