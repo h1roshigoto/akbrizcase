@@ -564,16 +564,22 @@ try {
   async function publicImages(expected) {
     for (const buyer of buyers) {
       await buyer.page.goto(config.origin + '/#catalog')
+      // A navigation to the same fragment keeps React's model filter. This
+      // phase requires a fresh public read after staff changed the evidence/media.
+      await buyer.page.reload()
       for (const item of items) {
         await buyer.page.getByRole('searchbox').fill(item.sku)
         await buyer.page.getByRole('button', { name: 'Найти', exact: true }).click()
         const card = buyer.page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article').filter({ hasText: item.sku })
         stage = `D.images.${buyer.name}.${item.kind}.${expected ? 'attached' : 'removed'}`
         if (expected) {
+          stage = `D.images.${buyer.name}.${item.kind}.src`
           await expect(card.locator('img')).toHaveAttribute('src', images.get(item.id))
           await card.locator('img').scrollIntoViewIfNeeded()
+          stage = `D.images.${buyer.name}.${item.kind}.loaded`
           await expect.poll(() => card.locator('img').evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true)
           await card.getByRole('button', { name: item.name, exact: true }).click()
+          stage = `D.images.${buyer.name}.${item.kind}.detail`
           await expect(buyer.page.locator('.item-detail > .item-image img')).toHaveAttribute('src', images.get(item.id))
         } else {
           await expect(card.getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()

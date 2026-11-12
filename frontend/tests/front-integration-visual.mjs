@@ -28,10 +28,14 @@ try {
   for (const [size, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
     stage = size + '.home'
     const context = await browser.newContext({ viewport, reducedMotion: 'reduce', ignoreHTTPSErrors: false })
-    const page = await context.newPage(), errors = [], external = []
+    const page = await context.newPage(), errors = [], external = [], orderPosts = []
     lastPage = page
     page.on('pageerror', () => errors.push('pageerror'))
-    page.on('request', request => { if (new URL(request.url()).origin !== origin) external.push('external') })
+    page.on('request', request => {
+      const url = new URL(request.url())
+      if (url.origin !== origin) external.push('external')
+      if (url.pathname === '/api/v1/orders' && request.method() === 'POST') orderPosts.push('order')
+    })
     await page.goto(origin)
     await expect(page.locator('mtdka-viewer')).toHaveClass(/ready/)
     await expect(page.getByRole('button', { name: 'Показать габариты', exact: true })).toBeEnabled()
@@ -73,7 +77,9 @@ try {
     stage = size + '.form'
     await expect(page.getByRole('heading', { name: 'Оформление заявки', exact: true })).toBeVisible()
     await expect(page.getByRole('checkbox', { name: /явно принимаю согласие/ })).toBeEnabled()
-    await expect(page.getByRole('button', { name: 'Подтвердить и отправить заявку' })).toBeDisabled()
+    await page.getByRole('button', { name: 'Подтвердить и отправить заявку' }).click()
+    await expect(page.getByText('Укажите имя: от 1 до 200 символов.', { exact: true })).toBeVisible()
+    assert.deepEqual(orderPosts, [])
     await layout(page); await shot(page, `${size}-request-dark`)
     await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click()
     await shot(page, `${size}-request-light`)

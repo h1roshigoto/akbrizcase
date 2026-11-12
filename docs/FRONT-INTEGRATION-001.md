@@ -94,6 +94,10 @@ bundled. It never sends equipment commands or makes diagnostic recommendations.
 Existing browser selectors enter `/#catalog` explicitly because `/` is now the
 home page. Business assertions remain intact; hostile-image checks are scoped
 to catalog content so brand images do not produce false failures.
+Mobile browser journeys open the real menu before navigation. Media acceptance
+explicitly reloads repeated `/#catalog` visits: a same-fragment navigation keeps
+React's filters, including a model whose supporting source was just revoked.
+Lazy images are scrolled into view before checking actual decoded pixels.
 
 Developer checks:
 

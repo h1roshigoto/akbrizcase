@@ -126,6 +126,7 @@ try {
   await page.getByRole('heading', { name: `Заявка №${commercialReceipt.number}`, exact: true }).waitFor()
   assert(commercialReceipt.number !== receipt.number, 'Independent commercial receipt')
   await page.getByRole('button', { name: 'Вернуться в каталог', exact: true }).click()
+  if (!await page.getByRole('link', { name: 'Обратиться к специалисту', exact: true }).isVisible()) await page.getByRole('button', { name: 'Меню', exact: true }).click()
   await page.getByRole('link', { name: 'Обратиться к специалисту', exact: true }).click()
   await page.getByRole('button', { name: 'Начать новое независимое обращение с сайта', exact: true }).click()
   await page.getByRole('heading', { name: 'Обращение к специалисту', exact: true }).waitFor()
