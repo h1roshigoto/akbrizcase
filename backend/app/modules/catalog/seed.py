@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.db import Database, DatabaseConfigurationError, DatabaseSettings
+from app.core.release import FullReleaseModes, release_modes
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 
 
@@ -18,6 +19,10 @@ class SeedRefused(ValueError):
 
 
 def validate_environment(mode: str) -> None:
+    if mode == "full-synthetic-staging" and isinstance(
+        release_modes(), FullReleaseModes
+    ):
+        return
     if mode not in {"demo", "test"} or os.environ.get("APP_ENV") != mode:
         raise SeedRefused("Seed requires matching explicit demo/test mode and APP_ENV")
 
@@ -33,9 +38,21 @@ def seed_catalog(database: Database, *, mode: str) -> None:
                 "WHERE datname = current_database()"
             )
         )
-        if marker != f"akbrizcase:synthetic-seed:{mode}":
+        if marker != seed_marker(mode):
             raise SeedRefused("Database is not explicitly marked for this seed mode")
 
+        if mode == "full-synthetic-staging" and any(
+            session.scalar(text(f"SELECT count(*) FROM app.{table}"))
+            for table in (
+                "catalog_items",
+                "equipment_models",
+                "orders",
+                "staff_users",
+                "documents",
+                "chat_sessions",
+            )
+        ):
+            raise SeedRefused("Full staging seed requires a fresh owned fixture")
         session.execute(
             insert(EquipmentModel)
             .values(
@@ -87,9 +104,17 @@ def seed_catalog(database: Database, *, mode: str) -> None:
         # Commit belongs solely to the shared outer Unit of Work.
 
 
+def seed_marker(mode: str) -> str:
+    return "akbrizcase:synthetic-seed:" + (
+        "demo" if mode == "full-synthetic-staging" else mode
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", required=True, choices=("demo", "test"))
+    parser.add_argument(
+        "--mode", required=True, choices=("demo", "test", "full-synthetic-staging")
+    )
     args = parser.parse_args()
     database = None
     try:

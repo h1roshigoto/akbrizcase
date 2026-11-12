@@ -42,6 +42,22 @@ MODES = {
     "signature_update": "disabled-files-blocked",
     "real_pii": False,
 }
+FULL_MODES = {
+    "format": 2,
+    "profile": "full-synthetic-staging",
+    "data": "synthetic-only",
+    "catalog": True,
+    "orders": True,
+    "chat": True,
+    "knowledge": True,
+    "files": True,
+    "smtp": "isolated-sink",
+    "clamav": "required",
+    "signature_update": "operator-verified-offline",
+    "real_pii": False,
+}
+REDUCED_PROFILE = "reduced-synthetic-rehearsal"
+FULL_PROFILE = "full-synthetic-staging"
 IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[a-z0-9./:_-]+@sha256:[0-9a-f]{64})")
 
 
@@ -126,6 +142,7 @@ def write_json(path: Path, value: object) -> None:
 def protected(path: Path, *, readable: bool = False) -> None:
     info = path.lstat()
     require(stat.S_ISREG(info.st_mode) and not path.is_symlink())
+    require(info.st_uid == os.getuid())
     require(info.st_size > 0 and not info.st_mode & 0o022)
     require(readable or not info.st_mode & 0o077)
 
@@ -135,7 +152,11 @@ def manifest_valid(manifest: dict) -> None:
         set(manifest)
         == {"format", "commit", "schema", "backend", "frontend", "postgres"}
     )
-    require(manifest["format"] == 1 and manifest["schema"] == SCHEMA)
+    require(
+        type(manifest["format"]) is int
+        and manifest["format"] == 1
+        and manifest["schema"] == SCHEMA
+    )
     require(re.fullmatch(r"[0-9a-f]{40}", manifest["commit"]) is not None)
     for name in ("backend", "frontend", "postgres"):
         require(
@@ -152,26 +173,104 @@ class Release:
         self.stopped = False
         self.config: dict = {}
         self.env: dict[str, str] = {}
+        self.modes = MODES.copy()
+        self.full = False
+        self.fresh_database = False
+
+    @property
+    def profile(self) -> str:
+        return FULL_PROFILE if self.full else REDUCED_PROFILE
+
+    def compose_files(self) -> list[str]:
+        files = ["-f", str(REPO / "compose.release.yml")]
+        if self.full:
+            files += ["-f", str(REPO / "compose.release-full.yml")]
+            if self.config["av"] == "synthetic-fixture":
+                files += ["-f", str(REPO / "compose.release-fixture.yml")]
+        return files
+
+    def receipt(self) -> dict:
+        return {
+            "format": 2,
+            "profile": self.profile,
+            "project": self.config["project"],
+            "av": self.config["av"] if self.full else "disabled-files-blocked",
+            "modes": fingerprint(self.modes),
+            "manifest": self.manifest,
+            "fingerprint": fingerprint(self.manifest),
+        }
+
+    def accepted(self, history: dict) -> bool:
+        require(set(history) == {"releases"} and type(history["releases"]) is list)
+        found = False
+        for record in history["releases"]:
+            require(isinstance(record, dict))
+            legacy = set(record) == {"manifest", "fingerprint"}
+            if legacy:
+                # Format-1 receipts can only mean the original reduced profile.
+                manifest_valid(record["manifest"])
+                require(record["fingerprint"] == fingerprint(record["manifest"]))
+                if not self.full and record["manifest"] == self.manifest:
+                    found = True
+            else:
+                require(
+                    set(record)
+                    == {
+                        "format",
+                        "profile",
+                        "project",
+                        "av",
+                        "modes",
+                        "manifest",
+                        "fingerprint",
+                    }
+                )
+                require(type(record["format"]) is int and record["format"] == 2)
+                require(record["profile"] in {FULL_PROFILE, REDUCED_PROFILE})
+                require(
+                    isinstance(record["project"], str)
+                    and re.fullmatch(r"akbriz-staging-[0-9a-f]{12}", record["project"])
+                    is not None
+                )
+                require(
+                    record["av"]
+                    in (
+                        {"synthetic-fixture", "signed-cvd"}
+                        if record["profile"] == FULL_PROFILE
+                        else {"disabled-files-blocked"}
+                    )
+                )
+                expected_modes = (
+                    FULL_MODES if record["profile"] == FULL_PROFILE else MODES
+                )
+                require(record["modes"] == fingerprint(expected_modes))
+                manifest_valid(record["manifest"])
+                require(record["fingerprint"] == fingerprint(record["manifest"]))
+                if record == self.receipt():
+                    found = True
+        return found
 
     def event(self, stage: str) -> None:
         self.stage = stage
         print("RELEASE_" + stage, flush=True)
 
+    def compose_command(self, *args: str) -> list[str]:
+        return [
+            "docker",
+            "compose",
+            "--env-file",
+            "/dev/null",
+            "--project-directory",
+            str(REPO),
+            *self.compose_files(),
+            "-p",
+            self.config["project"],
+            *args,
+        ]
+
     def compose(self, *args: str, input_text: str | None = None) -> str:
         return run(
-            [
-                "docker",
-                "compose",
-                "--env-file",
-                "/dev/null",
-                "--project-directory",
-                str(REPO),
-                "-f",
-                str(REPO / "compose.release.yml"),
-                "-p",
-                self.config["project"],
-                *args,
-            ],
+            self.compose_command(*args),
             env=self.env,
             input_text=input_text,
         )
@@ -183,7 +282,18 @@ class Release:
         require(self.root.stat().st_uid == os.getuid())
         protected(self.root / "staging.json")
         self.config = read_json(self.root / "staging.json")
-        require(set(self.config) == {"project", "port", "scope"})
+        self.full = self.config.get("profile") == FULL_PROFILE
+        require(
+            set(self.config)
+            == (
+                {"project", "port", "scope", "profile", "av"}
+                if self.full
+                else {"project", "port", "scope"}
+            )
+        )
+        if self.full:
+            require(self.config["av"] in {"synthetic-fixture", "signed-cvd"})
+        self.modes = FULL_MODES.copy() if self.full else MODES.copy()
         require(self.config["scope"] == "local-synthetic-rehearsal")
         require(
             re.fullmatch(r"akbriz-staging-[0-9a-f]{12}", self.config["project"])
@@ -204,9 +314,50 @@ class Release:
         require(all(32 <= len(value) <= 4096 for value in values))
         require(len(set(values)) == len(values))
         modes = read_json(self.root / "modes.json")
-        require(
-            modes == MODES
-        )  # Initial supported reduced profile; no implicit opt-in.
+        require(canonical(modes) == canonical(self.modes))
+        # Check bind-mounted trusted fixture sources against this exact candidate.
+        paths = [
+            "compose.release.yml",
+            "infrastructure/release/nginx.conf",
+            "infrastructure/postgres/provision.sh",
+        ]
+        if self.full:
+            paths += [
+                "compose.release-full.yml",
+                "backend/tests/integration/smtp_double.py",
+            ]
+            if self.config["av"] == "synthetic-fixture":
+                paths += [
+                    "compose.release-fixture.yml",
+                    "backend/tests/browser_media_server.py",
+                    "scripts/worker_probe.py",
+                    "scripts/notification_retry_probe.py",
+                ]
+                signatures = self.root / "signatures"
+                require(not signatures.is_symlink() and signatures.is_dir())
+                require(stat.S_IMODE(signatures.stat().st_mode) == 0o555)
+                signature = signatures / "test.ndb"
+                protected(signature, readable=True)
+                require(set(p.name for p in signatures.iterdir()) == {"test.ndb"})
+                require(stat.S_IMODE(signature.stat().st_mode) == 0o444)
+                require(
+                    signature.read_bytes()
+                    == b"Synthetic.Browser.Test:0:*:53594e5448494e464543544544\n"
+                )
+            else:
+                signatures = self.root / "signatures"
+                require(not signatures.is_symlink() and signatures.is_dir())
+                require(stat.S_IMODE(signatures.stat().st_mode) == 0o555)
+                require(
+                    set(p.name for p in signatures.iterdir())
+                    == {"main.cvd", "daily.cvd", "bytecode.cvd"}
+                )
+                for signature in signatures.iterdir():
+                    protected(signature, readable=True)
+                    require(stat.S_IMODE(signature.stat().st_mode) == 0o444)
+        for path in paths:
+            expected = run(["git", "show", self.manifest["commit"] + ":" + path])
+            require((REPO / path).read_text().strip() == expected)
         # TLS is trusted and hostname checked, but explicitly rehearsal-only.
         run(
             [
@@ -273,6 +424,10 @@ class Release:
         self.env["DOCKER_HOST"] = "unix:///var/run/docker.sock"
         # Refuse unrelated containers or volumes already using the selected project.
         project = self.config["project"]
+        claim = self.config | ({"modes": fingerprint(self.modes)} if self.full else {})
+        if (self.root / "claim.json").exists():
+            protected(self.root / "claim.json")
+            require(read_json(self.root / "claim.json") == claim)
         for volume in (project + "_database", project + "_files"):
             result = subprocess.run(
                 ["docker", "volume", "inspect", volume],
@@ -282,12 +437,14 @@ class Release:
                 timeout=15,
             )
             if result.returncode == 0:
-                require(read_json(self.root / "claim.json") == self.config)
+                require(read_json(self.root / "claim.json") == claim)
                 labels = json.loads(result.stdout)[0].get("Labels") or {}
                 require(labels.get("com.akbrizcase.synthetic-release") == "true")
                 require(labels.get("com.docker.compose.project") == project)
             else:
                 require("no such volume" in result.stderr.lower())
+                if volume == project + "_database":
+                    self.fresh_database = True
         containers = run(
             [
                 "docker",
@@ -300,9 +457,23 @@ class Release:
         ).split()
         if containers:
             # The durable claim ties this namespace to this exact private root.
-            require(read_json(self.root / "claim.json") == self.config)
+            require(read_json(self.root / "claim.json") == claim)
         if not (self.root / "claim.json").exists():
-            write_json(self.root / "claim.json", self.config)
+            write_json(self.root / "claim.json", claim)
+        if self.full:
+            authority = {
+                "format": 1,
+                "scope": self.config["scope"],
+                "project": project,
+                "profile": self.profile,
+                "modes": fingerprint(self.modes),
+            }
+            authority_path = self.root / "authority.json"
+            if authority_path.exists():
+                require(read_json(authority_path) == authority)
+            else:
+                write_json(authority_path, authority)
+                authority_path.chmod(0o444)
 
     def images(self) -> None:
         for name in ("backend", "frontend", "postgres"):
@@ -320,6 +491,8 @@ class Release:
                     == self.manifest["commit"]
                 )
                 require(labels.get("com.akbrizcase.release-gates") == "1")
+                if self.full:
+                    require(labels.get("com.akbrizcase.release-profiles") == "2")
             else:
                 require("PG_MAJOR=16" in info["Config"].get("Env", []))
         actual = run(
@@ -381,18 +554,30 @@ class Release:
         require(self.http("/readyz")[:2] == (200, b'{"status":"ok"}'))
         require(self.http("/")[0] == 200)
         self.event("SMOKE_MODES")
-        for path, method in (
-            ("/api/v1/orders", "POST"),
-            ("/api/v1/chat/sessions", "POST"),
-            ("/api/v1/documents", "GET"),
-            ("/api/v1/knowledge/search", "GET"),
-        ):
+        disabled = (
+            ()
+            if self.full
+            else (
+                ("/api/v1/orders", "POST"),
+                ("/api/v1/chat/sessions", "POST"),
+                ("/api/v1/documents", "GET"),
+                ("/api/v1/knowledge/search", "GET"),
+            )
+        )
+        for path, method in disabled:
             status, body, headers = self.http(path, method=method)
             require(
                 status == 503
                 and json.loads(body)["error"]["code"] == "RELEASE_MODE_DISABLED"
             )
             require(headers.get("Cache-Control") == "no-store")
+        if self.full:
+            for path in (
+                "/api/v1/catalog/items",
+                "/api/v1/chat/scenarios?model_id=00000000-0000-4000-8000-000000000000",
+                "/api/v1/knowledge/search?q=synthetic",
+            ):
+                require(self.http(path)[0] == 200)
         self.event("SMOKE_FILES")
         for path in (
             "/files/private",
@@ -402,10 +587,57 @@ class Release:
         ):
             require(self.http(path)[0] == 404)
         self.event("SMOKE_BOUNDARIES")
-        for service in ("api", "worker", "postgres", "nginx"):
+        for service in (
+            "api",
+            "worker",
+            "postgres",
+            "nginx",
+            *(("smtp-test",) if self.full else ()),
+        ):
             ids = self.compose("ps", "-q", service).split()
             require(len(ids) == 1)
             info = json.loads(run(["docker", "inspect", ids[0]], env=self.env))[0]
+            require(
+                all(
+                    "docker.sock" not in mount["Destination"]
+                    for mount in info["Mounts"]
+                )
+            )
+            if self.full:
+                topology = {
+                    "api": {"web", "data", "mail"},
+                    "worker": {"data", "mail"},
+                    "postgres": {"data"},
+                    "nginx": {"ingress", "web"},
+                    "smtp-test": {"mail"},
+                }
+                expected_networks = {
+                    self.config["project"] + "_" + n for n in topology[service]
+                }
+                require(set(info["NetworkSettings"]["Networks"]) == expected_networks)
+                for network in topology[service]:
+                    actual = json.loads(
+                        run(
+                            [
+                                "docker",
+                                "network",
+                                "inspect",
+                                self.config["project"] + "_" + network,
+                            ],
+                            env=self.env,
+                        )
+                    )[0]
+                    require(actual["Internal"] == (network != "ingress"))
+                    require(
+                        actual["Labels"].get("com.docker.compose.project")
+                        == self.config["project"]
+                    )
+                host = info["HostConfig"]
+                require(host["ReadonlyRootfs"] and host["CapDrop"] == ["ALL"])
+                require("no-new-privileges:true" in host["SecurityOpt"])
+                require(not info["State"].get("OOMKilled"))
+                if service in {"api", "worker", "smtp-test"}:
+                    require(info["Config"]["User"] == "10001:10001")
             bindings = info["HostConfig"].get("PortBindings") or {}
             if service == "nginx":
                 require(
@@ -442,9 +674,10 @@ class Release:
     def apply(self, *, rollback: bool = False) -> None:
         history_path = self.root / "accepted.json"
         history = read_json(history_path) if history_path.exists() else {"releases": []}
-        receipt = {"manifest": self.manifest, "fingerprint": fingerprint(self.manifest)}
+        receipt = self.receipt()
+        previously_accepted = self.accepted(history)
         if rollback:
-            require(receipt in history["releases"])
+            require(previously_accepted)
         self.event("IMAGES")
         self.images()
         self.event("DATABASE")
@@ -465,6 +698,21 @@ class Release:
         else:
             self.event("MIGRATION")
             self.compose("run", "--rm", "--no-deps", "migrate")
+        if self.full:
+            self.event("SYNTHETIC_DATABASE")
+            marker = self.sql(
+                "SELECT coalesce(shobj_description(oid, 'pg_database'), '') FROM pg_database WHERE datname=current_database()"
+            )
+            if self.fresh_database and not marker and not rollback:
+                require(self.sql("SELECT count(*) FROM app.orders") == "0")
+                require(self.sql("SELECT count(*) FROM app.staff_users") == "0")
+                self.sql(
+                    "COMMENT ON DATABASE akbrizcase IS 'akbrizcase:synthetic-seed:demo'"
+                )
+            else:
+                require(marker == "akbrizcase:synthetic-seed:demo")
+            self.event("DEPENDENCIES")
+            self.compose("up", "--no-build", "-d", "--wait", "smtp-test")
         self.event("READINESS")
         self.compose("run", "--rm", "--no-deps", "probe")
         self.event("START")
@@ -489,6 +737,8 @@ class Release:
             {
                 "status": "accepted-local-rehearsal",
                 "manifest": fingerprint(self.manifest),
+                "profile": self.profile,
+                "modes": fingerprint(self.modes),
                 "real_staging": "BLOCKED",
             },
         )

@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import select, text
 
 from app.core.db import Database, DatabaseSettings
+from app.core.release import FullReleaseModes, release_modes
 from app.core.staff import authenticate_operator
 from app.modules.catalog.models import CatalogItem
 from app.modules.catalog.write_dto import ItemEdit, ItemFields
@@ -39,7 +40,9 @@ class SyntheticClamAV(ClamAV):
 def main():
     payload = json.load(sys.stdin)
     operation = sys.argv[1]
-    assert os.environ["APP_ENV"] == "demo"
+    assert os.environ["APP_ENV"] == "demo" or isinstance(
+        release_modes(), FullReleaseModes
+    )
     db = Database(DatabaseSettings.from_environment())
     try:
         with tempfile.TemporaryDirectory(prefix="synthetic046-") as temporary:

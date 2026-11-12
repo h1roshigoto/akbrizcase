@@ -16,6 +16,9 @@ import uuid
 
 from release import (
     MODES,
+    FULL_MODES,
+    FULL_PROFILE,
+    REDUCED_PROFILE,
     REPO,
     SCHEMA,
     SECRETS,
@@ -27,7 +30,7 @@ from release import (
 )
 
 
-def prepare(root: Path) -> None:
+def prepare(root: Path, *, profile: str = REDUCED_PROFILE) -> None:
     require(not any(root.iterdir()))
     root.chmod(0o700)
     for name in SECRETS:
@@ -42,9 +45,22 @@ def prepare(root: Path) -> None:
             "project": "akbriz-staging-" + uuid.uuid4().hex[:12],
             "port": port,
             "scope": "local-synthetic-rehearsal",
+            **(
+                {"profile": FULL_PROFILE, "av": "synthetic-fixture"}
+                if profile == FULL_PROFILE
+                else {}
+            ),
         },
     )
-    write_json(root / "modes.json", MODES)
+    if profile == FULL_PROFILE:
+        signatures = root / "signatures"
+        signatures.mkdir(mode=0o700)
+        (signatures / "test.ndb").write_text(
+            "Synthetic.Browser.Test:0:*:53594e5448494e464543544544\n"
+        )
+        (signatures / "test.ndb").chmod(0o444)
+        signatures.chmod(0o555)
+    write_json(root / "modes.json", FULL_MODES if profile == FULL_PROFILE else MODES)
     (root / "modes.json").chmod(0o444)
     run(
         [
@@ -80,6 +96,8 @@ def build(root: Path) -> tuple[dict, dict]:
         "org.opencontainers.image.revision=" + commit,
         "--label",
         "com.akbrizcase.release-gates=1",
+        "--label",
+        "com.akbrizcase.release-profiles=2",
     ]
     if os.environ.get("CODEX_PROXY_CERT"):
         common += ["--secret", "id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt"]
@@ -245,6 +263,55 @@ def snapshot(release: Release) -> str:
     return release.sql(query)
 
 
+def verify_leaks(
+    release: Release, root: Path, first: dict, second: dict, *, extra=()
+) -> None:
+    logs = release.compose(
+        "logs",
+        "--no-color",
+        "--no-log-prefix",
+        "api",
+        "worker",
+        "nginx",
+        "postgres",
+    )
+    for secret in extra:
+        require(secret not in logs)
+    for name in SECRETS:
+        require((root / name).read_text().strip() not in logs)
+    for image in (first["backend"], first["frontend"], second["backend"]):
+        metadata = run(["docker", "image", "inspect", image], env=release.env)
+        history = run(
+            [
+                "docker",
+                "history",
+                "--no-trunc",
+                "--format",
+                "{{.CreatedBy}}",
+                image,
+            ],
+            env=release.env,
+        )
+        for name in SECRETS:
+            secret = (root / name).read_text().strip()
+            require(secret not in metadata and secret not in history)
+        require(str(root) not in metadata and str(root) not in history)
+    for forbidden in (
+        str(root),
+        "release@example.invalid",
+        "postgresql://",
+        "postgresql+psycopg://",
+    ):
+        require(forbidden not in logs)
+    for name in ("status.json", "accepted.json", "first.json", "candidate.json"):
+        text = (root / name).read_text()
+        require(
+            str(root) not in text
+            and "password" not in text
+            and "example.invalid" not in text
+        )
+
+
 def exercise(root: Path, first: dict, second: dict) -> None:
     print("REHEARSAL_PREFLIGHT", flush=True)
     release = Release(root, first)
@@ -359,43 +426,7 @@ def exercise(root: Path, first: dict, second: dict) -> None:
             )
         invoke(root, root / "first.json", rollback=True)
         require(snapshot(release) == before)
-        # Inspect safe persisted artifacts and runtime logs for canary secrets.
-        logs = release.compose(
-            "logs", "--no-color", "--no-log-prefix", "api", "worker", "nginx", "postgres"
-        )
-        for name in SECRETS:
-            require((root / name).read_text().strip() not in logs)
-        for image in (first["backend"], first["frontend"], second["backend"]):
-            metadata = run(["docker", "image", "inspect", image], env=release.env)
-            history = run(
-                [
-                    "docker",
-                    "history",
-                    "--no-trunc",
-                    "--format",
-                    "{{.CreatedBy}}",
-                    image,
-                ],
-                env=release.env,
-            )
-            for name in SECRETS:
-                secret = (root / name).read_text().strip()
-                require(secret not in metadata and secret not in history)
-            require(str(root) not in metadata and str(root) not in history)
-        for forbidden in (
-            str(root),
-            "release@example.invalid",
-            "postgresql://",
-            "postgresql+psycopg://",
-        ):
-            require(forbidden not in logs)
-        for name in ("status.json", "accepted.json", "first.json", "candidate.json"):
-            text = (root / name).read_text()
-            require(
-                str(root) not in text
-                and "password" not in text
-                and "example.invalid" not in text
-            )
+        verify_leaks(release, root, first, second)
         print("REHEARSAL_PASSED_SYNTHETIC_ONLY_REAL_STAGING_BLOCKED", flush=True)
     finally:
         # No down -v, delete, reset, stamp, downgrade, restore or backup.
@@ -405,6 +436,14 @@ def exercise(root: Path, first: dict, second: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="Prepare a fresh private root and exact-HEAD immutable candidates; do not start services or seed",
+    )
+    parser.add_argument(
+        "--profile", choices=(REDUCED_PROFILE, FULL_PROFILE), default=REDUCED_PROFILE
+    )
     args = parser.parse_args()
     try:
         for variable in (
@@ -418,9 +457,21 @@ def main() -> int:
         root = args.root or Path(tempfile.mkdtemp(prefix="akbriz-release-"))
         if args.root:
             root.mkdir(mode=0o700, exist_ok=False)
-        prepare(root)
+        require(
+            os.environ.get("RELEASE_EXPECTED_HEAD", run(["git", "rev-parse", "HEAD"]))
+            == run(["git", "rev-parse", "HEAD"])
+        )
+        prepare(root, profile=args.profile)
         first, second = build(root)
-        exercise(root, first, second)
+        if args.prepare_only:
+            print("REHEARSAL_PREPARED_SYNTHETIC_ONLY_PRODUCTION_BLOCKED", flush=True)
+            return 0
+        if args.profile == FULL_PROFILE:
+            from release_full_rehearsal import exercise_full
+
+            exercise_full(root, first, second)
+        else:
+            exercise(root, first, second)
         return 0
     except Exception:
         print("REHEARSAL_BLOCKED", file=sys.stderr)

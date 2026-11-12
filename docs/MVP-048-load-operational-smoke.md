@@ -169,6 +169,11 @@ existing mandatory jobs and their timeouts/security checks remain intact.
 
 ## Authorized target measurement (no deploy)
 
+[RELEASE-001](RELEASE-001-full-staging.md) documents the separate full release
+profile's exact incompatibilities and the required future adapter integration.
+That profile does not satisfy this target authorization; do not relabel it, change
+APP_ENV or clear its transactional data to force attachment. TARGET_LOAD stays BLOCKED.
+
 Without authorization, this command returns BLOCKED before opening a socket:
 
 ```sh

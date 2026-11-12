@@ -1,6 +1,7 @@
 """Release modes are enforced before body validation and domain side effects."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db_migrate import failure_code
-from app.core.release import release_modes
+from app.core.release import FullReleaseModes, modes_fingerprint, release_modes
 from app.main import app
 from app.modules.kb.files import FilePipeline, FileRejected
 
@@ -120,3 +121,157 @@ def test_disabled_smtp_cannot_be_enabled_by_environment(
     monkeypatch.setenv("SMTP_HOST", "synthetic.invalid")
     with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
         release_modes()
+
+
+def full_packet() -> dict[str, object]:
+    return packet() | {
+        "format": 2,
+        "profile": "full-synthetic-staging",
+        "orders": True,
+        "chat": True,
+        "knowledge": True,
+        "files": True,
+        "smtp": "isolated-sink",
+        "clamav": "required",
+        "signature_update": "operator-verified-offline",
+    }
+
+
+@pytest.fixture
+def full_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    config = tmp_path / "modes.json"
+    config.write_text(json.dumps(full_packet()))
+    authority = tmp_path / "authority.json"
+    authority.write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "scope": "local-synthetic-rehearsal",
+                "project": "akbriz-staging-" + "a" * 12,
+                "profile": "full-synthetic-staging",
+                "modes": modes_fingerprint(full_packet()),
+            }
+        )
+    )
+    authority.chmod(0o444)
+    # Model the distinct host owner / container UID without requiring root in units.
+    monkeypatch.setattr(os, "geteuid", lambda: authority.stat().st_uid + 1)
+    for key, value in {
+        "APP_ENV": "staging",
+        "RELEASE_CONFIG_FILE": str(config),
+        "RELEASE_AUTHORITY_FILE": str(authority),
+        "RELEASE_PROJECT": "akbriz-staging-" + "a" * 12,
+        "DB_HOST": "postgres",
+        "DB_NAME": "akbrizcase",
+    }.items():
+        monkeypatch.setenv(key, value)
+    return config
+
+
+def test_full_contract_and_ambient_smtp_denial(
+    full_authority: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert isinstance(release_modes(), FullReleaseModes)
+    monkeypatch.setenv("SMTP_HOST", "smtp-test")
+    with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
+        release_modes()
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("format", True),
+        ("format", 2.0),
+        ("orders", 1),
+        ("real_pii", 0),
+        ("real_pii", True),
+        ("files", False),
+        ("profile", "production"),
+        ("extra", "ignored"),
+        ("smtp", "external"),
+    ],
+)
+def test_full_closed_schema(full_authority: Path, key: str, value: object) -> None:
+    full_authority.write_text(json.dumps(full_packet() | {key: value}))
+    with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
+        release_modes()
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("APP_ENV", "demo"),
+        ("APP_ENV", "test"),
+        ("APP_ENV", "production"),
+        ("RELEASE_PROJECT", "akbriz-staging-" + "b" * 12),
+        ("RELEASE_AUTHORITY_FILE", "/nonexistent-authority"),
+        ("DB_HOST", "external.invalid"),
+        ("DB_NAME", "production"),
+    ],
+)
+def test_full_requires_independent_controller_authority(
+    full_authority: Path, monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
+        release_modes()
+
+
+def test_duplicate_config_and_writable_authority_fail_closed(
+    full_authority: Path,
+) -> None:
+    full_authority.write_text(json.dumps(full_packet())[:-1] + ',"format":2}')
+    with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
+        release_modes()
+    full_authority.write_text(json.dumps(full_packet()))
+    authority = full_authority.with_name("authority.json")
+    authority.chmod(0o644)
+    with pytest.raises(ValueError, match="^RELEASE_CONFIG_INVALID$"):
+        release_modes()
+
+
+def test_full_marker_failure_closes_direct_database_and_file_paths(
+    full_authority: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import MagicMock
+
+    from app.core.release import validate_session
+    from app.modules.catalog.images.pipeline import ImagePipeline
+
+    session = MagicMock()
+    session.scalar.return_value = "akbrizcase:synthetic-seed:test"
+    with pytest.raises(ValueError, match="RELEASE_DATABASE_INVALID"):
+        validate_session(session)
+    session.scalar.return_value = "akbrizcase:synthetic-seed:demo"
+    validate_session(session)
+    monkeypatch.setenv("DB_PASSWORD_FILE", "/missing")
+    for pipeline in (FilePipeline, ImagePipeline):
+        with pytest.raises(ValueError):
+            pipeline.from_environment()
+
+
+def test_full_smtp_is_fixed_and_test_transport_stays_test_only(
+    full_authority: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from app.modules.notify.smtp import SMTPConfigurationError, SMTPSettings
+
+    monkeypatch.setenv("STAFF_TRUSTED_ORIGINS", "https://localhost:28443")
+    monkeypatch.setattr("app.modules.notify.smtp.require_files", lambda: None)
+    settings = SMTPSettings.from_environment()
+    assert settings is not None and settings.mode == "staging-sink"
+    assert settings.host == "smtp-test" and settings.port == 1025
+    for change in (
+        {"host": "external.invalid"},
+        {"port": 25},
+        {"sender": "real@example.com"},
+        {"recipient": "real@example.com"},
+        {"username": "secret", "password": "secret"},
+        {"synthetic": False},
+    ):
+        with pytest.raises(SMTPConfigurationError):
+            replace(settings, **change)
+    monkeypatch.setenv("SMTP_TEST_DOUBLE", "1")
+    with pytest.raises(SMTPConfigurationError):
+        SMTPSettings.from_environment()

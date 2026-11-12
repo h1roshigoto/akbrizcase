@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.core.observability import configure_logging, emit
 from app.core.release import release_modes
+from app.core.release_probe import dependencies_ready
 from app.core.timing import TimingMiddleware
 from app.modules.catalog.router import router as catalog_router
 from app.modules.chat.router import router as chat_router
@@ -51,6 +52,7 @@ def readyz(request: Request) -> JSONResponse:
     ready = database is not None and database.ready()
     try:
         release_modes()
+        ready = ready and dependencies_ready()
     except ValueError:
         ready = False
     if not ready:

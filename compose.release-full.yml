@@ -1,0 +1,59 @@
+# Closed extension of compose.release.yml, selected only by scripts/release.py.
+# Never combine with development/target/production Compose configurations.
+services:
+  postgres:
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+      - /var/run/postgresql:rw,noexec,nosuid,size=4m,uid=999,gid=999,mode=3775
+  api:
+    environment: &full-env
+      RELEASE_AUTHORITY_FILE: /run/release/authority.json
+      RELEASE_PROJECT: ${RELEASE_PROJECT:?}
+      STAFF_TRUSTED_ORIGINS: https://localhost:${RELEASE_PORT:?}
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      ALL_PROXY: ''
+      http_proxy: ''
+      https_proxy: ''
+      all_proxy: ''
+    networks: [web, data, mail]
+    volumes: &full-mounts
+      - ${RELEASE_ROOT:?}/authority.json:/run/release/authority.json:ro
+      - ${RELEASE_ROOT:?}/signatures:/var/lib/akbrizcase/clamav:ro
+  worker:
+    networks: [data, mail]
+    environment: *full-env
+    volumes: *full-mounts
+  probe:
+    networks: [data, mail]
+    environment: *full-env
+    volumes: *full-mounts
+  smtp-test:
+    image: ${RELEASE_BACKEND:?}
+    pull_policy: never
+    profiles: [full]
+    command: [python, /opt/release/smtp_double.py]
+    user: '10001:10001'
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    networks: [mail]
+    volumes:
+      - ./backend/tests/integration/smtp_double.py:/opt/release/smtp_double.py:ro
+    healthcheck:
+      test: [CMD, python, -c, "import smtplib; s=smtplib.SMTP('127.0.0.1',1025,timeout=2); assert s.ehlo()[0]==250; s.close()"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    logging:
+      driver: local
+      options: {max-size: 5m, max-file: '2'}
+  # SMTP has no data network, database credentials, files or forwarding code.
+  # API/probe check the real local protocol, worker uses the existing sender.
+networks:
+  mail: {internal: true}

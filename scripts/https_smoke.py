@@ -27,7 +27,7 @@ def free_port() -> str:
 
 
 @contextmanager
-def browser_trust():
+def browser_trust(ca_file=".certs/ca.crt"):
     nickname = "akbrizcase-test-" + uuid.uuid4().hex
     # Chromium also supports the legacy location for backward compatibility.
     # Create it consistently so the pinned browser and newer system Chromium
@@ -44,7 +44,7 @@ def browser_trust():
                     [*prefix, "-N", "--empty-password"], check=True, capture_output=True
                 )
             subprocess.run(
-                [*prefix, "-A", "-t", "C,,", "-n", nickname, "-i", ".certs/ca.crt"],
+                [*prefix, "-A", "-t", "C,,", "-n", nickname, "-i", str(ca_file)],
                 check=True,
                 capture_output=True,
             )

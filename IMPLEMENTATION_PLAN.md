@@ -531,6 +531,13 @@ base `mvp-038-privacy-cleanup`), без закрытия release gates MVP-037/0
 - **Проверка:** наблюдаемый прогон оператором/менеджером на staging с фиксацией недостающих шагов и их исправлением.
 - **Не входит:** дополнительные контентные UI и создание документов в текущем задании на план.
 
+#### RELEASE-001 — отдельный инженерный follow-up: полный synthetic staging
+
+- **Контекст:** после PERF-001, base `048bb7ef1cfe47322f4fdd79173a21a1c57db839`; нумерация MVP-001–056 не меняется.
+- **Объём:** [закрытый `full-synthetic-staging`](docs/RELEASE-001-full-staging.md), отдельная строгая modes schema, controller/DB ownership, локальный SMTP sink, реальные AV/sandbox pipelines, synthetic collection и связанные browser/domain проверки, profile-bound acceptance и совместимый rollback. Исходный reduced rehearsal сохраняется.
+- **Проверка:** оба release rehearsal на exact HEAD плюс все девять обязательных CI jobs; фактический MVP048_RESULT/v2 отдельно, без изменения pilot200-v1 или порогов. Ресурсные показатели полного Compose не подменяются результатом обычного runner stack.
+- **Не входит:** оптимизация PERF-001, target load без отдельной авторизации, реальные данные/инфраструктура, merge/deploy, production admission. Диагностический performance FAIL и внешние gates MVP-037/038/042/043/048/050 остаются открытыми; FULL_MVP/REDUCED_PILOT/TARGET_LOAD — BLOCKED, NO-GO, human decision PENDING.
+
 ### Этап 9. Критический регресс, контент и допуск пилота — MVP-044–MVP-050
 
 Эти задачи собирают межмодульные проверки поверх локальных тестов предыдущих PR, а не откладывают тестирование до конца. При полном MVP обязательны все; у согласованного сокращённого пилота явно фиксируются только исключённые функциональные проверки, а не «успешные» результаты отсутствующих функций.

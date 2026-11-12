@@ -1,5 +1,9 @@
 # MVP-043 — checklist передачи
 
+[RELEASE-001](RELEASE-001-full-staging.md) добавляет полный изолированный synthetic
+release-профиль для последующей закрытой приёмки. Автоматический rehearsal не
+подписывает человеческую передачу и не закрывает внешние условия этого checklist.
+
 **Передача людям и production acceptance: BLOCKED.** Назначения, полный целевой
 staging, production providers и внешние согласования не предоставлены. Не считать
 CI, localhost TLS или synthetic evidence человеческой/юридической приёмкой.

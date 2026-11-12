@@ -1,0 +1,21 @@
+# Trusted real-ClamAV synthetic composition, confined to owned rehearsals.
+services:
+  api:
+    command: [python, /opt/release/browser_media_server.py, --documents]
+    volumes: &fixture-mounts
+      - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
+  probe:
+    command: [python, /opt/release/browser_media_server.py, --release-probe]
+    volumes: *fixture-mounts
+  worker:
+    environment:
+      PYTHONPATH: /app:/opt/release
+    volumes:
+      - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
+      - ./scripts/worker_probe.py:/opt/release/worker_probe.py:ro
+      - ./scripts/notification_retry_probe.py:/opt/release/notification_retry_probe.py:ro
+    healthcheck:
+      test: [CMD, python, /opt/release/browser_media_server.py, --release-probe, --worker]
+      interval: 5s
+      timeout: 5s
+      retries: 12
