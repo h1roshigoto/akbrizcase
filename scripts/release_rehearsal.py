@@ -7,17 +7,19 @@ Only a newly claimed random local Compose namespace can be exercised.
 import argparse
 import json
 import os
-from pathlib import Path
+import re
 import secrets
 import socket
 import sys
 import tempfile
+import traceback
 import uuid
+from pathlib import Path
 
 from release import (
-    MODES,
     FULL_MODES,
     FULL_PROFILE,
+    MODES,
     REDUCED_PROFILE,
     REPO,
     SCHEMA,
@@ -274,6 +276,7 @@ def verify_leaks(
         "worker",
         "nginx",
         "postgres",
+        *(("smtp-test",) if release.full else ()),
     )
     for secret in extra:
         require(secret not in logs)
@@ -473,7 +476,31 @@ def main() -> int:
         else:
             exercise(root, first, second)
         return 0
-    except Exception:
+    except Exception as error:
+        # Locations and fixed browser stages identify failed acceptance without
+        # printing child exceptions, SQL, DOM, request bodies or credentials.
+        frames = traceback.extract_tb(error.__traceback__)
+        print(
+            "REHEARSAL_FAILURE_LOCATION "
+            + type(error).__name__
+            + " "
+            + ",".join(
+                f"{Path(frame.filename).name}:{frame.lineno}" for frame in frames
+            ),
+            file=sys.stderr,
+        )
+        match = re.search(
+            r"MVP046_BROWSER_FAILED stage=([A-Za-z0-9._-]+) line=([0-9]+|unknown)",
+            str(error),
+        )
+        if match:
+            print(
+                "REHEARSAL_BROWSER_STAGE_"
+                + match[1].replace(".", "_").replace("-", "_")
+                + "_LINE_"
+                + match[2],
+                file=sys.stderr,
+            )
         print("REHEARSAL_BLOCKED", file=sys.stderr)
         return 1
 

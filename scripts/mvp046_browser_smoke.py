@@ -50,6 +50,8 @@ def run_browser(
     probe = smtp_probe or prepare_smtp(config, compose, stack, prefix, temporary)
 
     def domain(operation, **extra):
+        if smtp_probe is not None:
+            print("FULL_REHEARSAL_DOMAIN_" + operation.upper(), flush=True)
         stack.verify_database()
         return json.loads(
             compose(

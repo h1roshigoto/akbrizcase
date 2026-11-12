@@ -6,10 +6,10 @@ mail and expert packets are synthetic; no target load or real infrastructure.
 
 import json
 import os
-from pathlib import Path
 import secrets
 import subprocess
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 from https_smoke import browser_trust
@@ -37,14 +37,20 @@ def seed(release):
     require(release.sql("SELECT count(*) FROM app.orders") == "0")
     require(release.sql("SELECT count(*) FROM app.staff_users") == "0")
     passwords = {role: secrets.token_urlsafe(32) for role in ("admin", "manager")}
+    print("FULL_REHEARSAL_SEED_CATALOG_STAFF", flush=True)
     execute(
         release,
         """
 import json, sys
 from app.core.db import Database, DatabaseSettings
 from app.core.staff import bootstrap_admin, create_staff
+from app.core.staff import authenticate_operator
 from app.modules.catalog.seed import seed_catalog
+from app.modules.catalog.models import CatalogItem
+from app.modules.catalog.write_dto import ItemFields, ItemEdit
+from app.modules.catalog.write_service import CatalogWriteService
 from app.modules.orders.seed import seed_consent
+from sqlalchemy import select
 d=Database(DatabaseSettings.from_environment())
 seed_catalog(d, mode='full-synthetic-staging')
 seed_consent(d, mode='full-synthetic-staging')
@@ -52,6 +58,14 @@ p=json.load(sys.stdin)
 with d.unit_of_work() as s:
  assert bootstrap_admin(s,login='browser-admin',password=p['admin']).ok
  assert create_staff(s,admin_login='browser-admin',admin_password=p['admin'],login='browser-manager',password=p['manager'],role='manager').ok
+ actor=authenticate_operator(s,'browser-admin',p['admin'])
+ assert actor
+ # The linked MVP-046 journey deliberately mixes fixed and unknown prices.
+ # Match that existing fixture through its owning service, including revision.
+ row=s.scalars(select(CatalogItem).where(CatalogItem.sku=='DEMO-S-001')).one()
+ fields={key:getattr(row,key) for key in ItemFields.model_fields}
+ fields.update(price_mode='on_request',price=None)
+ CatalogWriteService(s,actor).edit_item(row.id,ItemEdit(**fields,expected_revision=row.revision))
 d.close()
 """,
         passwords,
@@ -61,6 +75,7 @@ d.close()
     release.sql(
         "GRANT INSERT, UPDATE, DELETE ON app.consent_texts TO akbrizcase_runtime; GRANT INSERT ON app.consent_publications TO akbrizcase_runtime"
     )
+    print("FULL_REHEARSAL_SEED_CONTENT", flush=True)
     content = json.loads(
         execute(
             release,
@@ -69,6 +84,7 @@ d.close()
             args=("--existing-operator",),
         )
     )
+    print("FULL_REHEARSAL_SEED_READY", flush=True)
     return {
         "origin": f"https://localhost:{release.config['port']}",
         "passwords": passwords,
@@ -243,6 +259,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         environment = os.environ.copy()
         environment["NODE_EXTRA_CA_CERTS"] = str(root / "ca.crt")
         with browser_trust(root / "ca.crt"):
+            print("FULL_REHEARSAL_BROWSER_START", flush=True)
             result = run_browser(
                 environment,
                 config,
@@ -264,6 +281,8 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 capture_output=True,
                 timeout=120,
             )
+            if child.returncode:
+                print("FULL_REHEARSAL_STAFF_FAILED", flush=True)
             require(child.returncode == 0)
         before = retained(release)
         print("FULL_REHEARSAL_DEPENDENCIES", flush=True)
@@ -368,6 +387,9 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                         {r["MemUsage"] for r in resource_samples}
                     ),
                     "api_connection_ceiling": 24,
+                    "max_cpu_percent": max(
+                        float(r["CPUPerc"].rstrip("%")) for r in resource_samples
+                    ),
                 }
             ),
             flush=True,

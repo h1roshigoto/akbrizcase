@@ -200,10 +200,14 @@ def notification(settings: SMTPSettings, claim: Claim) -> EmailMessage:
 
 def send_notification(settings: SMTPSettings, claim: Claim) -> None:
     try:
-        if isinstance(release_modes(), FullReleaseModes):
-            require_files()
-            if settings.mode != "staging-sink":
+        modes = release_modes()
+        if modes is not None:
+            if (
+                not isinstance(modes, FullReleaseModes)
+                or settings.mode != "staging-sink"
+            ):
                 raise ValueError
+            require_files()
     except ValueError:
         raise SendFailure("SMTP_UNAVAILABLE") from None
     message = notification(settings, claim)
