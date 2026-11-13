@@ -582,9 +582,11 @@ try {
           stage = `D.images.${buyer.name}.${item.kind}.detail`
           await expect(buyer.page.locator('.item-detail > .item-image img')).toHaveAttribute('src', images.get(item.id))
         } else {
-          await expect(card.getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          const placeholder = item.kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует'
+          await expect(card.getByRole('img', { name: placeholder, exact: true })).toBeVisible()
+          if (item.kind === 'service') await expect(card).not.toContainText('Изображение отсутствует')
           await card.getByRole('button', { name: item.name, exact: true }).click()
-          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: placeholder, exact: true })).toBeVisible()
         }
         await visible(buyer.page)
       }

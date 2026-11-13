@@ -65,7 +65,8 @@ export async function catalogMedia({ browser, context, page, origin, created, su
     await show();
     for (const kind of ['product', 'service']) {
       const card = results.getByRole('article').filter({ hasText: created[kind].sku });
-      await expect(card.getByRole('img', { name: 'Изображение отсутствует' })).toBeVisible();
+      await expect(card.getByRole('img', { name: kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует' })).toBeVisible();
+      if (kind === 'service') await expect(card).not.toContainText('Изображение отсутствует');
       assert.equal(await card.locator('img').count(), 0);
     }
     await react.screenshot({ path: '/tmp/mvp026-react-placeholder.png', fullPage: true });
