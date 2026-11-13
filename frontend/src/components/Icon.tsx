@@ -1,4 +1,5 @@
 type IconName =
+  | 'warning'
   | 'box'
   | 'service'
   | 'search'
@@ -8,6 +9,7 @@ type IconName =
   | 'bag'
   | 'close'
 const paths: Record<IconName, string> = {
+  warning: 'M12 3 2 21h20L12 3Zm0 6v5m0 3v1',
   box: 'm12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9M7.5 5.5l9 5',
   service: 'm14 6 4 4m-9 6-5 5-2-2 5-5m2-6a6 6 0 0 0 8 8l5-5-5 1-3-3 1-5-5 4Z',
   search: 'm21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
