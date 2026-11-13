@@ -7,10 +7,16 @@ function Scenarios({
   model,
   disabled,
   onStart,
+  onKnowledge,
+  onSupport,
+  supportAvailable,
 }: {
   model: UUID
   disabled: boolean
   onStart: (input: ChatInput) => void
+  onKnowledge: () => void
+  onSupport: () => void
+  supportAvailable: boolean
 }) {
   const [attempt, setAttempt] = useState(0)
   const load = useCallback(
@@ -52,10 +58,13 @@ function Scenarios({
             ))}
           </div>
         ) : (
-          <p>
-            Для этой модели нет доступных опубликованных сценариев. Можно
-            выбрать другую модель или обратиться к специалисту.
-          </p>
+          <div role="status">
+            <p>Для этой модели нет доступных опубликованных сценариев. Можно выбрать другую модель, открыть документацию или обратиться к специалисту.</p>
+            <div className="chat-controls">
+              <button className="secondary-button" disabled={disabled} onClick={onKnowledge}>Открыть документацию</button>
+              {supportAvailable && <button className="secondary-button" disabled={disabled} onClick={onSupport}>Обратиться к специалисту</button>}
+            </div>
+          </div>
         ))}
       <button
         className="text-button"
@@ -70,9 +79,15 @@ function Scenarios({
 export function DiagnosisMenu({
   disabled,
   onStart,
+  onKnowledge,
+  onSupport,
+  supportAvailable,
 }: {
   disabled: boolean
   onStart: (input: ChatInput) => void
+  onKnowledge: () => void
+  onSupport: () => void
+  supportAvailable: boolean
 }) {
   const [model, setModel] = useState<UUID | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -91,10 +106,13 @@ export function DiagnosisMenu({
     )
   return (
     <section className="chat-panel" aria-label="Начало диагностики">
-      <h2>Выбор сценария</h2>
+      <h2>Диагностика оборудования</h2>
+      <ol className="diagnosis-progress" aria-label="Шаги диагностики">
+        <li>Модель</li><li>Проблема</li><li>Вопросы и ответы</li><li>Результат</li>
+      </ol>
       <p>
-        Выбор модели обновляет меню. Текущая диагностика заменится только после
-        явного запуска сценария.
+        1. Выберите модель. 2. Выберите проблему оборудования из опубликованных проверок.
+        Затем отвечайте на вопросы. Новая проверка начнётся только при нажатии на её название.
       </p>
       <label>
         Модель для диагностики
@@ -130,6 +148,9 @@ export function DiagnosisMenu({
           key={model}
           model={model}
           disabled={disabled}
+          onKnowledge={onKnowledge}
+          onSupport={onSupport}
+          supportAvailable={supportAvailable}
           onStart={(input) => {
             onStart(input)
             setSelecting(false)

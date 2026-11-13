@@ -448,7 +448,7 @@ try {
   safe((await throttled.json()).error.code === 'RATE_LIMITED', 'Actual quota envelope')
   await rpc('quota_saturated', { session_id: own.session_id })
   const refresh = limited.page.waitForResponse(r => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/v1/chat/sessions/${own.session_id}`)
-  await limited.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+  await limited.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
   const refreshed = await refresh
   stage = 'E.429.refresh.' + refreshed.status()
   safe(refreshed.status() === 200, 'Current session read remains available')
@@ -548,7 +548,7 @@ try {
     safe((await (await buyer.context.request.get(`${config.origin}/api/v1/catalog/items?model_id=${config.model_id}`)).json()).total === 0, 'Filter total after revoke')
   }
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await current(kb.page).getByText(product.sku, { exact: true }).waitFor()
     const credentials = await owner(kb.page)
     const session = await (await kb.context.request.get(`${config.origin}/api/v1/chat/sessions/${credentials.session_id}`, { headers: { 'X-Chat-Token': credentials.session_token } })).json()
@@ -638,7 +638,7 @@ try {
 
   await rpc('unchanged')
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await expect(current(kb.page).getByText(product.sku, { exact: true })).toHaveCount(0)
     const projected = await kb.context.request.post(config.origin + '/api/v1/chat/messages', { data: kb.commerce.body, headers: { 'Content-Type': 'application/json', 'X-Chat-Token': kb.commerce.token } })
     safe(projected.status() === 200 && (await projected.json()).reply.items.length === 0, 'Archived product removed from current commerce/replay')
@@ -658,7 +658,7 @@ try {
   }
   await rpc('revoke_public')
   for (const item of knowledge) {
-    await item.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await item.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await expect(current(item.page).getByRole('link')).toHaveCount(0)
     await item.page.reload()
     await current(item.page).waitFor()

@@ -391,7 +391,7 @@ it('catalog creates no chat until opening; navigation preserves the selected ite
     screen.getAllByRole('button', { name: 'Добавить в список' })[0]!,
   )
   await user.click(screen.getByRole('link', { name: 'Помощник' }))
-  await screen.findByRole('heading', { name: 'Помощник по оборудованию' })
+  await screen.findByRole('heading', { name: 'Технический помощник' })
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   expect(api.create).toHaveBeenCalledTimes(1)
   await user.click(screen.getByRole('button', { name: 'Вернуться в каталог' }))
@@ -437,7 +437,7 @@ it('keeps the chat open and the selection unchanged when 50 positions plus an ac
   expect(onRequest).not.toHaveBeenCalled()
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   expect(
-    screen.getByRole('heading', { name: 'Помощник по оборудованию' }),
+    screen.getByRole('heading', { name: 'Технический помощник' }),
   ).toBeTruthy()
 })
 
@@ -499,12 +499,12 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
     expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   }
   act(() => window.history.back())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Технический помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.back())
   await checkView('#catalog', 'Товары и услуги')
   act(() => window.history.forward())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Технический помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.forward())
   await checkView('#request', 'Оформление заявки')

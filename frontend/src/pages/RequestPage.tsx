@@ -689,8 +689,9 @@ export function RequestPage({
                 consent.data &&
                 policy.data.consent_version !== consent.data.version)) && (
               <p role="alert">
-                Политика недоступна или документы изменились. Отправка
-                заблокирована.
+                Политика недоступна или документы изменились. Галочки и отправка
+                заблокированы до загрузки действующих документов. Повторите загрузку;
+                если ошибка сохраняется, обратитесь к владельцу портала.
                 <button type="button" onClick={refresh} disabled={!editing}>
                   Обновить документы
                 </button>

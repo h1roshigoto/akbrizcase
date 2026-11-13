@@ -1,0 +1,38 @@
+{
+  "approval_status": "SYNTHETIC ONLY",
+  "approval_ref": "SYNTHETIC:MVP-POLISH-001:LOCAL",
+  "approved_at": "2026-11-13T00:00:00Z",
+  "retention": {
+    "chat_access_hours": 24,
+    "chat_storage_days": 30,
+    "order_pii_after_terminal_days": 180,
+    "linked_snapshots_after_terminal_days": 180,
+    "commercial_snapshots_after_terminal_days": 365,
+    "consent_evidence": "until_order_deleted",
+    "consent_text": "immutable_permanent",
+    "audit_days": 90,
+    "technical_logs_days": 14,
+    "outbox_sent_days": 30,
+    "outbox_failed_days": 30,
+    "outbox_pending": "manual_review_no_ttl",
+    "outbox_pending_review_hours": 24,
+    "backup_days": 14,
+    "deletion_journal_days": 14,
+    "expert_review_after_content_retired_days": 365,
+    "publication_evidence_after_content_retired_days": 365,
+    "open_order_review_days": 180,
+    "open_orders": "manual_review_no_ttl"
+  },
+  "policy": {
+    "version": "SYNTHETIC-POLISH-POLICY-v1",
+    "text": "SYNTHETIC ONLY. Учебная политика закрытого локального демо. Формы предназначены исключительно для синтетических данных; реальные персональные данные вводить запрещено. Учебные заявки, согласия и история обработки сохраняются в изолированной локальной базе. Уведомления направляются только в локальный SMTP sink. Этот комплект не утверждён для реальной эксплуатации.",
+    "checksum": "889f50c31f58022382259e3abea458e7e303125974606982cb5e6a4a68e24e6b",
+    "withdrawal_instructions": "SYNTHETIC ONLY. Для удаления учебных данных обратитесь к владельцу локального демо по согласованному тестовому каналу. Не передавайте документы или реальные персональные данные."
+  },
+  "consent": {
+    "version": "SYNTHETIC-POLISH-001-v1",
+    "purpose": "SYNTHETIC ONLY — учебная заявка в закрытом локальном демо",
+    "text": "SYNTHETIC ONLY. Учебный текст согласия для закрытого локального показа. Разрешены только вымышленные имя, организация и тестовые контакты. Данные используются для демонстрации создания и обработки заявки. Не вводите реальные персональные данные. Этот текст не является утверждённым компанией юридическим документом.",
+    "checksum": "2ec55d606769b4ca18281b5c17dc09ee2fb52aff496110ec468d745605496a9b"
+  }
+}
