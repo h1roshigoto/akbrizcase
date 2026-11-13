@@ -52,22 +52,22 @@ future adoption should first define domain-appropriate content and semantics.
 | Check | Actual result |
 | --- | --- |
 | Frontend Vitest | 236 passed, 15 files, including 6 new foundation tests |
-| TypeScript and Vite build | PASS; before final CSS adjustment, rerun required for final artifact |
+| TypeScript and Vite build | PASS after final CSS adjustment; CSS 66.06 kB, JS 340.69 kB (gzip 14.54/104.29 kB) |
 | Backend unit/contracts | 1245 passed, 1723 deselected using the configured non-integration selection |
 | Backend lint/format/types | Ruff PASS, 266 formatted files; mypy PASS, 248 source files |
 | Repository acceptance guards | 174 passed |
 | Real PostgreSQL commercial regression | 64 passed, 86.99 s; original transaction/replay/consent/status/SMTP/privacy cases preserved |
 | Baseline browser | 6 PASS: 1440/768/390 widths × light/dark; real API, loading, empty/reset, transport error/retry, keyboard, no overflow |
-| DESIGN-001 after browser | Pending candidate build/apply at implementation commit |
-| Existing full visual smoke | Pending candidate build/apply |
-| Full GitHub Actions | Pending Draft PR; no CI or performance PASS inferred from local checks |
+| DESIGN-001 after browser | 6 PASS on implementation `8f6d3ca57d01f8c332aeaef91003eea500f2f31b`: both themes × three sizes, contrast/focus/44px/forced colors included |
+| Existing full visual smoke | PASS: desktop/mobile both themes, WebGL lifecycle/fallback, cart keyboard, form validation, documents, chat/wizard and trainer |
+| Full GitHub Actions | Triggered by Draft PR; actual per-job snapshot is in the PR delivery report, no performance PASS inferred from local checks |
 
 The initial ad-hoc backend container run failed 101 tests because its image does
 not include the shared frontend contracts/root scripts. Repeated with the complete
 repository mounted read-only at `/workspace`: all 1245 passed. No test or guard
 was weakened. The initial browser runner selector ambiguously matched two reset
 buttons; scoped recovery to the actual status panel, then all baseline cases passed.
-Host-native browser install was unavailable; the container runner described below
+The first existing visual smoke reached the Node HTTP client without the development CA; adding `NODE_EXTRA_CA_CERTS` to the disposable browser runner resolved it and the full smoke passed. Host-native browser install was unavailable; the container runner described below
 resolved that toolchain problem with certificate verification retained.
 
 Local checks with the pinned Node 24.19.0/npm 11.9.0 toolchain:
@@ -119,10 +119,10 @@ before/after fixtures, viewport, theme and fault scenarios are identical.
 
 | View | Before | After |
 | --- | --- | --- |
-| Desktop light catalog | [before](design-001/screenshots/before-desktop-light-catalog.png) | after capture pending |
-| Desktop light error | [before](design-001/screenshots/before-desktop-light-error.png) | after capture pending |
-| Mobile dark catalog | [before](design-001/screenshots/before-mobile-dark-catalog.png) | after capture pending |
-| Mobile dark error | [before](design-001/screenshots/before-mobile-dark-error.png) | after capture pending |
+| Desktop light catalog | [before](design-001/screenshots/before-desktop-light-catalog.png) | [after](design-001/screenshots/after-desktop-light-catalog.png) |
+| Desktop light error | [before](design-001/screenshots/before-desktop-light-error.png) | [after](design-001/screenshots/after-desktop-light-error.png) |
+| Mobile dark catalog | [before](design-001/screenshots/before-mobile-dark-catalog.png) | [after](design-001/screenshots/after-mobile-dark-catalog.png) |
+| Mobile dark error | [before](design-001/screenshots/before-mobile-dark-error.png) | [after](design-001/screenshots/after-mobile-dark-error.png) |
 
 ## Limitations and release boundaries
 
@@ -130,5 +130,42 @@ Synthetic development only. Local controller acceptance is not a production
 readiness claim. The reported button p95 540.29 ms versus 300 ms and API memory
 peak at 512 MiB remain open; thresholds and limits are unchanged. Full signed-CVD,
 real legal/content/company rights and operator/infrastructure admission are still
-separate gates. No original catalog data was imported and no stable MVP resource
-was changed. See PRODUCT-001 for detailed acceptance criteria and next tasks.
+separate gates. No original catalog data was imported. The development and stable volumes,
+networks and bind sources are disjoint. Stable containers were discovered stopped
+at 09:07 Istanbul during this task, with cause undetermined; checkout and volumes
+are retained. No task stop/start/recreate targeted that namespace. Availability
+of the stable MVP is an explicit unresolved operational issue, not an isolation PASS.
+See [isolation evidence](design-001/isolation.json). See PRODUCT-001 for detailed acceptance criteria and next tasks.
+
+
+## Changed files
+
+Implementation:
+
+- `frontend/src/components/Button.tsx`
+- `frontend/src/components/Icon.tsx`
+- `frontend/src/components/StatusPanel.tsx`
+- `frontend/src/design/tokens.css`
+- `frontend/src/design/controls.css`
+- `frontend/src/design/assets/design.css`
+- `frontend/src/pages/CatalogPage.tsx`
+- `frontend/src/styles.css`
+
+Tests:
+
+- `frontend/src/test/designFoundation.test.tsx`
+- `frontend/tests/design-foundation.mjs`
+
+Documentation/evidence:
+
+- `docs/PRODUCT-001.md`
+- `docs/DESIGN-001.md`
+- `docs/design-001/isolation.json`
+- `docs/design-001/screenshots/before-desktop-light-catalog.png`
+- `docs/design-001/screenshots/before-desktop-light-error.png`
+- `docs/design-001/screenshots/before-mobile-dark-catalog.png`
+- `docs/design-001/screenshots/before-mobile-dark-error.png`
+- `docs/design-001/screenshots/after-desktop-light-catalog.png`
+- `docs/design-001/screenshots/after-desktop-light-error.png`
+- `docs/design-001/screenshots/after-mobile-dark-catalog.png`
+- `docs/design-001/screenshots/after-mobile-dark-error.png`

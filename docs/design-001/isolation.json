@@ -1,0 +1,31 @@
+{
+  "isolation_result": "PASS",
+  "stable_availability": "STOPPED_CAUSE_UNDETERMINED",
+  "dev_origin": "https://localhost:35067",
+  "dev_namespace": "akbriz-staging-55456c8ca283",
+  "stable_namespace": "akbriz-staging-3c79ca4d21cd",
+  "dev_volumes": [
+    "akbriz-staging-55456c8ca283_database",
+    "akbriz-staging-55456c8ca283_files"
+  ],
+  "stable_volumes": [
+    "akbriz-staging-3c79ca4d21cd_database",
+    "akbriz-staging-3c79ca4d21cd_files"
+  ],
+  "volumes_networks_bind_sources_disjoint": true,
+  "stable_git_clean": true,
+  "stable_head": "a7943888409a798d389bba3f1d382cc2cbc3a549",
+  "development_image_commit": "8f6d3ca57d01f8c332aeaef91003eea500f2f31b",
+  "development_ready_status": 200,
+  "frontend_status": 200,
+  "dev_oom_killed": false,
+  "stable_containers_preserved": true,
+  "stable_running_count": 0,
+  "stable_finished_at_utc": [
+    "2026-11-13T06:07:22.902322518Z",
+    "2026-11-13T06:07:22.987184173Z",
+    "2026-11-13T06:07:23.2195846Z",
+    "2026-11-13T06:07:23.556410804Z",
+    "2026-11-13T06:07:26.241788431Z"
+  ]
+}

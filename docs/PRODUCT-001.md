@@ -35,6 +35,16 @@ The development CA is `ca.crt` in the private root. Trust that CA explicitly in
 the browser used for local review; never disable certificate verification.
 The root is under `/tmp`, so continuity across host cleanup/reboot is not promised.
 
+A later Docker inspection found all five original stable containers retained but
+stopped, with FinishedAt 2026-11-13 06:07:22–26 UTC (09:07:22–26 Istanbul).
+They were running at the initial inspection. Stable checkout remains clean at
+the baseline and its two volumes are retained. No task command targeted that
+namespace for stop/start/recreate, and available Docker history did not establish
+the cause. Stable availability therefore cannot be reported as preserved. The
+task does not restart a possibly intentionally stopped deployment. Read-only
+inspection verifies disjoint volume, network and bind-source sets even while
+stable containers are stopped: [isolation evidence](design-001/isolation.json).
+
 The host has no project-compatible native Python/Node toolchain. Node 24.19.0
 and npm 11.9.0 were installed in `/tmp/akbriz-product-toolchain`; dependency
 versions and lockfiles were preserved. Python checks use the project's Python
@@ -87,7 +97,10 @@ staff credentials (`frontend/src/api/httpKnowledge.ts`).
 
 Do not duplicate backend business logic in React. Preserve the one client
 `frontend/src/chat/controller.ts:ChatController` across wizard/chat views and
-the server chat service/controller authority (`backend/app/modules/chat`). Keep
+the server chat authority (`backend/app/modules/chat/messages.py` and
+`mode_router.py:ModeRouter`). The literal class `ChatController` exists on the
+client; no server class with that name is present in this checkout. Preserve
+these existing server entrypoints rather than inventing another engine. Keep
 RBAC, CSRF/Origin, TLS/secure cookies, trusted proxy/origins, rate quotas,
 idempotency, session ownership, expected revisions, AV/quarantine, audit/privacy,
 backup/restore and release authority. No API DTO, migration, security limit,
@@ -254,7 +267,7 @@ The requested `(1).rar` path is absent. The accessible original archive
 the archive recorded by FRONT-INTEGRATION-001. Existing extracted original photo
 inventory is available under the private source directory. Its scripts were not
 executed and no private product/contact/price mapping was copied into frontend.
-Existing brand assets/poster were inspected; product photos await rights/review.
+Existing brand assets/poster and a private original board photo were visually inspected; product photos await rights/review and were not copied into this branch.
 
 1. Preserve immutable source archive hash, original path, member hash, source
    edition/date, rights/owner, extraction tool/version and import batch identity.
