@@ -151,11 +151,9 @@ it('opens the direct support hash and preserves edits across catalog navigation 
   render(<CatalogPage source={source} orders={api} />)
   await screen.findByRole('heading', { name: 'Обращение к специалисту' })
   await fill()
-  fireEvent.click(screen.getByRole('link', { name: 'Каталог' }))
-  await screen.findByRole('heading', { name: 'Товары и услуги' })
-  fireEvent.click(
-    screen.getByRole('link', { name: 'Обратиться к специалисту' }),
-  )
+  fireEvent.click(screen.getByRole('link', { name: 'Запчасти' }))
+  await screen.findByRole('heading', { name: 'Запчасти' })
+  act(() => {window.location.hash = '#support'; window.dispatchEvent(new HashChangeEvent('hashchange'))})
   await screen.findByRole('heading', { name: 'Обращение к специалисту' })
   expect(
     (screen.getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
@@ -548,12 +546,12 @@ it('retains form and selected values across catalog navigation while pending', a
   const api = orders()
   vi.mocked(api.submit).mockResolvedValue({ kind: 'uncertain' })
   render(<CatalogPage source={source} orders={api} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Оформить заявку' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Заявка' }))
   await fill()
   await approve()
   await screen.findByRole('button', { name: 'Повторить отправку' })
   fireEvent.click(screen.getByRole('button', { name: /Вернуться в каталог/ }))
-  fireEvent.click(screen.getByRole('button', { name: 'Оформить заявку' }))
+  fireEvent.click(screen.getByRole('link', { name: 'Заявка' }))
   expect(
     (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
   ).toBe('  Synthetic Buyer  ')
@@ -586,7 +584,7 @@ it('connects App catalog → form → real same-origin consent and POST adapters
   vi.stubGlobal('fetch', fetcher)
   window.history.replaceState(null, '', '/#catalog')
   render(<App />)
-  await userEvent.click(screen.getByRole('button', { name: 'Оформить заявку' }))
+  await userEvent.click(screen.getByRole('link', { name: 'Заявка' }))
   await fill()
   await approve()
   await screen.findByRole('heading', { name: /Заявка №/ })

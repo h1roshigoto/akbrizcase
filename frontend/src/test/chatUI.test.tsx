@@ -109,11 +109,7 @@ it('uses real model/scenario selection and only server buttons for transitions a
   mount(api)
   const user = userEvent.setup()
   await screen.findByRole('article', { name: 'Актуальный ответ' })
-  const select = await screen.findByLabelText('Модель для диагностики')
-  await waitFor(() =>
-    expect((select as HTMLSelectElement).disabled).toBe(false),
-  )
-  await user.selectOptions(select, fixtures.models.items[0]!.id)
+  await user.click(await screen.findByRole('button', {name:fixtures.models.items[0]!.name}))
   await user.click(
     await screen.findByRole('button', { name: 'Проверка модели' }),
   )
@@ -147,15 +143,11 @@ it('shows empty scenario state and resets the menu when the model changes', asyn
   )
   const { api } = mount()
   const user = userEvent.setup()
-  const select = await screen.findByLabelText('Модель для диагностики')
-  await waitFor(() =>
-    expect((select as HTMLSelectElement).disabled).toBe(false),
-  )
-  await user.selectOptions(select, fixtures.models.items[0]!.id)
+  await user.click(await screen.findByRole('button', {name:fixtures.models.items[0]!.name}))
   await screen.findByText(
     /Для этой модели нет доступных опубликованных сценариев/,
   )
-  await user.selectOptions(select, '')
+  await user.click(screen.getByRole('button', {name:'Изменить модификацию'}))
   expect(
     screen.queryByText(
       /Для этой модели нет доступных опубликованных сценариев/,
@@ -180,18 +172,18 @@ it('knowledge accepts nonblank bounded queries and shows actual no_match', async
     ),
   )
   mount(api)
-  const query = await screen.findByLabelText('Запрос по документации')
+  const query = await screen.findByLabelText('Сообщение')
   fireEvent.change(query, { target: { value: '   ' } })
   expect(
     (
       screen.getByRole('button', {
-        name: 'Отправить запрос',
+        name: 'Отправить',
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true)
   fireEvent.change(query, { target: { value: 'Синтетический запрос' } })
   await userEvent.click(
-    screen.getByRole('button', { name: 'Отправить запрос' }),
+    screen.getByRole('button', { name: 'Отправить' }),
   )
   await screen.findByText('Подтверждения не найдено')
   expect(JSON.parse(api.send.mock.calls[0]![0]).input.value).toBe(
@@ -234,7 +226,7 @@ it('does not create an unsafe or mismatched document link', () => {
       })}
     />,
   )
-  expect(screen.queryByRole('link')).toBeNull()
+  expect(screen.queryByRole('link', {name: source.title})).toBeNull()
 })
 it.each(['contact_specialist', 'open_request_form'] as const)(
   'handles %s support honestly without orders',
@@ -343,7 +335,7 @@ it('clears revoked history on refresh and leaves old actions inactive', async ()
   )
   await act(() => controller.refresh())
   expect(screen.queryByText('OLD_QUOTE')).toBeNull()
-  expect(screen.queryByRole('link')).toBeNull()
+  expect(screen.queryByRole('link', {name: source.title})).toBeNull()
 })
 it('shows storage limitation and 503 retry without pretending success', async () => {
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
@@ -359,11 +351,11 @@ it('shows storage limitation and 503 retry without pretending success', async ()
   await screen.findByText(
     /Восстановление после обновления страницы.*не гарантируются/,
   )
-  fireEvent.change(await screen.findByLabelText('Запрос по документации'), {
+  fireEvent.change(await screen.findByLabelText('Сообщение'), {
     target: { value: 'Синтетический текст' },
   })
   await userEvent.click(
-    screen.getByRole('button', { name: 'Отправить запрос' }),
+    screen.getByRole('button', { name: 'Отправить' }),
   )
   await screen.findByText(/Исход запроса неизвестен/)
   expect(
@@ -388,15 +380,15 @@ it('catalog creates no chat until opening; navigation preserves the selected ite
   })
   expect(api.create).not.toHaveBeenCalled()
   await user.click(
-    screen.getAllByRole('button', { name: 'Добавить в список' })[0]!,
+    screen.getAllByRole('button', { name: 'Добавить в заявку' })[0]!,
   )
-  await user.click(screen.getByRole('link', { name: 'Помощник' }))
-  await screen.findByRole('heading', { name: 'Помощник по оборудованию' })
+  await user.click(screen.getAllByRole('link', { name: 'Помощник' })[0]!)
+  await screen.findByRole('heading', { name: 'Помощник' })
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   expect(api.create).toHaveBeenCalledTimes(1)
-  await user.click(screen.getByRole('button', { name: 'Вернуться в каталог' }))
+  await user.click(screen.getAllByRole('link', { name: 'Запчасти' })[0]!)
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toHaveLength(1)
-  expect(screen.getByRole('heading', { name: 'Товары и услуги' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Запчасти' })).toBeTruthy()
 })
 
 it('keeps the chat open and the selection unchanged when 50 positions plus an action exceed the request limit', async () => {
@@ -437,7 +429,7 @@ it('keeps the chat open and the selection unchanged when 50 positions plus an ac
   expect(onRequest).not.toHaveBeenCalled()
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   expect(
-    screen.getByRole('heading', { name: 'Помощник по оборудованию' }),
+    screen.getByRole('heading', { name: 'Помощник' }),
   ).toBeTruthy()
 })
 
@@ -480,14 +472,14 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
     </StrictMode>,
   )
   const user = userEvent.setup()
-  await screen.findByRole('heading', { name: 'Товары и услуги' })
-  await user.click(screen.getByRole('link', { name: 'Помощник' }))
+  await screen.findByRole('heading', { name: 'Запчасти' })
+  await user.click(screen.getAllByRole('link', { name: 'Помощник' })[0]!)
   await user.click(
     await screen.findByRole('button', {
       name: 'Проверить коммерческую заявку',
     }),
   )
-  await screen.findByRole('heading', { name: 'Оформление заявки' })
+  await screen.findByRole('heading', { name: 'Заявка' })
   expect(window.location.hash).toBe('#request')
   fireEvent.change(screen.getByLabelText(/Контактное имя/), {
     target: { value: 'SYNTHETIC NAVIGATION' },
@@ -499,29 +491,29 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
     expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   }
   act(() => window.history.back())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.back())
-  await checkView('#catalog', 'Товары и услуги')
+  await checkView('#catalog', 'Запчасти')
   act(() => window.history.forward())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.forward())
-  await checkView('#request', 'Оформление заявки')
+  await checkView('#request', 'Заявка')
   expect(
     (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
   ).toBe('SYNTHETIC NAVIGATION')
   await user.click(screen.getByRole('button', { name: /Вернуться в каталог/ }))
-  await checkView('#catalog', 'Товары и услуги')
+  await checkView('#catalog', 'Запчасти')
   act(() => {
     window.location.hash = '#request'
   })
-  await checkView('#request', 'Оформление заявки')
+  await checkView('#request', 'Заявка')
   act(() => {
     window.location.hash = '#selection'
   })
-  await checkView('#selection', 'Товары и услуги')
-  await user.click(screen.getByRole('link', { name: 'Помощник' }))
+  await checkView('#selection', 'Запчасти')
+  await user.click(screen.getAllByRole('link', { name: 'Помощник' })[0]!)
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   expect(api.create).toHaveBeenCalledTimes(1)
   expect(api.read.mock.calls.length).toBeGreaterThanOrEqual(3)
@@ -537,15 +529,15 @@ it('preserves the query after 429 and sends only after explicit retry', async ()
   api.send.mockRejectedValueOnce(new ChatError(429, 'RATE_LIMITED'))
   api.send.mockResolvedValueOnce(result(1, reply('knowledge', { text: 'Accepted query' })))
   const { controller } = mount(api)
-  const query = await screen.findByLabelText('Запрос по документации')
+  const query = await screen.findByLabelText('Сообщение')
   fireEvent.change(query, { target: { value: 'SYNTHETIC retained query' } })
-  await userEvent.click(screen.getByRole('button', { name: 'Отправить запрос' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Отправить' }))
   await screen.findByText(/Слишком много запросов/)
   expect((query as HTMLTextAreaElement).value).toBe('SYNTHETIC retained query')
   expect(api.send).toHaveBeenCalledTimes(1)
   expect(controller.snapshot().pending).toBe(false)
   expect(controller.snapshot().version).toBe(0)
-  await userEvent.click(screen.getByRole('button', { name: 'Отправить запрос' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Отправить' }))
   await screen.findByText('Accepted query')
   expect(api.send).toHaveBeenCalledTimes(2)
   await waitFor(() => expect((query as HTMLTextAreaElement).value).toBe(''))

@@ -15,9 +15,9 @@ export function DocumentsPage() {
     : httpKnowledge.documents({ kind, limit: 20, offset }, signal).then(data => ({ type: 'documents' as const, data })), [q, kind, offset, attempt])
   const result = useResource(load)
   const submit = (e: FormEvent) => { e.preventDefault(); setQ(text.trim()); setOffset(0) }
-  return <main className="page-shell documents-page">
-    <div className="page-heading"><div><p className="eyebrow">ДОКУМЕНТЫ И ИСТОЧНИКИ</p><h1>Нормативная база</h1><p>Опубликованные документы и разрешённые фрагменты. Нет источника — нет технической рекомендации.</p></div></div>
-    <form className="search-form" onSubmit={submit}><label className="search-input"><span className="visually-hidden">Поиск по документам</span><input type="search" maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder="Поиск по опубликованным фрагментам" /></label><button className="primary-button">Найти</button></form>
+  return <main className="wrap restore-documents">
+    <div className="wrap pg"><h1>Нормативная база</h1><p className="lead">Нормативные акты и документы завода, на которые опираются ответы помощника.</p></div>
+    <form className="bar" onSubmit={submit}><label className="document-search"><span className="visually-hidden">Поиск по документам</span><input className="in" id="dsearch" type="search" maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder="Поиск по опубликованным фрагментам" /></label><button className="btn sm">Найти</button></form>
     <label className="document-kind">Вид документа<select value={kind ?? ''} disabled={!!q} onChange={e => { setKind(e.target.value ? e.target.value as NonNullable<DocumentQuery['kind']> : null); setOffset(0) }}><option value="">Все документы</option><option value="regulation">Нормативные акты</option><option value="manual">Руководства</option><option value="article">Статьи</option><option value="other">Другие материалы</option></select></label>
     {q && <p className="filter-note">Поиск по содержимому: {q}. <button className="text-button" onClick={() => { setQ(''); setText(''); setOffset(0) }}>Показать список документов</button></p>}
     <section aria-label="Опубликованные материалы" aria-busy={result.status === 'loading'}>

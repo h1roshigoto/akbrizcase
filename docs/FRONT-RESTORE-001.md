@@ -1,128 +1,103 @@
-# FRONT-RESTORE-001 — partial implementation; original archive required
+# FRONT-RESTORE-001 — local restoration continuation
 
-Restoration is **BLOCKED**, not complete. Only the two explicitly requested
-catalog image exceptions are implemented. The current portal, assistant and
-trainer have not been restored to the archive's design or behavior.
+PR: https://github.com/h1roshigoto/akbrizcase/pull/73. Branch: `codex/front-restore-001`.
+Baseline remains `a7943888409a798d389bba3f1d382cc2cbc3a549` (latest origin/main at inspection).
+The original cloud-only archive blocker is resolved. This is an **incomplete restoration**, not a 1:1 acceptance claim.
 
-Baseline: latest `origin/main` at inspection,
-`a7943888409a798d389bba3f1d382cc2cbc3a549` (PR #70 merged).
-Branch: `codex/front-restore-001`. PR #71 (`94a85e1`) and PR #72 (`472088a`)
-were open Drafts. Neither was merged or cherry-picked. PR #72 overlaps
-ItemImage/styles/tests and has a different assistant concept; any later integration
-requires explicit review against the original archive.
+## Verified original and stable
 
-## Missing inputs
+On the owner’s WSL host, `/home/hiros/demo-import/uik-support-chatbot-mtdka.rar`
+hashes to `860e2bf5d0afca1ff4850f3f741d7af42e639c53f38b2382cb2bc694d4d4eb10`.
+The `(1).rar` alternative is absent. 7-Zip reports 345 entries: 291 files and 54 directories.
+The six HTML pages, builder templates, JS/CSS, GLB, fonts and original E2E are available.
+The nested v0.2 archive contains 42 entries and no PDF originals.
+Original reference runs only on loopback at `http://localhost:45801` during review.
 
-This task runs in `/workspace/akbrizcase`, on a different machine from the
-owner's checkouts. Neither `/home/hiros/demo-import` nor `/home/hiros/src` exists
-here. Searches of the workspace, attachments, `/tmp` and agent home found no
-original RAR/ZIP or `mtdka-site` sources. The only supplied attachment is the
-26,830-byte text specification. Previous integration documentation records archive
-SHA-256 `860e2bf5d0afca1ff4850f3f741d7af42e639c53f38b2382cb2bc694d4d4eb10`;
-that is historical metadata, not an inspected archive in this task.
+Stable remains the accepted main release on `https://localhost:45767`.
+After Docker Desktop restarted, its existing stopped containers were resumed unchanged.
+HTTPS was verified using its saved CA. The actual public catalog has **16 positions,
+10 image URLs, two published models**. Synthetic privacy publication is enabled;
+one public teaching document exists. No stable source, accepted image, database
+record, price, publication status or volume was changed by this continuation.
 
-`curl --max-time 5 -I https://localhost:45767` returned connection refused.
-This says nothing about stable availability on the owner's machine. No live
-catalog, database, media inventory, PrivacyBundle or diagnostic content could be
-inspected. The reported 16 cards / 10 images therefore remain unverified.
+## Original presentation adapters
 
-To continue, attach the original archive and provide the task on the host with the
-development/stable checkouts, or make the approved isolated review environment
-and catalog transfer available. Do not send credentials or personal data in chat.
-Original HTML/CSS/JS/tests must be inspected before restoring the other surfaces.
+- Original CSS is byte-identical to `mtdka-site/assets/style.css`. Existing React
+  redesign overrides are followed by the original stylesheet plus narrow API adapters.
+- Header has the original six links; home sections and catalog framing use original
+  markup. Original HTML URL aliases resolve to the same React application.
+- Catalog uses the original three-column cards, live search, model choices,
+  add/quantity controls, detail panel and modal cart; it loads only `httpCatalog`.
+- Request uses the original two-column form/summary. Existing Submission, revision
+  review, exact money, consent/policy reads, explicit confirmation and replay remain.
+  Delivery calculator retains the original honest “manager confirms” behavior.
+- Assistant uses the original two tabs, quick choices and indicator panel. A single
+  ChatController still owns session/token/version/retry/ACL behavior. Indicator
+  questions go to server knowledge search, never to archive JS answers. Wizard
+  choices load published models/scenarios; source and feedback buttons remain server-owned.
+- 3D retains the original GLB and renderer, four original hotspot positions, popup
+  placement/mobile sheets and original dimension toggle. Hotspot text is read from
+  public knowledge APIs. Unsupported numerical dimensions are not asserted.
+- Existing ItemImage exceptions remain unchanged: exact left-post SKU → «На заказ»;
+  usable service photo first, neutral service icon otherwise.
 
-## Implemented behavior
+No `data.js`, hardcoded archive assortment, local technical answer engine, raw KB,
+real personal contacts, private material or external CDN is bundled.
 
-- Exact product SKU `ЯИУШ.301421.011-02` displays only **На заказ** in the
-  shared image area, including catalog and detail, even when it has a photo.
-  Matching is by SKU and product kind, not name or missing photo.
-- Services without a usable photo display the existing local technical SVG.
-  Their actual valid photos retain priority. Neither visible nor accessible
-  missing-image text is used for the service illustration.
-- Other products retain the existing fallback. Dimensions, theme colors and
-  server image URL validation are preserved. No catalog writes, price-mode
-  changes, seeds, backend/admin changes or security changes are included.
+## PR #72 compatibility
 
-## Actual verification
+No merge/cherry-pick of #71 or #72. The request/policy recovery copy from #72 is
+reused. Its stable synthetic privacy publication is verified as runtime state,
+not reproduced through a new seed. Its three-mode assistant UI is not imported.
+Existing commercial/support request mechanisms already present in main remain the
+business owners. Actual submission/SMTP checks on this candidate are still pending.
 
-| Check | Result |
-| --- | --- |
-| `npm --prefix frontend ci --cache /tmp/front-restore-npm-cache --no-audit --no-fund` | PASS; default cache first failed because agent home is read-only |
-| `npm --prefix frontend test` | PASS: 235 tests, 14 files; five additional image cases |
-| `make frontend-typecheck frontend-build` | PASS |
-| `make acceptance-guards` | PASS: 174 tests |
-| `node --check` on the three adjusted existing browser runners | PASS |
-| `front-restore-images.mjs` with system Chromium | PASS: desktop 1440×1000, mobile 390×844, light/dark; list/detail, unchanged price, other-product fallback, no override photo request, no page errors or horizontal overflow |
-| `git diff --check` | PASS |
-| Original archive E2E / reference comparison | BLOCKED: archive unavailable |
-| Backend/PostgreSQL/HTTPS commercial and linked browser integration | NOT RUN; no full application was provisioned for this partial change |
-| CI | Consult the PR's current checks; local results above do not certify CI |
+## Outstanding differences and publication gate
 
-The presentation browser runner intercepts synthetic catalog responses **only
-inside Playwright**. It writes no database or product data and submits no orders.
-Production code still uses the existing HTTP API with no fixture fallback.
-These screenshots do not establish live catalog preservation, original-design
-matching, successful order submission or complete security regression coverage.
+The archive’s original repair answers, source quotes, model-specific diagnostic
+tables, original trainer boot/calibration/fault scenarios and technical parameter
+table have **not** been published or claimed restored. Architecture §§3.1–3.3,
+§10.2 and MVP-027/028 require actual source bytes, expert review and authenticated
+publication. The current server has only a synthetic teaching corpus. Possession
+of a ZIP/JS file is not an expert review record. No approval names or evidence are
+fabricated. Owner input was requested for the approved source/review packet.
 
-```sh
-npm --prefix frontend run preview -- --port 4173
-CHROMIUM_EXECUTABLE=/usr/bin/chromium node frontend/tests/front-restore-images.mjs <<'JSON'
-{"origin":"http://127.0.0.1:4173","screenshot_dir":"/tmp/front-restore-images"}
-JSON
-```
+Consequently the trainer remains the pre-existing synthetic simulation. Hotspot
+contents and dimensions differ until the corresponding material is published.
+Home contact area uses synthetic role labels and the existing protected support
+form rather than real personal contacts or the original fake-success quick form.
+Request retains the backend-supported minimum contact fields and mandatory
+privacy/review controls; unsupported institution type/street address are not
+silently collected. Original static numeric part hashes are not backend UUIDs.
+Published document catalog may differ from the archive. These are material gaps:
+**ORIGINAL_DESIGN_MATCH, ORIGINAL_PAGES_RESTORED and ORIGINAL_FUNCTIONS_RESTORED
+must not be marked YES.**
 
-The retained `http://127.0.0.1:4173` preview serves built frontend assets only,
-with no API proxy. It is not the requested working full-site review URL.
+## Verification so far
 
-## Screenshots and changed files
+- Before edits: 235 frontend tests passed.
+- Current frontend: 241 tests passed; TypeScript and production build passed.
+- Unchanged original reference: **106/106 original HTTP E2E passed**, using the
+  repository’s pinned Playwright package. This certifies the reference, not candidate parity.
+- PostgreSQL run encountered exhausted Docker address pools. Exactly eight unused
+  networks from two stopped disposable rehearsal namespaces were released after
+  checking zero endpoints; stable and PR #72 review networks, all containers and
+  all volumes were retained. A repeat and final result are pending.
+- Initial backend container run lacked sibling frontend/scripts paths and failed
+  on missing test inputs; a corrected read-only whole-repo run is pending.
+- Full-stack candidate screenshots, real submission/SMTP, manager and negative
+  browser checks, Compose smoke and exact-head CI remain pending.
 
-All eight [screenshots](front-restore-001/screenshots/) are explicitly synthetic:
-`{desktop,mobile}-{light,dark}-{catalog,left-post-detail}-synthetic.png`.
-They show the two image exceptions on the existing portal. Screenshots of the
-other original pages and reference/candidate pairs are blocked by missing source.
+Historical `*-synthetic.png` screenshots from the first PR commit remain explicitly
+synthetic and are not evidence of original matching or full-stack acceptance.
 
-Changed source/test files:
+## Stable adoption after approval
 
-- `frontend/src/components/ItemImage.tsx`
-- `frontend/src/styles.css`
-- `frontend/src/test/images.test.tsx`
-- `frontend/tests/catalog-media.mjs`
-- `frontend/tests/live-catalog.mjs`
-- `frontend/tests/mvp046-e2e.mjs`
-- `frontend/tests/front-restore-images.mjs`
-
-Also this report and the eight screenshots. Existing image browser assertions
-now require the precise service illustration rather than the obsolete service
-missing-image text; photo replacement/removal/ACL assertions remain in place.
-
-## Acceptance status
-
-```text
-ORIGINAL_DESIGN_MATCH=BLOCKED_ARCHIVE_MISSING
-ORIGINAL_PAGES_RESTORED=NO
-ORIGINAL_FUNCTIONS_RESTORED=NO
-EXISTING_CATALOG_PRESERVED=NO_DATA_WRITES_LIVE_INVENTORY_UNVERIFIED
-LEFT_POST_ON_REQUEST=PASS_SYNTHETIC_LIST_AND_DETAIL
-SERVICE_ICONS=PASS_SYNTHETIC_LIST_AND_DETAIL
-REAL_BACKEND_INTEGRATION=EXISTING_CLIENTS_UNCHANGED_NOT_VERIFIED
-COMMERCIAL_REQUEST_WORKING=NOT_VERIFIED
-ORIGINAL_CHAT_WORKING=NOT_RESTORED
-ORIGINAL_WIZARD_WORKING=NOT_RESTORED
-3D_VIEWER_WORKING=UNCHANGED_NOT_VERIFIED
-TRAINER_WORKING=UNCHANGED_NOT_VERIFIED
-DESKTOP_MOBILE=PASS_IMAGE_EXCEPTIONS_ONLY
-LIGHT_DARK=PASS_IMAGE_EXCEPTIONS_ONLY
-SECURITY_REGRESSION=NOT_FULLY_VERIFIED_NO_CONTRACT_CHANGES
-LOCAL_REVIEW_URL=UNAVAILABLE_FULL_BACKEND_SITE
-```
-
-## Stable update after independent review
-
-Do not update stable from this partial branch. Once restoration and independent
-review are complete, use the existing RELEASE-001 authority workflow on the
-owner's host: exact reviewed commit and immutable image/source manifest, controller
-`check`, then authorized `apply` to the existing isolated namespace. See
-[RELEASE-001](RELEASE-001-full-staging.md#controller-stages-upgrade-and-recovery) for source checks,
-accepted-candidate rollback and retained volumes. Inspect the current root and
-manifest before running commands; their paths are unknown on this cloud host.
-Never rerun fresh preparation/seed against the existing stable database.
+Do not merge or replace stable automatically. Once source/publication decisions,
+independent review, required regression/HTTPS acceptance and exact-head CI pass:
+use RELEASE-001 to build immutable images from the approved SHA, validate the
+manifest and release authority, back up/check restore according to MVP-042,
+apply through the existing release controller against the retained stable root,
+and repeat HTTPS commerce/chat/manager/media smoke. Preserve catalog, orders,
+consent history, audit, photos and volumes. No fresh seed, downgrade, stamp,
+volume deletion, manual authority edit or direct development DB connection.

@@ -1,5 +1,4 @@
 @import './design/assets/fonts/golos-text.css';
-@import './design/assets/design.css';
 
 /* React adapters for the supplied MTD-KA design. Business components retain
    their semantics, API contracts and error states. All colours follow theme. */
