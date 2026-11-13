@@ -382,7 +382,7 @@ try {
     const kb = await context.newPage()
     await kb.goto(config.origin + '/#chat')
     await current(kb).waitFor()
-    await kb.getByRole('button', { name: 'Документация', exact: true }).click()
+    await kb.getByRole('button', { name: 'Найти документацию', exact: true }).click()
     await kb.getByLabel('Запрос по документации').fill('Синтетическийквантопылесос')
     const answer = kb.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
     await kb.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
@@ -429,7 +429,7 @@ try {
   const quotaPage = await quotaContext.newPage()
   await quotaPage.goto(config.origin + '/#chat')
   await current(quotaPage).waitFor()
-  await quotaPage.getByRole('button', { name: 'Документация', exact: true }).click()
+  await quotaPage.getByRole('button', { name: 'Найти документацию', exact: true }).click()
   await expect(quotaPage.getByLabel('Запрос по документации')).toBeEnabled()
   const limited = { context: quotaContext, page: quotaPage }
   const own = await owner(limited.page)
@@ -448,7 +448,7 @@ try {
   safe((await throttled.json()).error.code === 'RATE_LIMITED', 'Actual quota envelope')
   await rpc('quota_saturated', { session_id: own.session_id })
   const refresh = limited.page.waitForResponse(r => r.request().method() === 'GET' && new URL(r.url()).pathname === `/api/v1/chat/sessions/${own.session_id}`)
-  await limited.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+  await limited.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
   const refreshed = await refresh
   stage = 'E.429.refresh.' + refreshed.status()
   safe(refreshed.status() === 200, 'Current session read remains available')
@@ -525,7 +525,7 @@ try {
   // Commerce deliberately has no model input: verify its current public
   // projection/revision and source privacy, rather than inventing confirmed.
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Товары и услуги', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Подобрать запчасти', exact: true }).click()
     await kb.page.getByLabel('Поиск товаров и услуг', { exact: true }).fill(product.sku)
     const exchange = kb.page.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
     await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
@@ -548,7 +548,7 @@ try {
     safe((await (await buyer.context.request.get(`${config.origin}/api/v1/catalog/items?model_id=${config.model_id}`)).json()).total === 0, 'Filter total after revoke')
   }
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await current(kb.page).getByText(product.sku, { exact: true }).waitFor()
     const credentials = await owner(kb.page)
     const session = await (await kb.context.request.get(`${config.origin}/api/v1/chat/sessions/${credentials.session_id}`, { headers: { 'X-Chat-Token': credentials.session_token } })).json()
@@ -582,9 +582,9 @@ try {
           stage = `D.images.${buyer.name}.${item.kind}.detail`
           await expect(buyer.page.locator('.item-detail > .item-image img')).toHaveAttribute('src', images.get(item.id))
         } else {
-          await expect(card.getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          await expect(card.getByRole('img', { name: item.kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует', exact: true })).toBeVisible()
           await card.getByRole('button', { name: item.name, exact: true }).click()
-          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: item.kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует', exact: true })).toBeVisible()
         }
         await visible(buyer.page)
       }
@@ -638,7 +638,7 @@ try {
 
   await rpc('unchanged')
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await expect(current(kb.page).getByText(product.sku, { exact: true })).toHaveCount(0)
     const projected = await kb.context.request.post(config.origin + '/api/v1/chat/messages', { data: kb.commerce.body, headers: { 'Content-Type': 'application/json', 'X-Chat-Token': kb.commerce.token } })
     safe(projected.status() === 200 && (await projected.json()).reply.items.length === 0, 'Archived product removed from current commerce/replay')
@@ -651,14 +651,14 @@ try {
   // Restore the actual citation as the current answer after the commerce
   // checks, so withdrawal is visible in current reply as well as history.
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Документация', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Найти документацию', exact: true }).click()
     await kb.page.getByLabel('Запрос по документации').fill('Синтетическийквантопылесос')
     await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
     await expect(current(kb.page).locator('.chat-text')).toHaveText('Цитаты из опубликованных материалов (не диагноз):\n\n[1] Синтетическийквантопылесос: точная цитата для проверки.')
   }
   await rpc('revoke_public')
   for (const item of knowledge) {
-    await item.page.getByRole('button', { name: 'Перечитать сессию', exact: true }).click()
+    await item.page.getByRole('button', { name: 'Восстановить диалог', exact: true }).click()
     await expect(current(item.page).getByRole('link')).toHaveCount(0)
     await item.page.reload()
     await current(item.page).waitFor()

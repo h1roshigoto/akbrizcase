@@ -1,0 +1,327 @@
+{
+  "akbriz-staging-3c79ca4d21cd": [
+    {
+      "service": "api",
+      "image": "sha256:6ed6cd72df4508c423156055a71a45a190c0673021d425e24f1dae871a194b29",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-3c79ca4d21cd_files"
+      ],
+      "networks": [
+        "akbriz-staging-3c79ca4d21cd_data",
+        "akbriz-staging-3c79ca4d21cd_mail",
+        "akbriz-staging-3c79ca4d21cd_web"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "worker",
+      "image": "sha256:6ed6cd72df4508c423156055a71a45a190c0673021d425e24f1dae871a194b29",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-3c79ca4d21cd_files"
+      ],
+      "networks": [
+        "akbriz-staging-3c79ca4d21cd_data",
+        "akbriz-staging-3c79ca4d21cd_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "nginx",
+      "image": "sha256:16da19e5aa84f7a9cef20e786456004c70f46a1bc6f24fa72f1d6153d07bc570",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-3c79ca4d21cd_ingress",
+        "akbriz-staging-3c79ca4d21cd_web"
+      ],
+      "ports": {
+        "8443/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "45767"
+          }
+        ]
+      },
+      "migrator_mount": false
+    },
+    {
+      "service": "postgres",
+      "image": "sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-3c79ca4d21cd_database"
+      ],
+      "networks": [
+        "akbriz-staging-3c79ca4d21cd_data"
+      ],
+      "ports": {},
+      "migrator_mount": true
+    },
+    {
+      "service": "smtp-test",
+      "image": "sha256:6ed6cd72df4508c423156055a71a45a190c0673021d425e24f1dae871a194b29",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-3c79ca4d21cd_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    }
+  ],
+  "akbriz-staging-b920d22c96bb": [
+    {
+      "service": "api",
+      "image": "sha256:bed11360a82868e17dee590224cc0f8f29067b1df9e273f53c3a45b27537c1f0",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-b920d22c96bb_files"
+      ],
+      "networks": [
+        "akbriz-staging-b920d22c96bb_data",
+        "akbriz-staging-b920d22c96bb_mail",
+        "akbriz-staging-b920d22c96bb_web"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "worker",
+      "image": "sha256:bed11360a82868e17dee590224cc0f8f29067b1df9e273f53c3a45b27537c1f0",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-b920d22c96bb_files"
+      ],
+      "networks": [
+        "akbriz-staging-b920d22c96bb_data",
+        "akbriz-staging-b920d22c96bb_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "nginx",
+      "image": "sha256:bf3a081ea01fabc46e3bf99ac76c38008d56a3ba76f81f157b5642a42aad0b9f",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-b920d22c96bb_ingress",
+        "akbriz-staging-b920d22c96bb_web"
+      ],
+      "ports": {
+        "8443/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "34203"
+          }
+        ]
+      },
+      "migrator_mount": false
+    },
+    {
+      "service": "postgres",
+      "image": "sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-b920d22c96bb_database"
+      ],
+      "networks": [
+        "akbriz-staging-b920d22c96bb_data"
+      ],
+      "ports": {},
+      "migrator_mount": true
+    },
+    {
+      "service": "smtp-test",
+      "image": "sha256:bed11360a82868e17dee590224cc0f8f29067b1df9e273f53c3a45b27537c1f0",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-b920d22c96bb_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    }
+  ],
+  "akbriz-staging-55456c8ca283": [
+    {
+      "service": "api",
+      "image": "sha256:651b116ce71b22873404365c502ecbdeae6d521cbbc1164418ea7e9d07594113",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-55456c8ca283_files"
+      ],
+      "networks": [
+        "akbriz-staging-55456c8ca283_data",
+        "akbriz-staging-55456c8ca283_mail",
+        "akbriz-staging-55456c8ca283_web"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "worker",
+      "image": "sha256:651b116ce71b22873404365c502ecbdeae6d521cbbc1164418ea7e9d07594113",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-55456c8ca283_files"
+      ],
+      "networks": [
+        "akbriz-staging-55456c8ca283_data",
+        "akbriz-staging-55456c8ca283_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    },
+    {
+      "service": "nginx",
+      "image": "sha256:ad6877ede45235fbfb41d76a9862e9d5a9fb6f21d6680853e1e22f22868a71c2",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-55456c8ca283_ingress",
+        "akbriz-staging-55456c8ca283_web"
+      ],
+      "ports": {
+        "8443/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "35067"
+          }
+        ]
+      },
+      "migrator_mount": false
+    },
+    {
+      "service": "postgres",
+      "image": "sha256:472efd9a66f2b2f1a5aeb18b28de74332e6ef88c2b93a1a5d812fb6db67a5f60",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [
+        "akbriz-staging-55456c8ca283_database"
+      ],
+      "networks": [
+        "akbriz-staging-55456c8ca283_data"
+      ],
+      "ports": {},
+      "migrator_mount": true
+    },
+    {
+      "service": "smtp-test",
+      "image": "sha256:651b116ce71b22873404365c502ecbdeae6d521cbbc1164418ea7e9d07594113",
+      "running": true,
+      "oom_killed": false,
+      "volumes": [],
+      "networks": [
+        "akbriz-staging-55456c8ca283_mail"
+      ],
+      "ports": {},
+      "migrator_mount": false
+    }
+  ],
+  "stable_database": {
+    "PUBLISHED_EQUIPMENT_MODELS": 2,
+    "PUBLISHED_DIAGNOSTIC_TREES": 1,
+    "PUBLIC_KB_DOCUMENTS": 1,
+    "ASSISTANT_ALLOWED_SECTIONS": 1,
+    "catalog_total": 17,
+    "catalog_published": 16,
+    "orders": 2,
+    "staff": 2,
+    "initial_status_history": 1,
+    "privacy_publish_audit": 1,
+    "kb_publish_audit": 1,
+    "tree_publish_audit": 1,
+    "snapshots": [
+      {
+        "sku_snapshot": "DEMO-SRC-V01",
+        "qty": 1,
+        "unit_price_snapshot": "7000.00",
+        "catalog_revision_snapshot": 3
+      },
+      {
+        "sku_snapshot": "ЯИУШ.301421.011-02",
+        "qty": 1,
+        "unit_price_snapshot": "110000.00",
+        "catalog_revision_snapshot": 3
+      }
+    ],
+    "order_audit_actions": [],
+    "content_audit": [
+      {
+        "action": "kb.check",
+        "result": "READY_FOR_MANUAL_REVIEW",
+        "count": 1
+      },
+      {
+        "action": "kb.import",
+        "result": "IMPORTED_DRAFT",
+        "count": 1
+      },
+      {
+        "action": "kb.preview",
+        "result": "success",
+        "count": 1
+      },
+      {
+        "action": "kb.publish",
+        "result": "success",
+        "count": 1
+      },
+      {
+        "action": "kb.review",
+        "result": "success",
+        "count": 1
+      },
+      {
+        "action": "tree.check",
+        "result": "STRUCTURALLY_VALID_DRAFT",
+        "count": 1
+      },
+      {
+        "action": "tree.import",
+        "result": "IMPORTED_DRAFT",
+        "count": 1
+      },
+      {
+        "action": "tree.preview",
+        "result": "PREVIEW",
+        "count": 1
+      },
+      {
+        "action": "tree.publish",
+        "result": "PUBLISHED",
+        "count": 1
+      }
+    ]
+  },
+  "stable_https": {
+    "/readyz": 200,
+    "/privacy-policy": 200,
+    "/api/v1/privacy-policy": 200,
+    "/api/v1/consent-text": 200
+  },
+  "review_https": {
+    "/readyz": 200,
+    "/privacy-policy": 200,
+    "/api/v1/privacy-policy": 200,
+    "/api/v1/consent-text": 200
+  }
+}

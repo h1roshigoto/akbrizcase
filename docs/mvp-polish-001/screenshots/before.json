@@ -1,0 +1,129 @@
+{
+  "tls": "trusted",
+  "errors": [],
+  "http": [
+    {
+      "path": "/api/v1/equipment-models",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/55f1c095-34b5-40f6-a727-feff1c3b0edc/image/33588c72803897040f4491dba9a6275fa499c93fedffe9bafa54c086cbea212e.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/cdd920eb-bad9-4e78-88b3-ab086abd75ae/image/eb07c34e7f737ffcd4ae8a0b0c937cac2e234bed5de3a12349b343deb5e307c8.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/dc36596b-1b4c-43e1-99c3-290897742600/image/98959ee08c67408a2b2c1ef01af90909aa2f62396f4f10a6e84898b4a9d73121.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/bd23c049-1a7f-44a4-b156-5811e72b9657/image/bcac2293482d999d64b4b87ef748fc79276357a92562523215de68f3b7df996f.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/e27a0f58-c271-47ef-be3c-1609214e5d56/image/094c675401ba6283e46cd40ee65edf3b178a0eeeb0cfb060080b28c3d17a5553.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/f2f81324-5091-4c34-a607-1ac2a2fe1bb8/image/ec8328ea152a19762967b31d202cba6e2a6e4bfc8ed7911c171650cc9beba9e2.jpg",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/3ee4c7a0-7446-4384-80d6-c8416d1fb1d1",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/3ee4c7a0-7446-4384-80d6-c8416d1fb1d1",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/4688e4c5-1f94-408e-9625-e77d1bddae8d",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/4688e4c5-1f94-408e-9625-e77d1bddae8d",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/catalog/items/3ee4c7a0-7446-4384-80d6-c8416d1fb1d1",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/consent-text",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/privacy-policy",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/consent-text",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/privacy-policy",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/sessions",
+      "status": 201
+    },
+    {
+      "path": "/api/v1/equipment-models",
+      "status": 200
+    }
+  ],
+  "form": {
+    "text": "← Вернуться в каталог\n\nОБЗОР И ПОДТВЕРЖДЕНИЕ\n\nОформление заявки\n\nПроверьте позиции и предварительные цены. Выбранное сохраняется при возвращении в каталог. Полный адрес, сроки и цена доставки согласуются менеджером после отправки заявки.\n\nВыбранные товары и услуги\n\nЗагружаем актуальные позиции…\n\nКонтактные данные\n\nУкажите хотя бы один контакт: email или телефон.\n\nКонтактное имя *\nEmail\nТелефон\nОрганизация (необязательно)\nКомментарий (необязательно)\nОткрыть политику обработки персональных данных\n\nЗагружаем политику…\n\nСогласие на обработку данных\n\nЗагружаем действующий текст…\n\nЯ прочитал(а) текст и явно принимаю согласие этой версии\nПодтверждаю показанные позиции, количества, предварительные суммы и введённые данные\n\nНеизвестные цены и доставка уточняются менеджером. Отправка не означает договор, счёт или оплату.\n\nПодтвердить и отправить заявку",
+    "checkboxes": [
+      {
+        "disabled": true,
+        "checked": false,
+        "pointerEvents": "auto"
+      },
+      {
+        "disabled": true,
+        "checked": false,
+        "pointerEvents": "auto"
+      }
+    ],
+    "selection": "see form"
+  },
+  "chatText": "Вернуться в каталог\n\nПОМОЩЬ ПО ОПУБЛИКОВАННЫМ ДОКУМЕНТАМ\n\nПомощник по оборудованию\nЧат с помощником\nПодбор по шагам\n\nНе указывайте в чате ФИО, телефон, email и другие персональные данные. Для обращения используйте предназначенную для этого форму.\n\nОтветы основаны на опубликованных материалах и не заменяют консультацию специалиста.\n\nЗагружаем ответ…\n\nПеречитать сессию",
+  "models": [
+    {
+      "id": "29f5d407-a0d8-40bd-aaf0-74efc09da768",
+      "code": "MTD-KA-01",
+      "name": "МТД-КА-01",
+      "description": "Исходное обозначение модели из каталога mtdka-site/builder/content.py. Применимость позиций требует подтверждения."
+    },
+    {
+      "id": "1148f47f-90fc-4708-8c81-ab7bd3d68759",
+      "code": "MTD-KA-18",
+      "name": "МТД-КА-18",
+      "description": "Исходное обозначение модели из каталога mtdka-site/builder/content.py. Применимость позиций требует подтверждения."
+    }
+  ],
+  "scenarios": [
+    {
+      "code": "MTD-KA-01",
+      "status": 200,
+      "body": {
+        "items": []
+      }
+    },
+    {
+      "code": "MTD-KA-18",
+      "status": 200,
+      "body": {
+        "items": []
+      }
+    }
+  ]
+}

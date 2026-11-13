@@ -142,12 +142,13 @@ export function ChatPage({
       <button className="text-button" onClick={onBack}>
         Вернуться в каталог
       </button>
-      <div className="page-heading"><div><p className="eyebrow">ПОМОЩЬ ПО ОПУБЛИКОВАННЫМ ДОКУМЕНТАМ</p><h1>Помощник по оборудованию</h1></div></div>
+      <div className="page-heading"><div><p className="eyebrow">ПОМОЩЬ ПО ОПУБЛИКОВАННЫМ ДОКУМЕНТАМ</p><h1>Технический помощник</h1></div></div>
+      <p className="assistant-intro">Выберите оборудование и получите помощь с диагностикой, документацией или подбором запчастей.</p>
       <nav className="assistant-tabs" aria-label="Способ поиска неисправности">
         <button className="secondary-button" aria-pressed={presentation === 'chat'} onClick={() => onPresentation?.('chat')}>Чат с помощником</button>
         <button className="secondary-button" aria-pressed={presentation === 'steps'} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button>
       </nav>
-      {presentation === 'steps' && <p className="training-notice">Пошаговый вид использует ту же серверную сессию. Для начала выберите режим «Диагностика», модель и опубликованный сценарий.</p>}
+      {presentation === 'steps' && <p className="training-notice">Можно переключаться между чатом и пошаговым видом: ход проверки сохранится. Выберите модель и проблему оборудования, затем отвечайте на вопросы. В конце вы получите результат или сможете обратиться к специалисту.</p>}
       <p className="chat-privacy">
         Не указывайте в чате ФИО, телефон, email и другие персональные данные.
         Для обращения используйте предназначенную для этого форму.
@@ -176,7 +177,7 @@ export function ChatPage({
           disabled={state.busy}
           onClick={() => void controller.start()}
         >
-          Создать новую сессию
+          Начать заново
         </button>
       )}
       {!state.terminal && (
@@ -189,7 +190,7 @@ export function ChatPage({
               void controller.refresh()
             }}
           >
-            Перечитать сессию
+            Восстановить диалог
           </button>
           {state.pending && (
             <button
@@ -208,14 +209,16 @@ export function ChatPage({
             <legend>Режим помощника</legend>
             {(
               [
-                ['diagnose', 'Диагностика'],
-                ['knowledge', 'Документация'],
-                ['commerce', 'Товары и услуги'],
+                ['diagnose', 'Диагностика оборудования', 'Выберите модель и начните пошаговую проверку.'],
+                ['knowledge', 'Найти документацию', 'Задайте технический вопрос по опубликованным материалам.'],
+                ['commerce', 'Подобрать запчасти', 'Найдите товар или услугу по названию или артикулу.'],
               ] as const
-            ).map(([mode, label]) => (
+            ).map(([mode, label, hint]) => (
               <button
-                className="secondary-button"
+                className="secondary-button assistant-direction"
                 key={mode}
+                aria-label={label}
+                aria-describedby={`assistant-${mode}-hint`}
                 aria-pressed={reply.mode === mode}
                 onClick={() => {
                   setText('')
@@ -223,13 +226,20 @@ export function ChatPage({
                   void controller.send({ type: 'select_mode', mode })
                 }}
               >
-                {label}
+                <span>{label}</span>
+                <small id={`assistant-${mode}-hint`}>{hint}</small>
               </button>
             ))}
           </fieldset>
           {reply.mode === 'diagnose' && (
             <DiagnosisMenu
               disabled={disabled}
+              onKnowledge={() => void controller.send({ type: 'select_mode', mode: 'knowledge' })}
+              onSupport={() => {
+                const action = reply.actions.find((a) => a.type === 'contact_specialist')
+                if (action) void act(action)
+              }}
+              supportAvailable={reply.actions.some((a) => a.type === 'contact_specialist')}
               onStart={(input) => {
                 setActionNotice('')
                 void controller.send(input)
@@ -273,6 +283,7 @@ export function ChatPage({
               <textarea
                 id="chat-query"
                 value={text}
+                placeholder={reply.mode === 'knowledge' ? 'Например: индикация МТД-КА' : 'Введите название или точный артикул'}
                 disabled={disabled}
                 minLength={1}
                 maxLength={1000}

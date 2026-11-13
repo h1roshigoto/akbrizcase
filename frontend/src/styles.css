@@ -270,3 +270,16 @@ select { padding: 10px; background: var(--field-bg); border: 1px solid var(--fie
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Local presentation assets; real validated catalog images keep priority. */
+.image-placeholder.on-request-illustration { color: var(--heading); gap: 12px; }
+.on-request-illustration span { font-size: clamp(24px, 3vw, 32px); font-weight: 600; }
+.on-request-illustration small { font-size: 13px; color: var(--muted); }
+.image-placeholder.service-illustration { width: 100%; color: var(--accent); gap: 12px; }
+.image-placeholder .service-art { width: 160px; height: 96px; max-width: 100%; }
+.service-illustration span { color: var(--heading); font-size: 15px; font-weight: 500; }
+.selected-image .service-art { height: 36px; }
+.assistant-intro { color: var(--muted); max-width: 760px; }
+.chat-modes .assistant-direction { flex: 1 1 220px; text-align: left; display: grid; gap: 8px; padding: 18px; }
+.assistant-direction small { font-size: 13px; font-weight: 400; line-height: 1.5; }
+.diagnosis-progress { display: flex; flex-wrap: wrap; gap: 8px 28px; padding-left: 24px; color: var(--muted); font-size: 14px; }

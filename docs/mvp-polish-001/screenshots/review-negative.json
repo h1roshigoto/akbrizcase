@@ -1,0 +1,6 @@
+{
+  "scenario_error_retry": true,
+  "exact_retry": true,
+  "session_ownership": true,
+  "policy_fail_closed_and_recovery": true
+}

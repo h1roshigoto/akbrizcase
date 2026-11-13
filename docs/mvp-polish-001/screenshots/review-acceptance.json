@@ -1,0 +1,86 @@
+{
+  "tls": "trusted",
+  "http": [
+    {
+      "path": "/api/v1/chat/sessions",
+      "status": 201
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/sessions/8ac7d71f-8ef1-4d99-b178-8fc82f4a9812",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/sessions/8ac7d71f-8ef1-4d99-b178-8fc82f4a9812",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "catalog_desktop": true,
+  "catalog_mobile": true,
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "models": 2,
+  "diagnostic_complete_path": true,
+  "restored": true,
+  "unsupported_model": true,
+  "knowledge": true,
+  "source_file_status": 200,
+  "commerce": true,
+  "support_handoff": "form shown, no auto submission",
+  "chat_sessions_created": 1,
+  "shared_session": true
+}

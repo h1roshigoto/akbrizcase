@@ -1,0 +1,30 @@
+{
+  "tls": "trusted",
+  "policy": {
+    "/privacy-policy": 200,
+    "/api/v1/privacy-policy": 200,
+    "/api/v1/consent-text": 200,
+    "collection_enabled": true,
+    "consent_version_match": true,
+    "version": "SYNTHETIC-POLISH-001-v1"
+  },
+  "errors": [],
+  "http_status": 201,
+  "receipt": {
+    "number": 1,
+    "status": "new",
+    "known_subtotal": "117000.00",
+    "items_total": "117000.00",
+    "delivery_status": "pending_quote",
+    "delivery_cost": null,
+    "total_amount": null,
+    "currency": "RUB"
+  },
+  "retry_status": 200,
+  "duplicate_protection": true,
+  "checkboxes": {
+    "mouse": true,
+    "keyboard": true,
+    "automatic_consent": false
+  }
+}

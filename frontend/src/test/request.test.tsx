@@ -830,3 +830,21 @@ it.each([false, true])(
     expect(api.submit).not.toHaveBeenCalled()
   },
 )
+
+
+it('recovers document loading with a fresh explicit review and no automatic consent', async () => {
+  saved()
+  const api = orders()
+  vi.mocked(api.getPolicy).mockRejectedValueOnce(new Error('unavailable'))
+  render(<Harness api={api} />)
+  await screen.findByText(/Галочки и отправка заблокированы/)
+  expect((accept() as HTMLInputElement).disabled).toBe(true)
+  expect((confirm() as HTMLInputElement).disabled).toBe(true)
+  fireEvent.change(screen.getByLabelText(/Контактное имя/), { target: { value: 'Synthetic recovery' } })
+  await userEvent.click(screen.getByRole('button', { name: 'Обновить документы' }))
+  await waitFor(() => expect((accept() as HTMLInputElement).disabled).toBe(false))
+  expect((accept() as HTMLInputElement).checked).toBe(false)
+  expect((confirm() as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value).toBe('Synthetic recovery')
+  expect(api.submit).not.toHaveBeenCalled()
+})

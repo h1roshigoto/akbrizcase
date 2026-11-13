@@ -37,3 +37,40 @@ describe('server catalog image boundary', () => {
     expect(screen.queryByAltText(product.name)).toBeNull()
   })
 })
+
+
+describe('catalog presentation fallbacks', () => {
+  const stand = { ...product, sku: 'ЯИУШ.301421.011-02', image_url: null }
+  it('marks only the exact left-post SKU and preserves its commercial fields', () => {
+    const { rerender } = render(<ItemImage item={stand} />)
+    expect(screen.getByRole('img', { name: 'На заказ' })).toBeTruthy()
+    expect(screen.getByText('Поставка по согласованию')).toBeTruthy()
+    expect(screen.queryByText('Изображение отсутствует')).toBeNull()
+    rerender(<ItemImage item={{ ...stand, sku: stand.sku + '-other' }} />)
+    expect(screen.getByRole('img', { name: 'Изображение отсутствует' })).toBeTruthy()
+    expect(screen.queryByText('На заказ')).toBeNull()
+    expect(stand.price).toBe(product.price)
+    expect(stand.price_mode).toBe(product.price_mode)
+  })
+  it('uses a neutral local illustration for services without an image', () => {
+    const { container } = render(<ItemImage item={image(null, 'service')} />)
+    expect(screen.getByRole('img', { name: 'Сервисная услуга' })).toBeTruthy()
+    expect(container.querySelector('svg[aria-hidden="true"]')).toBeTruthy()
+    expect(container.querySelector('img')).toBeNull()
+    expect(screen.queryByText('Изображение отсутствует')).toBeNull()
+    expect(screen.queryByText('На заказ')).toBeNull()
+  })
+  it.each(['product', 'service'] as const)('keeps real validated %s images ahead of design assets', (kind) => {
+    const url = path('a'.repeat(64))
+    render(<ItemImage item={{ ...stand, kind, image_url: url as CatalogCard['image_url'] }} />)
+    expect(screen.getByAltText(product.name).getAttribute('src')).toBe(url)
+    expect(screen.queryByText('На заказ')).toBeNull()
+    expect(screen.queryByText('Сервис и поддержка')).toBeNull()
+  })
+  it.each(['product', 'service'] as const)('restores the appropriate %s design after an image error', (kind) => {
+    render(<ItemImage item={{ ...stand, kind, image_url: path('b'.repeat(64)) as CatalogCard['image_url'] }} />)
+    fireEvent.error(screen.getByAltText(product.name))
+    expect(screen.getByRole('img', { name: kind === 'service' ? 'Сервисная услуга' : 'На заказ' })).toBeTruthy()
+    expect(screen.queryByText('Изображение отсутствует')).toBeNull()
+  })
+})

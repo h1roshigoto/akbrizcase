@@ -1,6 +1,6 @@
 import { policyFixture } from './privacyFixture'
 import { StrictMode } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { CatalogPage } from '../pages/CatalogPage'
@@ -391,7 +391,7 @@ it('catalog creates no chat until opening; navigation preserves the selected ite
     screen.getAllByRole('button', { name: 'Добавить в список' })[0]!,
   )
   await user.click(screen.getByRole('link', { name: 'Помощник' }))
-  await screen.findByRole('heading', { name: 'Помощник по оборудованию' })
+  await screen.findByRole('heading', { name: 'Технический помощник' })
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   expect(api.create).toHaveBeenCalledTimes(1)
   await user.click(screen.getByRole('button', { name: 'Вернуться в каталог' }))
@@ -437,7 +437,7 @@ it('keeps the chat open and the selection unchanged when 50 positions plus an ac
   expect(onRequest).not.toHaveBeenCalled()
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   expect(
-    screen.getByRole('heading', { name: 'Помощник по оборудованию' }),
+    screen.getByRole('heading', { name: 'Технический помощник' }),
   ).toBeTruthy()
 })
 
@@ -499,12 +499,12 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
     expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toEqual(existing)
   }
   act(() => window.history.back())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Технический помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.back())
   await checkView('#catalog', 'Товары и услуги')
   act(() => window.history.forward())
-  await checkView('#chat', 'Помощник по оборудованию')
+  await checkView('#chat', 'Технический помощник')
   await screen.findByRole('article', { name: 'Актуальный ответ' })
   act(() => window.history.forward())
   await checkView('#request', 'Оформление заявки')
@@ -549,4 +549,40 @@ it('preserves the query after 429 and sends only after explicit retry', async ()
   await screen.findByText('Accepted query')
   expect(api.send).toHaveBeenCalledTimes(2)
   await waitFor(() => expect((query as HTMLTextAreaElement).value).toBe(''))
+})
+
+it('explains the three assistant tasks and sends empty-scenario documentation to the same session', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => ({ ok: true, json: async () => path.includes('equipment-models') ? fixtures.models : { items: [] } })))
+  const api = transport()
+  api.send.mockResolvedValue(result(1, reply('knowledge')))
+  mount(api)
+  expect(await screen.findByRole('heading', {name:'Технический помощник'})).toBeTruthy()
+  expect(await screen.findByRole('button', {name:/Найти документацию/})).toBeTruthy()
+  expect(screen.getByRole('button', {name:/Подобрать запчасти/})).toBeTruthy()
+  const select = await screen.findByLabelText('Модель для диагностики')
+  await waitFor(() => expect((select as HTMLSelectElement).disabled).toBe(false))
+  await userEvent.selectOptions(select, fixtures.models.items[0]!.id)
+  await userEvent.click(await screen.findByRole('button', {name:'Открыть документацию'}))
+  await screen.findByLabelText('Запрос по документации')
+  expect(api.create).toHaveBeenCalledTimes(1)
+  expect(JSON.parse(api.send.mock.calls[0]![0]).input).toEqual({type:'select_mode',mode:'knowledge'})
+})
+
+it('offers the existing owner-protected specialist action when no scenario exists, without sending an order', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => ({ ok: true, json: async () => path.includes('equipment-models') ? fixtures.models : { items: [] } })))
+  const api = transport()
+  api.create.mockResolvedValue({...(await api.create('diagnose')),reply:reply('diagnose',{actions:[{type:'contact_specialist',payload:{kind:'support'}}]})})
+  api.create.mockClear()
+  const onSupport = vi.fn()
+  mount(api,{onSupport})
+  const select = await screen.findByLabelText('Модель для диагностики')
+  await waitFor(() => expect((select as HTMLSelectElement).disabled).toBe(false))
+  await userEvent.selectOptions(select,fixtures.models.items[0]!.id)
+  // Use the empty-scenario alternative, separate from the server reply action.
+  const menu = screen.getByRole('region',{name:'Начало диагностики'})
+  await userEvent.click(await within(menu).findByRole('button',{name:'Обратиться к специалисту'}))
+  expect(onSupport).toHaveBeenCalledOnce()
+  expect(onSupport.mock.calls[0]![1].session_id).toBe(id(1))
+  expect(api.send).not.toHaveBeenCalled()
+  expect(api.create).toHaveBeenCalledTimes(1)
 })
