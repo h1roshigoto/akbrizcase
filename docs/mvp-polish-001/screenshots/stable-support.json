@@ -1,0 +1,9 @@
+{
+  "number": 2,
+  "http_status": 201,
+  "source": "chat",
+  "kind": "support",
+  "items": 0,
+  "no_post_before_confirmation": true,
+  "explicit_mouse_and_keyboard_confirmation": true
+}

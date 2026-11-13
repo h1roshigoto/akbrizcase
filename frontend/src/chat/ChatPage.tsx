@@ -148,7 +148,7 @@ export function ChatPage({
         <button className="secondary-button" aria-pressed={presentation === 'chat'} onClick={() => onPresentation?.('chat')}>Чат с помощником</button>
         <button className="secondary-button" aria-pressed={presentation === 'steps'} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button>
       </nav>
-      {presentation === 'steps' && <p className="training-notice">Пошаговый вид использует ту же серверную сессию. Выберите модель и проблему оборудования, затем отвечайте на вопросы. В конце вы получите результат или сможете обратиться к специалисту.</p>}
+      {presentation === 'steps' && <p className="training-notice">Можно переключаться между чатом и пошаговым видом: ход проверки сохранится. Выберите модель и проблему оборудования, затем отвечайте на вопросы. В конце вы получите результат или сможете обратиться к специалисту.</p>}
       <p className="chat-privacy">
         Не указывайте в чате ФИО, телефон, email и другие персональные данные.
         Для обращения используйте предназначенную для этого форму.
@@ -217,6 +217,8 @@ export function ChatPage({
               <button
                 className="secondary-button assistant-direction"
                 key={mode}
+                aria-label={label}
+                aria-describedby={`assistant-${mode}-hint`}
                 aria-pressed={reply.mode === mode}
                 onClick={() => {
                   setText('')
@@ -225,7 +227,7 @@ export function ChatPage({
                 }}
               >
                 <span>{label}</span>
-                <small>{hint}</small>
+                <small id={`assistant-${mode}-hint`}>{hint}</small>
               </button>
             ))}
           </fieldset>

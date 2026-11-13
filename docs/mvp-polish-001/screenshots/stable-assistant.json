@@ -1,0 +1,80 @@
+{
+  "tls": "trusted",
+  "http": [
+    {
+      "path": "/api/v1/chat/sessions",
+      "status": 201
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/sessions/6c9a94ad-d501-484f-9e68-c75b37879977",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/sessions/6c9a94ad-d501-484f-9e68-c75b37879977",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/scenarios",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/chat/messages",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "models": 2,
+  "diagnostic_complete_path": true,
+  "restored": true,
+  "unsupported_model": true,
+  "knowledge": true,
+  "source_file_status": 200,
+  "commerce": true,
+  "support_handoff": "form shown, no auto submission",
+  "chat_sessions_created": 1,
+  "shared_session": true
+}

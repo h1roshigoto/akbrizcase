@@ -382,7 +382,7 @@ try {
     const kb = await context.newPage()
     await kb.goto(config.origin + '/#chat')
     await current(kb).waitFor()
-    await kb.getByRole('button', { name: 'Документация', exact: true }).click()
+    await kb.getByRole('button', { name: 'Найти документацию', exact: true }).click()
     await kb.getByLabel('Запрос по документации').fill('Синтетическийквантопылесос')
     const answer = kb.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
     await kb.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
@@ -429,7 +429,7 @@ try {
   const quotaPage = await quotaContext.newPage()
   await quotaPage.goto(config.origin + '/#chat')
   await current(quotaPage).waitFor()
-  await quotaPage.getByRole('button', { name: 'Документация', exact: true }).click()
+  await quotaPage.getByRole('button', { name: 'Найти документацию', exact: true }).click()
   await expect(quotaPage.getByLabel('Запрос по документации')).toBeEnabled()
   const limited = { context: quotaContext, page: quotaPage }
   const own = await owner(limited.page)
@@ -525,7 +525,7 @@ try {
   // Commerce deliberately has no model input: verify its current public
   // projection/revision and source privacy, rather than inventing confirmed.
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Товары и услуги', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Подобрать запчасти', exact: true }).click()
     await kb.page.getByLabel('Поиск товаров и услуг', { exact: true }).fill(product.sku)
     const exchange = kb.page.waitForResponse(r => r.url().endsWith('/api/v1/chat/messages'))
     await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
@@ -582,9 +582,9 @@ try {
           stage = `D.images.${buyer.name}.${item.kind}.detail`
           await expect(buyer.page.locator('.item-detail > .item-image img')).toHaveAttribute('src', images.get(item.id))
         } else {
-          await expect(card.getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          await expect(card.getByRole('img', { name: item.kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует', exact: true })).toBeVisible()
           await card.getByRole('button', { name: item.name, exact: true }).click()
-          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: 'Изображение отсутствует', exact: true })).toBeVisible()
+          await expect(buyer.page.getByRole('region', { name: 'Карточка позиции' }).getByRole('img', { name: item.kind === 'service' ? 'Сервисная услуга' : 'Изображение отсутствует', exact: true })).toBeVisible()
         }
         await visible(buyer.page)
       }
@@ -651,7 +651,7 @@ try {
   // Restore the actual citation as the current answer after the commerce
   // checks, so withdrawal is visible in current reply as well as history.
   for (const kb of knowledge) {
-    await kb.page.getByRole('button', { name: 'Документация', exact: true }).click()
+    await kb.page.getByRole('button', { name: 'Найти документацию', exact: true }).click()
     await kb.page.getByLabel('Запрос по документации').fill('Синтетическийквантопылесос')
     await kb.page.getByRole('button', { name: 'Отправить запрос', exact: true }).click()
     await expect(current(kb.page).locator('.chat-text')).toHaveText('Цитаты из опубликованных материалов (не диагноз):\n\n[1] Синтетическийквантопылесос: точная цитата для проверки.')

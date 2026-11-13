@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {chromium,expect} from '@playwright/test';
+import {writeFileSync} from 'node:fs';
+const origin='https://localhost:34203';const b=await chromium.launch({args:['--no-sandbox']});const results={};
+try {
+const p=await b.newPage({ignoreHTTPSErrors:false,viewport:{width:1440,height:1000}});
+await p.goto(origin+'/#chat');await expect(p.getByRole('article',{name:'Актуальный ответ'})).toBeVisible();
+const select=p.getByLabel('Модель для диагностики');await expect(select).toBeEnabled();const models=await(await p.request.get(origin+'/api/v1/equipment-models')).json();const model=models.items.find(m=>m.code==='MTD-KA-01');
+const scenarioRoute='**/api/v1/chat/scenarios?*';await p.route(scenarioRoute,r=>r.abort());await select.selectOption(model.id);await expect(p.getByText(/Не удалось загрузить сценарии/)).toBeVisible();await p.unroute(scenarioRoute);await p.getByRole('button',{name:'Повторить загрузку сценариев',exact:true}).click();await expect(p.getByRole('button',{name:'SYNTHETIC ONLY — видна ли надпись DEMO?'})).toBeVisible();results.scenario_error_retry=true;
+let first;await p.route('**/api/v1/chat/messages',r=>{first=r.request().postData();return r.abort();});await p.getByRole('button',{name:/^Найти документацию/}).click();await expect(p.getByRole('button',{name:'Повторить тот же запрос',exact:true})).toBeEnabled();await p.unroute('**/api/v1/chat/messages');const retry=p.waitForRequest(r=>new URL(r.url()).pathname==='/api/v1/chat/messages');await p.getByRole('button',{name:'Повторить тот же запрос',exact:true}).click();assert.equal((await retry).postData(),first);await expect(p.getByLabel('Запрос по документации')).toBeEnabled();results.exact_retry=true;
+const body=JSON.parse(first);for(const headers of [{},{'X-Chat-Token':'0'.repeat(64)}]){const r=await p.request.get(origin+'/api/v1/chat/sessions/'+body.session_id,{headers});assert.equal(r.status(),404);}results.session_ownership=true;
+// A failed real document fetch must disable consent until a successful reload.
+await p.goto(origin+'/#catalog');await p.locator('.catalog-card').first().getByRole('button',{name:'Добавить в список'}).click();const policyRoute='**/api/v1/privacy-policy';await p.route(policyRoute,r=>r.abort());await p.getByRole('button',{name:'Оформить заявку',exact:true}).click();await expect(p.getByText(/Галочки и отправка заблокированы/)).toBeVisible();const consent=p.getByRole('checkbox',{name:/Я прочитал/});const confirm=p.getByRole('checkbox',{name:/Подтверждаю показанные/});await expect(consent).toBeDisabled();await expect(confirm).toBeDisabled();await p.unroute(policyRoute);await p.getByRole('button',{name:'Обновить документы',exact:true}).click();await expect(consent).toBeEnabled();await expect(confirm).toBeEnabled();await expect(consent).not.toBeChecked();await expect(confirm).not.toBeChecked();results.policy_fail_closed_and_recovery=true;await p.screenshot({path:'/evidence/review-document-recovery.png',fullPage:true});
+writeFileSync('/evidence/review-negative.json',JSON.stringify(results,null,2));console.log(JSON.stringify(results));
+}finally{await b.close();}

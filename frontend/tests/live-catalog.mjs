@@ -68,7 +68,8 @@ try {
       assert.equal(bySku['DEMO-P-002'].price, null);
       assert(catalog.items.every(item => item.image_url === null));
       await expect(cards).toHaveCount(4);
-      await expect(list.getByRole('img', { name: 'Изображение отсутствует' })).toHaveCount(4);
+      await expect(list.getByRole('img', { name: 'Изображение отсутствует' })).toHaveCount(3)
+      await expect(card('DEMO-S-001').getByRole('img', { name: 'Сервисная услуга' })).toBeVisible();
       await expect(card('DEMO-P-002')).toContainText('Цена по запросу');
       await expect(card('DEMO-P-002').locator('.price')).not.toContainText('0,00');
       await expect(card('DEMO-P-003').locator('.price')).toContainText('0,00');

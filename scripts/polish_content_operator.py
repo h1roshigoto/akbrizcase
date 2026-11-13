@@ -310,7 +310,8 @@ def main():
         password = getpass("Acting admin password: ")
         try:
             onboard(login, password, commit=os.environ["POLISH_SOURCE_COMMIT"])
-        except Exception as error:  # Safe outer CLI boundary; no exception values/logged secrets.
+        except Exception as error:  # noqa: BLE001
+            # CLI boundary: never print exception values, SQL or credentials.
             print(
                 "CONTENT_BLOCKED "
                 + type(error).__name__

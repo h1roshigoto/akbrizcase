@@ -1,0 +1,13 @@
+{
+  "archive": "uik-support-chatbot-mtdka.rar",
+  "sha256": "860e2bf5d0afca1ff4850f3f741d7af42e639c53f38b2382cb2bc694d4d4eb10",
+  "bytes": 6470929,
+  "variant_with_1_present": false,
+  "kb_source": "mtdka-site/assets/kb.js",
+  "sources": 7,
+  "mtd_ka_18_groups": 8,
+  "mtd_ka_18_causes": 28,
+  "mtd_ka_01_sections": 5,
+  "symptoms": 8,
+  "assessment": "Original service actions require rights/AV/ACL and expert review. No real repair instructions were imported or published. Only a separate SYNTHETIC ONLY teaching observation was published."
+}
