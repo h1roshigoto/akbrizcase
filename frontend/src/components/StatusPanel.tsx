@@ -1,3 +1,4 @@
+import { Button } from './Button'
 import { Icon } from './Icon'
 
 export function StatusPanel({
@@ -10,11 +11,16 @@ export function StatusPanel({
   onReset?: () => void
 }) {
   return (
-    <div className="status-panel" role={kind === 'error' ? 'alert' : 'status'}>
+    <div
+      className="status-panel ui-stack"
+      data-kind={kind}
+      aria-atomic="true"
+      role={kind === 'error' ? 'alert' : 'status'}
+    >
       {kind === 'loading' ? (
         <span className="loader" aria-hidden="true" />
       ) : (
-        <Icon name="search" />
+        <Icon name={kind === 'error' ? 'warning' : 'search'} />
       )}
       <h3>
         {kind === 'loading'
@@ -31,14 +37,10 @@ export function StatusPanel({
             : 'Проверьте соединение и повторите попытку.'}
       </p>
       {kind === 'error' && onRetry && (
-        <button className="secondary-button" onClick={onRetry}>
-          Повторить
-        </button>
+        <Button onClick={onRetry}>Повторить</Button>
       )}
       {kind === 'empty' && onReset && (
-        <button className="secondary-button" onClick={onReset}>
-          Сбросить фильтры
-        </button>
+        <Button onClick={onReset}>Сбросить фильтры</Button>
       )}
     </div>
   )

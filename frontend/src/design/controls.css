@@ -1,0 +1,37 @@
+.primary-button, .secondary-button, .add-button { display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--space-2) + var(--space-1) / 2); min-height: var(--control-height); padding: calc(var(--space-2) + var(--space-1) / 2) var(--space-5); border: 1px solid var(--accent); border-radius: var(--r-btn); font-size: var(--text-control); font-weight: 500; text-align: center; }
+.primary-button { color: var(--on-accent); background: var(--accent); }
+.secondary-button, .add-button { color: var(--heading); background: var(--surface); border-color: var(--field-line); }
+.primary-button:hover:not(:disabled) { background: var(--accent-h); }
+.secondary-button:hover:not(:disabled), .add-button:hover:not(:disabled) { background: var(--tint); border-color: var(--accent); }
+.primary-button svg, .secondary-button svg, .add-button svg { width: 18px; height: 18px; }
+
+/* New primitives are opt-in. Native disabled, submit and keyboard behavior wins. */
+.ui-button { line-height: var(--leading-body); }
+.ui-button.secondary-button { border-color: var(--control-border); }
+.ui-button:focus-visible,
+.catalog-controls :is(input, select, button):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.catalog-controls .search-input { border-color: var(--control-border); }
+.catalog-controls .search-input:focus-within { border-color: var(--focus-ring); }
+.catalog-controls select { border-color: var(--control-border); }
+.ui-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+.status-panel.ui-stack {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-12) var(--space-6);
+  border-style: solid;
+  border-radius: var(--r-card);
+  line-height: var(--leading-body);
+}
+.status-panel.ui-stack h3 { font-size: var(--text-title); line-height: var(--leading-heading); }
+.status-panel.ui-stack p { font-size: var(--text-body); max-width: var(--content-measure); }
+.status-panel[data-kind=error] { border-inline-start: 4px solid var(--feedback-error); }
+.status-panel[data-kind=error] > svg { color: var(--feedback-error); }
+@media (forced-colors: active) {
+  .ui-button:focus-visible,
+  .catalog-controls :is(input, select, button):focus-visible { outline-color: Highlight; }
+}

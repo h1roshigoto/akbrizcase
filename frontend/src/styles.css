@@ -1,5 +1,7 @@
 @import './design/assets/fonts/golos-text.css';
+@import './design/tokens.css';
 @import './design/assets/design.css';
+@import './design/controls.css';
 
 /* React adapters for the supplied MTD-KA design. Business components retain
    their semantics, API contracts and error states. All colours follow theme. */
@@ -56,12 +58,6 @@ svg { max-width: 100%; }
 .search-input { display: flex; gap: 12px; align-items: center; flex: 1; min-width: 0; border: 1px solid var(--field-line); border-radius: 4px; background: var(--field-bg); padding: 0 16px; }
 .search-input svg { width: 20px; height: 20px; flex: none; }
 .search-input input { width: 100%; min-width: 0; border: 0; min-height: 50px; background: transparent; outline-offset: -3px; }
-.primary-button, .secondary-button, .add-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; padding: 10px 20px; border: 1px solid var(--accent); border-radius: 4px; font-size: 15px; font-weight: 500; text-align: center; }
-.primary-button { color: var(--on-accent); background: var(--accent); }
-.secondary-button, .add-button { color: var(--heading); background: var(--surface); border-color: var(--field-line); }
-.primary-button:hover:not(:disabled) { background: var(--accent-h); }
-.secondary-button:hover:not(:disabled), .add-button:hover:not(:disabled) { background: var(--tint); border-color: var(--accent); }
-.primary-button svg, .secondary-button svg, .add-button svg { width: 18px; height: 18px; }
 .text-button, .back-button { border: 0; background: transparent; padding: 6px 0; color: var(--heading); text-decoration: underline; text-underline-offset: 4px; font-size: 14px; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; margin-top: 20px; }
 .kind-filter { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }

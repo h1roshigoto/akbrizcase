@@ -5,6 +5,7 @@ import { useResource } from '../state/useResource'
 import { useSelection } from '../state/selection'
 import { CatalogCard } from '../components/CatalogCard'
 import { SelectedItems } from '../components/SelectedItems'
+import { Button } from '../components/Button'
 import { StatusPanel } from '../components/StatusPanel'
 import { Icon } from '../components/Icon'
 import { ItemDetail } from './ItemDetail'
@@ -206,7 +207,7 @@ export function CatalogPage({
             ref={catalogAnchor}
             tabIndex={-1}
           >
-            <section className="filter-panel" aria-label="Поиск и фильтры">
+            <section className="filter-panel catalog-controls" aria-label="Поиск и фильтры">
               <form className="search-form" onSubmit={submitSearch}>
                 <label className="search-input">
                   <Icon name="search" />
@@ -219,10 +220,10 @@ export function CatalogPage({
                     onChange={(event) => setSearch(event.target.value)}
                   />
                 </label>
-                <button className="primary-button" type="submit">
+                <Button variant="primary" type="submit">
                   Найти
                   <Icon name="arrow" />
-                </button>
+                </Button>
               </form>
               <div className="filter-row">
                 <fieldset className="kind-filter">
@@ -355,8 +356,7 @@ export function CatalogPage({
                       </p>
                       {catalog.data.total > catalog.data.limit && (
                         <div>
-                          <button
-                            className="secondary-button"
+                          <Button
                             disabled={catalog.data.offset === 0}
                             onClick={() =>
                               setQuery((current) => ({
@@ -366,9 +366,8 @@ export function CatalogPage({
                             }
                           >
                             Назад
-                          </button>
-                          <button
-                            className="secondary-button"
+                          </Button>
+                          <Button
                             disabled={
                               catalog.data.offset + catalog.data.limit >=
                                 catalog.data.total ||
@@ -382,7 +381,7 @@ export function CatalogPage({
                             }
                           >
                             Далее
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
