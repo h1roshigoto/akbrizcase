@@ -41,7 +41,7 @@ export function ItemDetail({
           <article className="panel detail item-detail">
             <ItemImage item={item} />
             <div className="detail-body">
-              <h2 id="d-name">{item.name}</h2><p className="meta">{item.sku}</p>
+              <h2 id="d-name">{item.name}</h2><p id="d-meta" className="meta">{item.sku}</p>
               <p className="item-description">
                 {item.description ||
                   (source.mode === 'fixtures'

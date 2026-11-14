@@ -350,13 +350,10 @@ export function RequestPage({
     )
   return (
     <main className="wrap request-shell" ref={anchor} tabIndex={-1}>
-      <button className="text-button" onClick={onBack}>
-        ← Вернуться в каталог
-      </button>
       <div className="wrap pg"><h1 id={isSupport ? 'support-title' : 'request-title'}>{isSupport ? 'Обращение к специалисту' : 'Заявка'}</h1><p className="lead">Заполните данные учреждения. После отправки мы пришлём счёт или коммерческое предложение.</p></div>
       <section className="reqgrid" aria-labelledby={isSupport ? 'support-title' : 'request-title'}>
         <div className="panel form r">
-        {isSupport ? (
+        {isSupport && (
           <>
             <p>
               Опишите проблему и проверьте окончательный текст. Предложенный
@@ -374,11 +371,6 @@ export function RequestPage({
               </button>
             )}
           </>
-        ) : (
-          <p>
-            Проверьте позиции и предварительные цены. Выбранное сохраняется при
-            возвращении в каталог. Полный адрес, сроки и цена доставки согласуются менеджером после отправки заявки.
-          </p>
         )}
         {isSupport && independentRequested && owner && (
           <section aria-label="Новое независимое обращение">

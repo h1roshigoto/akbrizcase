@@ -50,7 +50,7 @@ try {
   await expect(page.getByLabel('Комментарий')).toHaveValue('SYNTHETIC NAVIGATION')
   await expect(page.getByRole('main')).toHaveCount(1)
   assert.equal(await page.evaluate(() => sessionStorage.getItem('akbrizcase.selected-items')), selectionBeforeNavigation)
-  await page.getByRole('button', { name: /Вернуться в каталог/ }).click()
+  await navigate(page, 'Запчасти')
   await page.getByRole('heading', { name: 'Запчасти', exact: true }).waitFor()
   assert.equal(new URL(page.url()).hash, '#catalog')
   await navigate(page, 'Помощник')

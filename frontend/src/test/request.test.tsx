@@ -550,7 +550,7 @@ it('retains form and selected values across catalog navigation while pending', a
   await fill()
   await approve()
   await screen.findByRole('button', { name: 'Повторить отправку' })
-  fireEvent.click(screen.getByRole('button', { name: /Вернуться в каталог/ }))
+  fireEvent.click(screen.getByRole('link', { name: 'Запчасти' }))
   fireEvent.click(screen.getByRole('link', { name: 'Заявка' }))
   expect(
     (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,

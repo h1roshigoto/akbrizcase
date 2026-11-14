@@ -503,7 +503,7 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
   expect(
     (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
   ).toBe('SYNTHETIC NAVIGATION')
-  await user.click(screen.getByRole('button', { name: /Вернуться в каталог/ }))
+  await user.click(screen.getByRole('link', { name: 'Запчасти' }))
   await checkView('#catalog', 'Запчасти')
   act(() => {
     window.location.hash = '#request'

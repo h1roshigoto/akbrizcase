@@ -197,3 +197,14 @@ port allocation and loopback bindings. Tests also reject malformed metadata.
 The full-release fixture adapter supplies the same Docker-inspection capability.
 No application networking, Compose publication, authorization or database schema
 was changed by this test compatibility fix.
+
+Final visual comparison aligned the detail photo with the original square frame,
+removed inherited inner body/image padding and restored the original title size
+and assistant SVG. The redundant pre-form catalog button is removed; ordinary
+header navigation preserves the same in-memory form and pending submission,
+verified by the existing navigation tests. The receipt's return action remains.
+A complete trusted-HTTPS 32-frame capture on 716b803 passed without interception
+once the capture waited for all started reads before navigating. A separate
+negative capacity probe found that ten simultaneous image reads can return 404
+under this bounded review profile; 1/2/6-way reads and an ordinary clean-browser
+catalog read passed. AV/file constraints were not relaxed.
