@@ -1,0 +1,89 @@
+@import './design/assets/design.css';
+/* Only adapters for API states and native React/dialog semantics. Original CSS above is byte-identical to the archive. */
+#root { display:block; min-height:100vh; }
+.hdr .wrap { gap:24px; }
+.nav { gap:40px; }
+.nav a { font-size:18px; }
+.hdr { border-bottom-color:transparent; }
+.ftr { margin-top:0; }
+.m3d {display:block;position:relative;}
+.m3d > img {object-fit:contain;width:100%;height:100%;}
+.m3d > canvas {z-index:1;}
+.stage-ctl {flex-wrap:nowrap;gap:16px;}
+.stage-ctl .tgl {font-size:15px;}
+.restore-catalog {padding-bottom:72px;}
+.restore-catalog .pcards {margin-bottom:32px;}
+.restore-catalog .pcard .item-image {width:100%;height:auto;aspect-ratio:1;padding:0;margin-bottom:14px;border-radius:var(--r-btn);}
+.restore-catalog .pcard .item-image img {width:100%;height:100%;object-fit:contain;}
+.restore-catalog .pcard .image-placeholder {height:100%;font-size:12px;}
+.restore-catalog .price-block {margin:8px 0 18px;}
+.restore-catalog .price-block .price {margin:0;}
+.restore-catalog .price-caption,.restore-catalog .tax-note {font-size:13px;}
+.restore-catalog .applicability {font-size:15px;margin:0 0 8px;min-height:0;}
+.restore-catalog .applicability svg {width:16px;height:16px;}
+.restore-catalog .catalog-pagination {margin:24px 0;}
+.restore-catalog .detail .item-image {height:auto;aspect-ratio:1;width:100%;max-width:480px;padding:0;}
+.restore-catalog .detail-body {padding:0;}
+.restore-catalog .detail-body h2 {font-size:clamp(26px,2.8vw,40px);margin:0;}
+.restore-catalog .detail .item-description {margin:16px 0;}
+.restore-catalog .detail .shipping-note {margin:16px 0;font-size:15px;}
+.restore-catalog .detail .d-acts {margin-top:24px;}
+.catalog-status {margin-bottom:24px;}
+.restore-chat .chat-panel,.restore-chat .chat-reply {margin:0;padding:0;border:0;background:transparent;}
+.restore-chat .chat-reply {max-width:100%;}
+.restore-chat .chat-reply > .eyebrow {display:none;}
+.restore-chat .chat-text {padding:20px;background:var(--tint);border:1px solid var(--line);border-radius:var(--r-card);max-width:min(600px,92%);font-size:17px;}
+.restore-chat .chat-controls {margin:16px 0;gap:12px;}
+.restore-chat .chat-controls .secondary-button {min-height:40px;padding:0 17px;border:1px solid var(--accent);background:var(--surface);color:var(--heading);border-radius:var(--r-card);font-size:15px;font-weight:600;}
+.restore-chat .chat-reply ul {padding:18px;list-style:none;border:1px solid var(--line);border-radius:var(--r-btn);font-size:15px;}
+.restore-chat .chat-panel select {font-size:16px;}
+.restore-chat .msgs {scroll-behavior:auto;}
+.restore-chat .chat-privacy {margin:0;background:none;padding:0;border:0;font-size:13px;}
+.restore-chat .inp input {min-width:0;}
+.restore-chat .wz .chat-text {max-width:none;}
+.restore-chat .chat-panel h2 {font-size:22px;}
+.restore-chat .chat-panel p {font-size:15px;margin:12px 0;}
+.restore-chat .chat-panel button {margin:8px 0;}
+.restore-chat .assistant-recovery {font-size:14px;display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;}
+.restore-documents {padding-bottom:72px;}
+.restore-documents .docrow {margin:0 0 16px;}
+.restore-documents .document-kind {font-size:15px;}
+.restore-documents .knowledge-hit p {margin:16px 0;}
+.request-shell {max-width:calc(var(--max) + var(--gut)*2);padding-top:0;}
+.request-shell .request-panel {padding:33px;margin-top:0;}
+.request-shell .request-fields input,.request-shell .request-fields textarea {font-size:16px;}
+.request-shell .request-heading {padding:48px 0 24px;}
+
+.request-shell .request-fields {border:0;padding:0;margin:0 0 24px;}
+.request-shell .request-fields legend {font-size:22px;}
+.request-shell .request-fields > label {font-size:16px;}
+.request-shell .request-fields input,.request-shell .request-fields textarea {font-size:16px;padding:14px 16px;}
+.request-shell .request-fields > label:last-child {grid-column:1/-1;}
+.request-shell .request-items {margin:0;list-style:none;padding:0;}
+.request-shell .request-items li {padding:16px 0;}
+.request-shell .request-items .item-image {width:64px;height:64px;float:left;margin:0 14px 12px 0;}
+.request-shell .request-items .image-placeholder {padding:4px;min-height:0;}
+.request-shell .request-items .image-placeholder span,.request-shell .request-items .image-placeholder small {display:none;}
+.request-shell .request-items .image-placeholder svg {width:32px;height:32px;}
+.request-shell .request-items h4 {font-size:16px;}
+.request-shell .request-items p {font-size:14px;}
+.request-shell .request-items .qty {margin:12px 0;clear:both;}
+.request-shell .consent-panel h2 {font-size:20px;}
+.request-shell .consent-text {max-height:180px;overflow:auto;}
+.document-search {flex:1;}
+.document-search .in {width:100%;}
+.restore-chat .panelimg img {height:100%;width:100%;object-fit:contain;position:absolute;inset:0;}
+.restore-chat .panelimg .arch {display:none;}
+
+/* Grid children must shrink to the mobile viewport; the viewer has an intrinsic poster width. */
+.hero .wrap > div {min-width:0;}
+.calc .rw .in {min-width:0;flex:1 1 0;}
+.calc .rw .calc-go {flex:0 0 auto;white-space:nowrap;}
+@media(max-width:600px){
+  .calc .rw .in,.calc .rw .calc-go {flex:1 1 100%;}
+}
+
+/* Published model names and counts are API data, not the archive's fixed two labels. */
+.restore-catalog .bar .choice {min-width:0;max-width:100%;flex-wrap:wrap;}
+.restore-catalog .bar .choice label {min-width:0;max-width:100%;flex:1 1 auto;}
+.restore-catalog .bar .choice span {min-width:0;white-space:normal;overflow-wrap:anywhere;}

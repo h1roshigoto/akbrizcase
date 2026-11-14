@@ -4,6 +4,9 @@ import { Icon } from './Icon'
 
 export function ItemImage({ item }: { item: CatalogCard }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  // This exact SKU has a presentation override, independent of its commercial data.
+  const onRequest = item.kind === 'product' && item.sku === 'ЯИУШ.301421.011-02'
+  const service = item.kind === 'service'
   // Only accept the contracted same-origin image path belonging to this item.
   const url = item.image_url
   const safe =
@@ -13,7 +16,11 @@ export function ItemImage({ item }: { item: CatalogCard }) {
     )
   return (
     <div className={`item-image ${item.kind}`}>
-      {url && safe && failedUrl !== url ? (
+      {onRequest ? (
+        <div className="on-request-illustration" role="img" aria-label="На заказ">
+          На заказ
+        </div>
+      ) : url && safe && failedUrl !== url ? (
         <img
           key={url}
           src={url}
@@ -21,18 +28,18 @@ export function ItemImage({ item }: { item: CatalogCard }) {
           loading="lazy"
           onError={() => setFailedUrl(url)}
         />
+      ) : service ? (
+        <div className="image-placeholder service-illustration" role="img" aria-label="Сервисная услуга">
+          <Icon name="service" />
+        </div>
       ) : (
         <div
           className="image-placeholder"
           role="img"
           aria-label="Изображение отсутствует"
         >
-          <Icon name={item.kind === 'service' ? 'service' : 'box'} />
-          <span>
-            {item.kind === 'service'
-              ? 'Услуги и сервис'
-              : 'Оборудование и детали'}
-          </span>
+          <Icon name="box" />
+          <span>Оборудование и детали</span>
           <small>Изображение отсутствует</small>
         </div>
       )}

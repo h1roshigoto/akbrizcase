@@ -33,10 +33,10 @@ function Scenarios({
       )}
       {scenarios.status === 'success' &&
         (scenarios.data.items.length ? (
-          <div className="chat-controls">
+          <div className="wz-opts">
             {scenarios.data.items.map((s) => (
               <button
-                className="secondary-button"
+                className="wz-o"
                 disabled={disabled}
                 key={s.key}
                 onClick={() =>
@@ -70,7 +70,9 @@ function Scenarios({
 export function DiagnosisMenu({
   disabled,
   onStart,
+  symptom,
 }: {
+  symptom?: string | null
   disabled: boolean
   onStart: (input: ChatInput) => void
 }) {
@@ -79,10 +81,19 @@ export function DiagnosisMenu({
   const [selecting, setSelecting] = useState(true)
   const load = useCallback(chatModels, [attempt])
   const models = useResource(load)
+  // The public scenario DTO has key/title/model only, no reviewed symptom
+  // relation. Never infer that relation from a key or a similar-looking title.
+  if (symptom) return (
+    <section className="chat-panel" aria-label="Начало диагностики">
+      <h3 className="wz-q">Неисправность: {symptom}</h3>
+      <p role="status">Для этой неисправности нет подтверждённого соответствия опубликованному сценарию. Диагностика не запущена. Откройте документацию или обратитесь к специалисту через действие в ответе помощника.</p>
+      <a className="doc" href="#docs">Открыть документацию</a>
+    </section>
+  )
   if (!selecting)
     return (
       <button
-        className="secondary-button"
+        className="wz-o"
         disabled={disabled}
         onClick={() => setSelecting(true)}
       >
@@ -91,28 +102,11 @@ export function DiagnosisMenu({
     )
   return (
     <section className="chat-panel" aria-label="Начало диагностики">
-      <h2>Выбор сценария</h2>
-      <p>
-        Выбор модели обновляет меню. Текущая диагностика заменится только после
-        явного запуска сценария.
-      </p>
-      <label>
-        Модель для диагностики
-        <select
-          value={model ?? ''}
-          disabled={disabled || models.status !== 'success'}
-          onChange={(e) =>
-            setModel(e.target.value ? (e.target.value as UUID) : null)
-          }
-        >
-          <option value="">Выберите модель</option>
-          {models.data?.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <h3 className="wz-q">{model ? 'Что происходит с изделием?' : 'Какая модификация у изделия?'}</h3>{symptom && <p className="wz-lead">Неисправность: {symptom}.</p>}
+      {model ? <nav className="wz-path" aria-label="Сделанный выбор">Модификация <button type="button" disabled={disabled} onClick={() => setModel(null)} aria-label="Изменить модификацию">{models.data?.find(m => m.id === model)?.name}</button></nav> : <div className="wz-opts" aria-label="Модель для диагностики">
+        {models.data?.map(m => <button className="wz-o" key={m.id} type="button" disabled={disabled} onClick={() => setModel(m.id)}>{m.name}</button>)}
+        <button className="wz-o" type="button" disabled={disabled} onClick={() => onStart({type:'text',value:'Не знаю модификацию изделия'})}>Не знаю</button>
+      </div>}
       {models.status === 'loading' && <p role="status">Загружаем модели…</p>}
       {models.status === 'error' && (
         <p role="alert">

@@ -6,7 +6,6 @@ import { useSelection } from '../state/selection'
 import { CatalogCard } from '../components/CatalogCard'
 import { SelectedItems } from '../components/SelectedItems'
 import { StatusPanel } from '../components/StatusPanel'
-import { Icon } from '../components/Icon'
 import { ItemDetail } from './ItemDetail'
 import { RequestPage, type SupportContext } from './RequestPage'
 import { httpOrders, type OrdersSource } from '../api/httpOrders'
@@ -22,10 +21,14 @@ import { TechnicalPage } from './TechnicalPage'
 
 const viewFromHash = (defaultView: PortalView): PortalView => {
   const key = window.location.hash.slice(1)
+  if (/^part-[0-9a-f-]{36}$/i.test(key)) return 'catalog'
+  if (/^wizard(?:=\w+)?$/.test(key)) return 'wizard'
   return ['home', 'catalog', 'chat', 'wizard', 'request', 'support', 'docs', 'tech'].includes(key)
     ? key as PortalView
     : key === 'selection' ? 'catalog' : defaultView
 }
+
+const itemFromHash = (): UUID | null => /^#part-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i.exec(window.location.hash)?.[1]?.toLowerCase() as UUID ?? null
 
 export function CatalogPage({
   source,
@@ -44,6 +47,10 @@ export function CatalogPage({
   const [requestVisited, setRequestVisited] = useState(
     () => viewFromHash(defaultView) === 'request',
   )
+  useEffect(() => {
+    const titles = {home:'Сервисный портал',catalog:'Запчасти',chat:'Помощник',wizard:'Помощник',request:'Заявка',support:'Обращение к специалисту',docs:'Нормативная база',tech:'Техинформация'}
+    document.title = `${titles[view]} · МТД-КА`
+  }, [view])
   const chatOpen = view === 'chat' || view === 'wizard'
   const requestOpen = view === 'request'
   const supportOpen = view === 'support'
@@ -56,6 +63,7 @@ export function CatalogPage({
   const syncView = useCallback(() => {
     const next = viewFromHash(defaultView)
     setView(next)
+    setActiveId(itemFromHash())
     if (next !== 'support') setIndependentRequested(false)
     if (next === 'request') setRequestVisited(true)
     if (next === 'support')
@@ -97,7 +105,11 @@ export function CatalogPage({
   const selection = useSelection()
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState<CatalogQuery>({ limit: 20, offset: 0 })
-  const [activeId, setActiveId] = useState<UUID | null>(null)
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(v => (v.q ?? '') === search.trim() ? v : ({ ...v, q: search.trim(), offset: 0 })), 120)
+    return () => clearTimeout(timer)
+  }, [search])
+  const [activeId, setActiveId] = useState<UUID | null>(itemFromHash)
   const [attempt, setAttempt] = useState(0)
   const [modelAttempt, setModelAttempt] = useState(0)
   const catalogAnchor = useRef<HTMLDivElement>(null)
@@ -116,11 +128,9 @@ export function CatalogPage({
     setQuery({ limit: 20, offset: 0 })
   }
   const openItem = (id: UUID) => {
+    window.location.hash = `part-${id}`
     setActiveId(id)
-    catalogAnchor.current?.scrollIntoView?.({
-      block: 'start',
-      behavior: 'instant',
-    })
+    window.scrollTo({ top: 0, behavior: 'instant' })
     catalogAnchor.current?.focus({ preventScroll: true })
   }
   const submitSearch = (event: FormEvent) => {
@@ -139,7 +149,7 @@ export function CatalogPage({
         Перейти к каталогу
       </a>
       <SiteHeader view={view} count={selection.items.length} navigate={navigate} onSupport={openSiteSupport} onCart={() => setDrawerOpen(true)} />
-      {view === 'home' && <HomePage />}
+      {view === 'home' && <HomePage onSupport={openSiteSupport} />}
       {view === 'docs' && <DocumentsPage />}
       {view === 'tech' && <TechnicalPage />}
       {source.mode === 'fixtures' && (
@@ -178,229 +188,28 @@ export function CatalogPage({
           }}
         />
       )}
-      <main
-        className="page-shell"
-        hidden={view !== 'catalog'}
-      >
-        <div className="breadcrumb">
-          Главная <span>/</span> Каталог
-        </div>
-        <section className="page-heading">
-          <div>
-            <p className="eyebrow">ЗАПАСНЫЕ ЧАСТИ И СЕРВИС</p>
-            <h1>Товары и услуги</h1>
-            <p>
-              Подберите нужные позиции для оборудования.
-              <br className="desktop-break" /> Соберите товары и сервис в одном
-              списке.
-            </p>
-          </div>
-          <div className="heading-index" aria-hidden="true">
-            МТД-КА <span>/ КАТАЛОГ</span>
-          </div>
-        </section>
-        <div className="workspace-grid">
-          <div
-            className="catalog-column"
-            id="catalog"
-            ref={catalogAnchor}
-            tabIndex={-1}
-          >
-            <section className="filter-panel" aria-label="Поиск и фильтры">
-              <form className="search-form" onSubmit={submitSearch}>
-                <label className="search-input">
-                  <Icon name="search" />
-                  <input
-                    type="search"
-                    aria-label="Поиск по названию или SKU"
-                    placeholder="Название или SKU"
-                    value={search}
-                    maxLength={1000}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </label>
-                <button className="primary-button" type="submit">
-                  Найти
-                  <Icon name="arrow" />
-                </button>
-              </form>
-              <div className="filter-row">
-                <fieldset className="kind-filter">
-                  <legend className="visually-hidden">Тип позиции</legend>
-                  {(
-                    [
-                      [null, 'Все позиции'],
-                      ['product', 'Товары'],
-                      ['service', 'Услуги'],
-                    ] as const
-                  ).map(([kind, label]) => (
-                    <button
-                      key={label}
-                      aria-pressed={(query.kind ?? null) === kind}
-                      onClick={() => {
-                        setActiveId(null)
-                        setQuery((current) => ({
-                          ...current,
-                          kind,
-                          offset: 0,
-                        }))
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </fieldset>
-                <label className="model-filter">
-                  <span>Модель оборудования</span>
-                  <select
-                    aria-label="Модель оборудования"
-                    disabled={models.status !== 'success'}
-                    value={query.model_id ?? ''}
-                    onChange={(event) =>
-                      setQuery((current) => ({
-                        ...current,
-                        model_id: event.target.value
-                          ? (event.target.value as UUID)
-                          : null,
-                        offset: 0,
-                      }))
-                    }
-                  >
-                    <option value="">
-                      {models.status === 'loading'
-                        ? 'Загружаем модели…'
-                        : 'Все модели'}
-                    </option>
-                    {models.data?.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name} · {model.code}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {models.status === 'error' && (
-                <p className="inline-error" role="alert">
-                  Не удалось загрузить модели.{' '}
-                  <button
-                    className="text-button"
-                    onClick={() => setModelAttempt((value) => value + 1)}
-                  >
-                    Повторить загрузку моделей
-                  </button>
-                </p>
-              )}
-              {models.status === 'success' && models.data.length === 0 && (
-                <p className="filter-note">
-                  Модели оборудования пока не опубликованы.
-                </p>
-              )}
-              {query.model_id && (
-                <p className="filter-note">
-                  В списке — только позиции с подтверждённой применимостью. В
-                  открытой карточке показан статус для выбранной модели.
-                </p>
-              )}
+      <main hidden={view !== 'catalog'}>
+        <div className="wrap restore-catalog">
+          <div className="wrap pg"><h1>Запчасти</h1><p className="lead">Подберите деталь по названию, обозначению или модели. Наличие и срок поставки подтвердим после заявки.</p></div>
+          {activeId ? <ItemDetail key={activeId} source={source} id={activeId} modelId={query.model_id ?? null} selection={selection} onBack={() => navigate('#catalog')} /> : <section id="list">
+            <form className="bar" aria-label="Поиск и фильтры" onSubmit={submitSearch}>
+              <label className="sr" htmlFor="search">Поиск по названию или SKU</label>
+              <input className="in" id="search" type="search" placeholder="Название детали или обозначение" maxLength={1000} value={search} onChange={e => setSearch(e.target.value)} />
+              <fieldset className="choice sm" id="model"><legend className="sr">Модификация</legend>
+                <label><input type="radio" name="m" checked={!query.model_id} onChange={() => setQuery(v => ({...v, model_id:null, offset:0}))} /><span>Все модели</span></label>
+                {models.data?.map(m => <label key={m.id}><input type="radio" name="m" checked={query.model_id === m.id} onChange={() => setQuery(v => ({...v, model_id:m.id, offset:0}))} /><span>{m.name}</span></label>)}
+              </fieldset>
+              <button className="btn sm" type="button" data-cart="" aria-label={`Открыть корзину, позиций: ${selection.items.length}`} onClick={() => setDrawerOpen(true)}>Заявка ({selection.items.reduce((n,i) => n+i.qty,0)})</button>
+            </form>
+            {models.status === 'success' && !models.data.length && <p className="tip">Модели оборудования пока не опубликованы.</p>}
+            {models.status === 'error' && <p className="inline-error" role="alert">Не удалось загрузить модели. <button onClick={() => setModelAttempt(v => v+1)}>Повторить загрузку моделей</button></p>}
+            <section aria-label="Результаты каталога" aria-busy={catalog.status === 'loading'} ref={catalogAnchor} tabIndex={-1}>
+              {catalog.status !== 'success' ? <StatusPanel kind={catalog.status} onRetry={() => setAttempt(v => v+1)} /> : catalog.data.items.length === 0 ? <StatusPanel kind="empty" onReset={reset} /> : <>
+                <div className="pcards" id="pcards">{catalog.data.items.map(item => <CatalogCard key={item.id} item={item} selection={selection} onOpen={openItem} />)}</div>
+                {catalog.data.total > catalog.data.limit && <div className="catalog-pagination"><p role="status">Показано {catalog.data.offset+1}–{catalog.data.offset+catalog.data.items.length} из {catalog.data.total}</p><button className="btn ghost sm" disabled={catalog.data.offset===0} onClick={() => setQuery(v=>({...v,offset:Math.max(0,(v.offset??0)-20)}))}>Назад</button><button className="btn ghost sm" disabled={catalog.data.offset+catalog.data.limit>=catalog.data.total || catalog.data.offset+20>10000} onClick={()=>setQuery(v=>({...v,offset:(v.offset??0)+20}))}>Далее</button></div>}
+              </>}
             </section>
-            {activeId ? (
-              <ItemDetail
-                key={activeId}
-                source={source}
-                id={activeId}
-                modelId={query.model_id ?? null}
-                selection={selection}
-                onBack={() => setActiveId(null)}
-              />
-            ) : (
-              <section
-                aria-label="Результаты каталога"
-                aria-busy={catalog.status === 'loading'}
-              >
-                <div className="results-heading">
-                  <h2>
-                    Каталог <span>{catalog.data?.total ?? '—'}</span>
-                  </h2>
-                  <button className="text-button reset-button" onClick={reset}>
-                    Сбросить фильтры
-                  </button>
-                </div>
-                {catalog.status !== 'success' ? (
-                  <StatusPanel
-                    kind={catalog.status}
-                    onRetry={() => setAttempt((value) => value + 1)}
-                  />
-                ) : catalog.data.items.length === 0 ? (
-                  <StatusPanel kind="empty" onReset={reset} />
-                ) : (
-                  <>
-                    <div className="catalog-grid">
-                      {catalog.data.items.map((item) => (
-                        <CatalogCard
-                          key={item.id}
-                          item={item}
-                          selected={selection.items.some(
-                            (row) => row.item_id === item.id,
-                          )}
-                          atCapacity={selection.items.length >= 100}
-                          onAdd={selection.add}
-                          onOpen={openItem}
-                        />
-                      ))}
-                    </div>
-                    <div className="catalog-pagination">
-                      <p role="status">
-                        Показано {catalog.data.offset + 1}–
-                        {catalog.data.offset + catalog.data.items.length} из{' '}
-                        {catalog.data.total}
-                      </p>
-                      {catalog.data.total > catalog.data.limit && (
-                        <div>
-                          <button
-                            className="secondary-button"
-                            disabled={catalog.data.offset === 0}
-                            onClick={() =>
-                              setQuery((current) => ({
-                                ...current,
-                                offset: Math.max(0, (current.offset ?? 0) - 20),
-                              }))
-                            }
-                          >
-                            Назад
-                          </button>
-                          <button
-                            className="secondary-button"
-                            disabled={
-                              catalog.data.offset + catalog.data.limit >=
-                                catalog.data.total ||
-                              catalog.data.offset + 20 > 10000
-                            }
-                            onClick={() =>
-                              setQuery((current) => ({
-                                ...current,
-                                offset: (current.offset ?? 0) + 20,
-                              }))
-                            }
-                          >
-                            Далее
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </section>
-            )}
-            <div className="catalog-note">
-              <span className="note-symbol">i</span>
-              <p>
-                Не уверены в применимости? Выберите модель оборудования. Если
-                подтверждения нет, совместимость потребуется уточнить.
-              </p>
-            </div>
-          </div>
-          <div hidden={drawerOpen}>
-            <SelectedItems source={source} selection={selection} onOpen={openItem} onRequest={openRequest} />
-          </div>
+          </section>}
         </div>
       </main>
       {requestVisited && (
@@ -443,6 +252,7 @@ export function CatalogPage({
       {drawerOpen && <SelectionDrawer onClose={() => setDrawerOpen(false)}>
         <SelectedItems source={source} selection={selection} onOpen={id => { navigate('#catalog'); openItem(id) }} onRequest={openRequest} />
       </SelectionDrawer>}
+      {!chatOpen && <div className="fab-rail"><a className="fab" href="#chat" aria-label="Открыть помощника"><span className="lbl">Помощник</span><span className="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v1.1A7 7 0 0 1 19 11v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-1H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a7 7 0 0 1 6-6.9V3a1 1 0 0 1 1-1Zm-3 9a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" /></svg></span></a></div>}
       <SiteFooter />
     </>
   )

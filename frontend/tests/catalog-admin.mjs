@@ -1,3 +1,4 @@
+import { navigate, openCart, closeCart } from './portal-actions.mjs'
 // Chromium -> trusted HTTPS -> SQLAdmin/FastAPI -> PostgreSQL. No route mocks.
 import assert from 'node:assert/strict';
 import { createInterface } from 'node:readline';
@@ -100,7 +101,6 @@ try {
   const list = react.getByRole('region', { name: 'Результаты каталога' });
   const search = async query => {
     await react.getByRole('searchbox').fill(query);
-    await react.getByRole('button', { name: 'Найти', exact: true }).click();
   };
   await search('MVP016');
   await expect(list.getByRole('article')).toHaveCount(2);
@@ -109,8 +109,8 @@ try {
   await expect(productCard.locator('.price')).toContainText('123,45');
   await expect(serviceCard).toContainText('Цена по запросу');
   await expect(serviceCard.locator('.price')).not.toContainText('0,00');
-  await productCard.getByRole('button', { name: 'Добавить в список' }).click();
-  await productCard.getByRole('button', { name: created.product.name, exact: true }).click();
+  await productCard.getByRole('button', { name: 'Добавить в заявку' }).click();
+  await productCard.getByRole('button', { name: 'Подробнее', exact: true }).click();
   const detail = react.getByRole('region', { name: 'Карточка позиции' });
   await expect(detail.locator('.item-description')).toHaveText(attack);
   assert.equal(await detail.locator('img[src=x], script').count(), 0);
@@ -149,10 +149,13 @@ try {
 
   step = 'React updated price and saved revision';
   await react.reload();
+  await navigate(react, 'Запчасти');
+  await openCart(react);
   const selected = react.getByRole('complementary', { name: 'Выбранные позиции' });
   await expect(selected.getByText(/Позиция обновилась/)).toBeVisible();
   const stored = await react.evaluate(() => JSON.parse(sessionStorage.getItem('akbrizcase.selected-items')));
   assert.equal(stored.find(row => row.item_id === created.product.id).revision, 2);
+  await closeCart(react);
   await search('MVP016 renamed');
   await expect(list.getByRole('article')).toHaveCount(1);
   await expect(list.getByRole('article').locator('.price')).toContainText('234,56');

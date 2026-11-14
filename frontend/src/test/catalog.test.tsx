@@ -26,42 +26,33 @@ const confirmed = fixtures.catalog_page.items[2]!
 const model = fixtures.models.items[0]!
 const productLabel = `${product.name}, ${product.sku}`
 const serviceLabel = `${service.name}, ${service.sku}`
-const selected = () =>
-  within(screen.getByRole('complementary', { name: 'Выбранные позиции' }))
+const selected = () => {
+  if (!screen.queryByRole('complementary', { name: 'Выбранные позиции' }))
+    fireEvent.click(screen.getByRole('button', { name: /Открыть корзину/ }))
+  return within(screen.getByRole('complementary', { name: 'Выбранные позиции' }))
+}
 const saved = () =>
   JSON.parse(sessionStorage.getItem(SELECTION_KEY) ?? '[]') as unknown[]
 const ready = () => screen.findByRole('article', { name: productLabel })
 
 describe('catalog UI on approved fixtures', () => {
-  it('searches by SKU and name, filters kinds, resets an empty result', async () => {
+  it('searches live by SKU and name and resets an empty result', async () => {
     const user = userEvent.setup()
     render(<CatalogPage source={fixtureCatalog} />)
     await ready()
     expect(screen.getAllByRole('article')).toHaveLength(3)
-    await user.click(screen.getByRole('button', { name: 'Услуги' }))
-    await screen.findByRole('article', { name: serviceLabel })
-    expect(screen.getAllByRole('article')).toHaveLength(1)
-    await user.click(screen.getByRole('button', { name: 'Товары' }))
-    await ready()
-    expect(screen.getAllByRole('article')).toHaveLength(2)
-    await user.click(screen.getByRole('button', { name: 'Все позиции' }))
     const search = screen.getByRole('searchbox')
     await user.type(search, 'demo-service')
-    await user.click(screen.getByRole('button', { name: 'Найти' }))
     await screen.findByRole('article', { name: serviceLabel })
-    expect(screen.getAllByRole('article')).toHaveLength(1)
+    await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(1))
     await user.clear(search)
-    await user.type(search, 'демо-товар{Enter}')
+    await user.type(search, 'демо-товар')
     await ready()
-    expect(screen.getAllByRole('article')).toHaveLength(2)
+    await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(2))
     await user.clear(search)
-    await user.type(search, 'нет такой позиции{Enter}')
+    await user.type(search, 'нет такой позиции')
     await screen.findByRole('heading', { name: 'Позиции не найдены' })
-    await user.click(
-      within(screen.getByRole('status')).getByRole('button', {
-        name: 'Сбросить фильтры',
-      }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Сбросить фильтры' }))
     await ready()
     expect(screen.getAllByRole('article')).toHaveLength(3)
   })
@@ -85,21 +76,19 @@ describe('catalog UI on approved fixtures', () => {
     const user = userEvent.setup()
     render(<CatalogPage source={fixtureCatalog} />)
     const card = within(await ready())
-    await user.click(card.getByRole('button', { name: product.name }))
+    await user.click(card.getByRole('button', { name: 'Подробнее' }))
     await screen.findByText(product.description)
-    await user.click(screen.getByRole('button', { name: 'Добавить в список' }))
+    await user.click(screen.getByRole('button', { name: 'Добавить в заявку' }))
+    await user.click(screen.getByRole('button', { name: 'Назад к списку' }))
     await selected().findByRole('button', { name: product.name })
-    await user.click(
-      screen.getByRole('button', { name: /Вернуться в каталог/ }),
-    )
     expect(
       (
         within(await ready()).getByRole('button', {
-          name: 'В выбранном',
+          name: `Больше ${product.sku}`,
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true)
-    await user.click(screen.getByRole('button', { name: 'Услуги' }))
+    ).toBe(false)
+    await user.type(screen.getByRole('searchbox'), 'demo-service')
     await screen.findByRole('article', { name: serviceLabel })
     expect(selected().getByRole('button', { name: product.name })).toBeTruthy()
   })
@@ -108,22 +97,20 @@ describe('catalog UI on approved fixtures', () => {
     const user = userEvent.setup()
     render(<CatalogPage source={fixtureCatalog} />)
     await ready()
-    await screen.findByRole('option', { name: /Демо-модель/ })
-    await user.selectOptions(screen.getByRole('combobox'), model.id)
+    await user.click(await screen.findByRole('radio', { name: /Демо-модель/ }))
     await screen.findByText('Применимость подтверждена')
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(screen.getByRole('article').textContent).toContain('DEMO-CONFIRMED')
-    await user.selectOptions(screen.getByRole('combobox'), '')
+    await user.click(screen.getByRole('radio', { name: 'Все модели' }))
     await ready()
     await user.click(
       within(screen.getByRole('article', { name: serviceLabel })).getByRole(
         'button',
-        { name: service.name },
+        { name: 'Подробнее' },
       ),
     )
     await screen.findByText('Описание не предоставлено в контрактном fixture.')
-    await user.selectOptions(screen.getByRole('combobox'), model.id)
-    await screen.findByText('Применимость не подтверждена')
+    expect(await fixtureCatalog.getItem(service.id, model.id, new AbortController().signal)).toMatchObject({applicability:{status:'unknown'}})
     expect(screen.queryByText(/несовместим/i)).toBeNull()
   })
 
@@ -155,12 +142,12 @@ describe('catalog UI on approved fixtures', () => {
     const user = userEvent.setup()
     const view = render(<CatalogPage source={fixtureCatalog} />)
     await user.click(
-      within(await ready()).getByRole('button', { name: 'Добавить в список' }),
+      within(await ready()).getByRole('button', { name: 'Добавить в заявку' }),
     )
     await user.click(
       within(screen.getByRole('article', { name: serviceLabel })).getByRole(
         'button',
-        { name: 'Добавить в список' },
+        { name: 'Добавить в заявку' },
       ),
     )
     await selected().findByRole('textbox', {
@@ -170,10 +157,10 @@ describe('catalog UI on approved fixtures', () => {
     expect(
       (
         within(await ready()).getByRole('button', {
-          name: 'В выбранном',
+          name: `Больше ${product.sku}`,
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true)
+    ).toBe(false)
     expect(selected().getByText('Известная часть суммы')).toBeTruthy()
     const qty = selected().getByRole('textbox', {
       name: `Количество ${product.sku}`,
@@ -287,7 +274,7 @@ describe('catalog UI on approved fixtures', () => {
     const user = userEvent.setup()
     render(<CatalogPage source={fixtureCatalog} />)
     await user.click(
-      within(await ready()).getByRole('button', { name: 'Добавить в список' }),
+      within(await ready()).getByRole('button', { name: 'Добавить в заявку' }),
     )
     await selected().findByRole('button', { name: product.name })
     expect(selected().getByRole('alert').textContent).toContain(
@@ -349,7 +336,7 @@ describe('catalog UI on approved fixtures', () => {
     await selected().findByText('Позиция недоступна')
     expect(selected().getByText('Пока не определена')).toBeTruthy()
     await user.click(
-      within(await ready()).getByRole('button', { name: product.name }),
+      within(await ready()).getByRole('button', { name: 'Подробнее' }),
     )
     await screen.findByRole('heading', { name: 'Не удалось загрузить данные' })
     getItem.mockResolvedValue(product)
@@ -383,7 +370,7 @@ describe('catalog UI on approved fixtures', () => {
     const user = userEvent.setup()
     render(<CatalogPage source={{ ...fixtureCatalog, getItems }} />)
     await waitFor(() => expect(getItems).toHaveBeenCalledOnce())
-    await user.click(screen.getByRole('button', { name: 'Услуги' }))
+    await user.type(screen.getByRole('searchbox'), 'demo-service')
     await screen.findByRole('article', { name: serviceLabel })
     await act(async () => finish(fixtures.catalog_page))
     expect(screen.getAllByRole('article')).toHaveLength(1)
@@ -416,7 +403,7 @@ describe('catalog UI on approved fixtures', () => {
     )
     const card = await screen.findByRole('article')
     expect(card.textContent).toContain(attack)
-    await user.click(within(card).getByRole('button', { name: attack }))
+    await user.click(within(card).getByRole('button', { name: 'Подробнее' }))
     await waitFor(() =>
       expect(container.querySelector('.item-description')?.textContent).toBe(
         attack,

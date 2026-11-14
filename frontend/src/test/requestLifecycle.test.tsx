@@ -132,7 +132,7 @@ it.each(['support', 'commercial'] as const)(
     await edit('Synthetic first request')
     await submit()
     await receipt(1)
-    await nav('Каталог')
+    await nav('Запчасти')
     if (first === 'support') {
       // Raw hash navigation must not attribute the previous receipt to this form.
       route('#request')
@@ -143,6 +143,7 @@ it.each(['support', 'commercial'] as const)(
         }),
       )
     } else {
+      await route('#home')
       await nav('Обратиться к специалисту')
       expect(screen.queryByRole('heading', { name: 'Заявка №1' })).toBeNull()
       fireEvent.click(
@@ -216,7 +217,8 @@ it('preserves chat draft/context on history navigation and requires explicit sit
   expect(
     (active().getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
   ).toBe('Synthetic edited chat draft')
-  await nav('Обратиться к специалисту')
+  await route('#home')
+      await nav('Обратиться к специалисту')
   expect((send() as HTMLButtonElement).disabled).toBe(true)
   expect(orders.submit).not.toHaveBeenCalled()
   fireEvent.click(
