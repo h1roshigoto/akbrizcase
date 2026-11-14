@@ -21,10 +21,14 @@ import { TechnicalPage } from './TechnicalPage'
 
 const viewFromHash = (defaultView: PortalView): PortalView => {
   const key = window.location.hash.slice(1)
+  if (/^part-[0-9a-f-]{36}$/i.test(key)) return 'catalog'
+  if (/^wizard(?:=\w+)?$/.test(key)) return 'wizard'
   return ['home', 'catalog', 'chat', 'wizard', 'request', 'support', 'docs', 'tech'].includes(key)
     ? key as PortalView
     : key === 'selection' ? 'catalog' : defaultView
 }
+
+const itemFromHash = (): UUID | null => /^#part-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i.exec(window.location.hash)?.[1]?.toLowerCase() as UUID ?? null
 
 export function CatalogPage({
   source,
@@ -55,6 +59,7 @@ export function CatalogPage({
   const syncView = useCallback(() => {
     const next = viewFromHash(defaultView)
     setView(next)
+    setActiveId(itemFromHash())
     if (next !== 'support') setIndependentRequested(false)
     if (next === 'request') setRequestVisited(true)
     if (next === 'support')
@@ -100,7 +105,7 @@ export function CatalogPage({
     const timer = setTimeout(() => setQuery(v => (v.q ?? '') === search.trim() ? v : ({ ...v, q: search.trim(), offset: 0 })), 120)
     return () => clearTimeout(timer)
   }, [search])
-  const [activeId, setActiveId] = useState<UUID | null>(null)
+  const [activeId, setActiveId] = useState<UUID | null>(itemFromHash)
   const [attempt, setAttempt] = useState(0)
   const [modelAttempt, setModelAttempt] = useState(0)
   const catalogAnchor = useRef<HTMLDivElement>(null)
@@ -119,11 +124,9 @@ export function CatalogPage({
     setQuery({ limit: 20, offset: 0 })
   }
   const openItem = (id: UUID) => {
+    window.location.hash = `part-${id}`
     setActiveId(id)
-    catalogAnchor.current?.scrollIntoView?.({
-      block: 'start',
-      behavior: 'instant',
-    })
+    window.scrollTo({ top: 0, behavior: 'instant' })
     catalogAnchor.current?.focus({ preventScroll: true })
   }
   const submitSearch = (event: FormEvent) => {
@@ -184,7 +187,7 @@ export function CatalogPage({
       <main hidden={view !== 'catalog'}>
         <div className="wrap restore-catalog">
           <div className="wrap pg"><h1>Запчасти</h1><p className="lead">Подберите деталь по названию, обозначению или модели. Наличие и срок поставки подтвердим после заявки.</p></div>
-          {activeId ? <ItemDetail key={activeId} source={source} id={activeId} modelId={query.model_id ?? null} selection={selection} onBack={() => setActiveId(null)} /> : <section id="list">
+          {activeId ? <ItemDetail key={activeId} source={source} id={activeId} modelId={query.model_id ?? null} selection={selection} onBack={() => navigate('#catalog')} /> : <section id="list">
             <form className="bar" aria-label="Поиск и фильтры" onSubmit={submitSearch}>
               <label className="sr" htmlFor="search">Поиск по названию или SKU</label>
               <input className="in" id="search" type="search" placeholder="Название детали или обозначение" maxLength={1000} value={search} onChange={e => setSearch(e.target.value)} />

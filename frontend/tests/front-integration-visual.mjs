@@ -1,3 +1,4 @@
+import { openCart, closeCart, openRequest } from './portal-actions.mjs'
 // Public, synthetic-only visual smoke against a REAL running API. No API mocks,
 // POST /orders, admin mutation, withdrawal or document revocation. Linked E2E
 // owns those business assertions on its separate disposable database.
@@ -18,7 +19,7 @@ const layout = async page => {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
 }
 const navigate = async (page, name) => {
-  const link = page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name, exact: true })
+  const link = page.getByRole('navigation', { name: 'Основное' }).getByRole('link', { name, exact: true })
   if (!await link.isVisible()) await page.getByRole('button', { name: 'Меню', exact: true }).click()
   await link.click()
 }
@@ -49,7 +50,7 @@ try {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await shot(page, `${size}-home-dark`)
     stage = size + '.catalog'
-    await navigate(page, 'Каталог')
+    await navigate(page, 'Запчасти')
     assert.equal(await oldViewer.evaluate(el => el.life.signal.aborted && !el.ready && el.raf === 0), true)
     const results = page.getByRole('region', { name: 'Результаты каталога' })
     const response = await context.request.get(origin + '/api/v1/catalog/items?limit=20&offset=0')
@@ -58,10 +59,12 @@ try {
     assert(catalog.items.some(i => i.kind === 'product') && catalog.items.some(i => i.kind === 'service'))
     for (const kind of ['product', 'service']) {
       const item = catalog.items.find(i => i.kind === kind)
-      await results.getByRole('article').filter({ hasText: item.sku }).getByRole('button', { name: 'Добавить в список', exact: true }).click()
+      await results.getByRole('article').filter({ hasText: item.sku }).getByRole('button', { name: 'Добавить в заявку', exact: true }).click()
     }
+    await openCart(page)
     await expect(page.getByRole('complementary', { name: 'Выбранные позиции' }).getByRole('listitem')).toHaveCount(2)
     await layout(page); await shot(page, `${size}-catalog-dark`)
+    await closeCart(page)
     stage = size + '.drawer'
     const cart = page.getByRole('button', { name: 'Открыть корзину, позиций: 2', exact: true })
     await cart.click()
@@ -73,9 +76,9 @@ try {
     await page.keyboard.press('Escape'); await expect(drawer).toHaveCount(0)
     await expect(cart).toBeFocused()
     await cart.click()
-    await drawer.getByRole('button', { name: 'Оформить заявку', exact: true }).click()
+    await openRequest(page)
     stage = size + '.form'
-    await expect(page.getByRole('heading', { name: 'Оформление заявки', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Заявка', exact: true })).toBeVisible()
     await expect(page.getByRole('checkbox', { name: /явно принимаю согласие/ })).toBeEnabled()
     await page.getByRole('button', { name: 'Подтвердить и отправить заявку' }).click()
     await expect(page.getByText('Укажите имя: от 1 до 200 символов.', { exact: true })).toBeVisible()

@@ -16,7 +16,10 @@ Original reference runs only on loopback at `http://localhost:45801` during revi
 Stable remains the accepted main release on `https://localhost:45767`.
 After Docker Desktop restarted, its existing stopped containers were resumed unchanged.
 HTTPS was verified using its saved CA. The actual public catalog has **16 positions,
-10 image URLs, two published models**. Synthetic privacy publication is enabled;
+10 image URLs, two published models**. The owner-confirmed selective transfer into
+review preserved all catalog UUIDs, fields, revisions and statuses. HTTPS checks
+read every detail and all ten images through the real read/AV pipeline and verified
+byte-identical image responses and identical public details; stable stayed unchanged. Synthetic privacy publication is enabled;
 one public teaching document exists. No stable source, accepted image, database
 record, price, publication status or volume was changed by this continuation.
 
@@ -50,7 +53,7 @@ No merge/cherry-pick of #71 or #72. The request/policy recovery copy from #72 is
 reused. Its stable synthetic privacy publication is verified as runtime state,
 not reproduced through a new seed. Its three-mode assistant UI is not imported.
 Existing commercial/support request mechanisms already present in main remain the
-business owners. Actual submission/SMTP checks on this candidate are still pending.
+business owners. The same unchanged existing synthetic privacy packet was published in review through authenticated migrator authorization, with separate review staff. Actual submission/SMTP checks remain pending.
 
 ## Outstanding differences and publication gate
 
@@ -76,15 +79,15 @@ must not be marked YES.**
 ## Verification so far
 
 - Before edits: 235 frontend tests passed.
-- Current frontend: 241 tests passed; TypeScript and production build passed.
+- Current frontend: 244 tests passed; TypeScript and production build passed.
 - Unchanged original reference: **106/106 original HTTP E2E passed**, using the
   repository’s pinned Playwright package. This certifies the reference, not candidate parity.
 - PostgreSQL run encountered exhausted Docker address pools. Exactly eight unused
   networks from two stopped disposable rehearsal namespaces were released after
   checking zero endpoints; stable and PR #72 review networks, all containers and
-  all volumes were retained. A repeat and final result are pending.
+  all volumes were retained. The exact-head GitHub PostgreSQL 16 integration job passed on a44e8e1; subsequent exact-head reruns remain to be checked.
 - Initial backend container run lacked sibling frontend/scripts paths and failed
-  on missing test inputs; a corrected read-only whole-repo run is pending.
+  on missing test inputs; the corrected read-only whole-repo run passed: 1166 tests, Ruff and mypy.
 - Full-stack candidate screenshots, real submission/SMTP, manager and negative
   browser checks, Compose smoke and exact-head CI remain pending.
 
@@ -101,3 +104,20 @@ apply through the existing release controller against the retained stable root,
 and repeat HTTPS commerce/chat/manager/media smoke. Preserve catalog, orders,
 consent history, audit, photos and volumes. No fresh seed, downgrade, stamp,
 volume deletion, manual authority edit or direct development DB connection.
+
+## Continuation on 14 November
+
+The owner clarified that this is product development rather than a management
+walkthrough. The previously edited stable catalog is the required assortment.
+No new demonstration assortment or demo diagnosis content was inserted into the
+manual review. Automated regressions continue to use isolated synthetic fixtures,
+as required by AGENTS.md. Original interface tabs and the server-backed wizard
+remain in scope unless the owner explicitly removes them.
+
+The previous exact-head CI run passed backend, frontend, PG16 integration, encrypted
+restore, load/recovery and operator handover. Three jobs failed on obsolete UI
+selectors/text after restoring the original interface. Their interactions are
+being adapted to the original live search, modal cart, model buttons and quick
+actions; HTTP/SQL/ACL/replay/SMTP assertions remain. A real newly added test also
+found and fixed informational mode notices incorrectly interrupting free-text
+search. Deep links and browser Back/Forward now use original-style item hashes.

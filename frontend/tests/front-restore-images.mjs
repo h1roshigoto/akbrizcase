@@ -58,13 +58,13 @@ try {
         await expect(card(items[2]).getByRole('img', { name: 'Изображение отсутствует' })).toBeVisible()
         await shot('catalog-synthetic')
         for (const item of items.slice(0, 2)) {
-          await card(item).getByRole('button', { name: item.name, exact: true }).click()
+          await card(item).getByRole('button', { name: 'Подробнее', exact: true }).click()
           const detail = page.getByRole('region', { name: 'Карточка позиции' })
           await expect(detail.getByRole('img', { name: item.kind === 'service' ? 'Сервисная услуга' : 'На заказ', exact: true })).toBeVisible()
           await expect(detail.locator('img')).toHaveCount(0)
           await expect(detail).not.toContainText('Изображение отсутствует')
           if (item.kind === 'product') await shot('left-post-detail-synthetic')
-          await detail.getByRole('button', { name: /Вернуться в каталог/ }).click()
+          await detail.getByRole('button', { name: 'Назад к списку', exact: true }).click()
         }
         assert.deepEqual(imageRequests, [], 'The overridden product photo must not be requested')
         assert.deepEqual(errors, [])

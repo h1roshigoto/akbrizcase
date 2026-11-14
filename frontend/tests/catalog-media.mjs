@@ -1,3 +1,4 @@
+import { openCart, closeCart } from './portal-actions.mjs'
 // Synthetic JPEG/PNG -> SQLAdmin -> real AV/Pillow -> public React, without mocks.
 import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
@@ -10,7 +11,6 @@ export async function catalogMedia({ browser, context, page, origin, created, su
     const show = async () => {
       await react.goto(origin + '/#catalog');
       await react.getByRole('searchbox').fill('MVP016');
-      await react.getByRole('button', { name: 'Найти', exact: true }).click();
     };
     const loaded = async img => {
       await expect(img).toBeVisible();
@@ -35,9 +35,11 @@ export async function catalogMedia({ browser, context, page, origin, created, su
       await expect(card.locator('img')).toHaveAttribute('src', attached[kind].image_url);
     }
     const product = results.getByRole('article').filter({ hasText: created.product.sku });
-    await product.getByRole('button', { name: 'Добавить в список' }).click();
+    await product.getByRole('button', { name: 'Добавить в заявку' }).click();
+    await openCart(react);
     await loaded(react.locator('.selected-image img'));
-    await product.getByRole('button', { name: attached.product.name, exact: true }).click();
+    await closeCart(react);
+    await product.getByRole('button', { name: 'Подробнее', exact: true }).click();
     await loaded(react.locator('.item-detail > .item-image img'));
     await expect(react.locator('.item-detail > .item-image img')).toHaveAttribute('src', attached.product.image_url);
     assert.deepEqual(await anonymous.cookies(), []);

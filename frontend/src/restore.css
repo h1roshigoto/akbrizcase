@@ -6,8 +6,6 @@
 .nav a { font-size:18px; }
 .hdr { border-bottom-color:transparent; }
 .ftr { margin-top:0; }
-.hero .cta .btn { min-width:0; }
-.hero .cta { gap:24px; }
 .m3d {display:block;position:relative;}
 .m3d > img {object-fit:contain;width:100%;height:100%;}
 .m3d > canvas {z-index:1;}
@@ -53,9 +51,6 @@
 .request-shell .request-panel {padding:33px;margin-top:0;}
 .request-shell .request-fields input,.request-shell .request-fields textarea {font-size:16px;}
 .request-shell .request-heading {padding:48px 0 24px;}
-@media (min-width:761px) and (max-width:1160px) { .nav {gap:18px;} .nav a{font-size:15px;} }
-@media (min-width:761px) { .kemz {display:flex;} .nav{display:flex;} .hdr .wrap{height:100px;} .logo img{height:84px;} .burger{display:none;} .hero {margin-top:0;padding-top:64px;} }
-@media (max-width:760px) { .nav {display:flex;gap:0;top:100px;max-height:calc(100dvh - 100px);overflow-y:auto;} .hdr .wrap{height:100px;} .nav.open {top:100px;padding:8px var(--gut) 20px;} .logo img{height:68px;} .hero{margin-top:0;padding-top:40px;} .hero .cta{flex-direction:row;} .hero .cta .btn{width:auto;} .stage-ctl {gap:10px;} .stage-ctl .tgl{font-size:13px;} .restore-catalog .detail{grid-template-columns:1fr;} }
 
 .request-shell .request-fields {border:0;padding:0;margin:24px 0;}
 .request-shell .request-fields legend {font-size:22px;}

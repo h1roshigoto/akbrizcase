@@ -38,7 +38,7 @@ export function ItemDetail({
         />
       ) : (
         item && (
-          <article className="panel detail">
+          <article className="panel detail item-detail">
             <ItemImage item={item} />
             <div className="detail-body">
               <h2 id="d-name">{item.name}</h2><p className="meta">{item.sku}</p>

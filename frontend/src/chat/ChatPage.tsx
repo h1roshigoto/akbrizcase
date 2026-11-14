@@ -41,6 +41,7 @@ export function ChatPage({
   const [opened, setOpened] = useState(false)
   const [text, setText] = useState('')
   const [symptom, setSymptom] = useState<string | null>(null)
+  const [pickRevision, setPickRevision] = useState(0)
   const [actionBusy, setActionBusy] = useState(false)
   const actionLock = useRef(false)
   const alive = useRef<AbortController | null>(null)
@@ -58,6 +59,13 @@ export function ChatPage({
   const disabled =
     state.busy || !state.ready || state.pending || actionBusy || !opened
   const reply = opened ? state.reply : null
+  const visibleNotice = /^Режим (переключён|подтверждён) сервером\./.test(state.notice) ? '' : state.notice
+  useEffect(() => {
+    if (!opened || presentation !== 'steps') return
+    const current = controller.snapshot()
+    if (current.ready && !current.busy && !current.pending && current.reply?.mode !== 'diagnose')
+      void controller.send({ type: 'select_mode', mode: 'diagnose' })
+  }, [controller, opened, presentation])
   const act = async (action: ChatReply['actions'][number]) => {
     const current = controller.snapshot()
     if (
@@ -133,11 +141,19 @@ export function ChatPage({
     event.preventDefault()
     if (disabled || !text.trim() || text.length > 1000) return
     const submitted = text
-    void controller.send({ type: 'text', value: submitted }).then(() => {
+    void (async () => {
+      const current = controller.snapshot()
+      const inDiagnosis = current.reply?.mode === 'diagnose' && current.reply.buttons.some(b => b.input.type === 'button')
+      if (current.reply?.mode === 'diagnose' && !inDiagnosis) {
+        await controller.send({ type: 'select_mode', mode: 'knowledge' })
+        const next = controller.snapshot()
+        if (!next.ready || next.error || next.pending || next.reply?.mode !== 'knowledge') return
+      }
+      await controller.send({ type: 'text', value: submitted })
       const result = controller.snapshot()
       if (!result.error && !result.pending && !result.notice)
-        setText((current) => (current === submitted ? '' : current))
-    })
+        setText(value => value === submitted ? '' : value)
+    })()
   }
   const askIndicator = async (name: string) => {
     if (disabled) return
@@ -151,16 +167,16 @@ export function ChatPage({
     {state.messages.filter(m => m.state_version !== state.version).map(m => <ReplyView key={m.message_id} reply={m.reply} />)}
     {reply && <ReplyView reply={reply} current disabled={disabled} onInput={input => { setActionNotice(''); void controller.send(input) }} onAction={action => void act(action)} onItem={openItem} />}
   </>
-  const diagnosis = reply?.mode === 'diagnose' && <DiagnosisMenu disabled={disabled} symptom={symptom} onStart={input => { setActionNotice(''); void controller.send(input) }} />
+  const diagnosis = reply?.mode === 'diagnose' && <DiagnosisMenu key={pickRevision} disabled={disabled} symptom={symptom} onStart={input => { setActionNotice(''); void controller.send(input) }} />
   const recovery = <>
     {state.storageFailed && <p className="inline-error" role="alert">Хранилище сессии недоступно или запись не удалась. Восстановление после обновления страницы и сохранение запроса для повтора не гарантируются.</p>}
-    {state.notice && <p role="status">{state.notice}</p>}
+    {visibleNotice && <p role="status">{visibleNotice}</p>}
     {state.error && <p className="inline-error" role="alert">{state.error}</p>}
     {state.busy && <p role="status">Загружаем ответ…</p>}
     {actionNotice && <p role="status">{actionNotice}</p>}
     <div className="assistant-recovery">
       {state.terminal ? <button className="chip" disabled={state.busy} onClick={() => void controller.start()}>Создать новую сессию</button> : <>
-        {(state.error || state.notice || state.pending) && <button className="chip" disabled={state.busy || actionBusy} onClick={() => void controller.refresh()}>Перечитать сессию</button>}
+        {(state.error || visibleNotice || state.pending) && <button className="chip" disabled={state.busy || actionBusy} onClick={() => void controller.refresh()}>Перечитать сессию</button>}
         {state.pending && <button className="chip" disabled={state.busy || actionBusy} onClick={() => void controller.retry()}>Повторить тот же запрос</button>}
       </>}
     </div>
@@ -174,9 +190,9 @@ export function ChatPage({
         <div className="msgs" id="msgs" role="log" aria-live="polite">
           <p className="chat-privacy">Не указывайте в чате ФИО, телефон, email и другие персональные данные. Для обращения используйте предназначенную для этого форму.</p>
           {reply && <><div className="m bot">Здравствуйте! Я помогу разобраться с неисправностью металлодетектора МТД-КА и заказать запчасть. Что случилось?</div>
-            <div className="chips">{['Не включается','Ложные тревоги','Не считает проходы','Сигнал не прекращается'].map(label => <button className="chip" disabled={disabled} key={label} onClick={async () => { setSymptom(label); if (reply.mode !== 'diagnose') await controller.send({type:'select_mode',mode:'diagnose'}) }}>{label}</button>)}<button className="chip" disabled={disabled} onClick={onBack}>Нужна запчасть</button><button className="chip" disabled={disabled} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button></div>
+            <div className="chips">{['Не включается','Ложные тревоги','Не считает проходы','Сигнал не прекращается'].map(label => <button className="chip" disabled={disabled} key={label} onClick={async () => { setSymptom(label); setPickRevision(n => n+1); if (reply.mode !== 'diagnose') await controller.send({type:'select_mode',mode:'diagnose'}) }}>{label}</button>)}<button className="chip" disabled={disabled} onClick={() => void controller.send({type:'select_mode',mode:'commerce'})}>Нужна запчасть</button><button className="chip" disabled={disabled} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button></div>
             {symptom && <div className="m me">{symptom}</div>}
-            {presentation === 'chat' && <>{diagnosis}{replies}</>}</>}
+            {presentation === 'chat' && <>{diagnosis}{replies}{reply.mode === 'commerce' && <div className="chips"><button className="chip" disabled={disabled} onClick={onBack}>Перейти в каталог</button></div>}</>}</>}
           {presentation === 'chat' && recovery}
         </div>
         <form className="inp" id="chatform" onSubmit={submit} autoComplete="off"><label className="sr" htmlFor="q">Сообщение</label><input className="in" id="q" value={text} onChange={e => setText(e.target.value)} disabled={disabled} placeholder="Опишите, что случилось…" maxLength={1000} /><button className="send" disabled={disabled || !text.trim()} type="submit" aria-label="Отправить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 19 9-19 9 3-8 9-1-9-1z" /></svg></button></form>

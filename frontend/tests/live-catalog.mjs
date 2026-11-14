@@ -1,3 +1,4 @@
+import { openCart, closeCart, selectCatalogModel } from './portal-actions.mjs'
 // Real Chromium -> Nginx -> FastAPI -> disposable PostgreSQL. No route mocks.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -32,10 +33,10 @@ try {
   const selected = page.getByRole('complementary', { name: 'Выбранные позиции' });
   const cards = list.getByRole('article');
   const card = sku => list.getByRole('article').filter({ hasText: sku });
-  const reset = () => list.getByRole('button', { name: 'Сбросить фильтры' }).first().click();
+  const reset = async () => {await closeCart(page);await page.getByRole('searchbox').fill('');await page.getByRole('radio',{name:'Все модели',exact:true}).check()};
   const submit = async query => {
+    await closeCart(page);
     await page.getByRole('searchbox').fill(query);
-    await page.getByRole('button', { name: 'Найти', exact: true }).click();
   };
   const stored = () => page.evaluate(key => JSON.parse(sessionStorage.getItem(key)), storageKey);
   let selection = config.selection;
@@ -45,8 +46,10 @@ try {
     await expect(list.getByRole('alert')).toBeVisible();
     await expect(cards).toHaveCount(0);
     await expect(page.getByText('Не удалось загрузить модели.', { exact: false })).toBeVisible();
+    await openCart(page);
     await expect(selected.getByRole('alert')).toContainText('Часть позиций недоступна');
     await expect(selected.locator('.subtotal')).toContainText('Пока не определена');
+    await closeCart(page);
     const failed = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v1/catalog/items');
     await list.getByRole('button', { name: 'Повторить', exact: true }).click();
     assert.equal((await failed).status(), 503);
@@ -74,10 +77,11 @@ try {
       await expect(card('DEMO-P-002')).toContainText('Цена по запросу');
       await expect(card('DEMO-P-002').locator('.price')).not.toContainText('0,00');
       await expect(card('DEMO-P-003').locator('.price')).toContainText('0,00');
-      await card('DEMO-P-001').getByRole('button', { name: 'Добавить в список' }).click();
-      await page.getByRole('button', { name: 'Услуги', exact: true }).click();
+      await card('DEMO-P-001').getByRole('button', { name: 'Добавить в заявку' }).click();
+      await page.getByRole('searchbox').fill('DEMO-S-001');
       await expect(cards).toHaveCount(1);
-      await card('DEMO-S-001').getByRole('button', { name: 'Добавить в список' }).click();
+      await card('DEMO-S-001').getByRole('button', { name: 'Добавить в заявку' }).click();
+      await openCart(page);
       await expect(selected.getByRole('listitem')).toHaveCount(2);
       await expect(selected.locator('.subtotal')).toContainText('191,34');
       await selected.getByRole('button', { name: 'Увеличить количество DEMO-P-001', exact: true }).click();
@@ -92,11 +96,13 @@ try {
       await qty.fill('2');
       await reset();
       await expect(cards).toHaveCount(4);
-      await card('DEMO-P-002').getByRole('button', { name: 'Добавить в список' }).click();
+      await card('DEMO-P-002').getByRole('button', { name: 'Добавить в заявку' }).click();
+      await openCart(page);
       await expect(selected.getByRole('listitem')).toHaveCount(3);
       await expect(selected.locator('.subtotal')).toContainText('Известная часть суммы');
       await expect(selected.locator('.subtotal')).toContainText('314,79');
       await selected.getByRole('button', { name: 'Удалить DEMO-P-002', exact: true }).click();
+      await openCart(page);
       await expect(selected.getByRole('listitem')).toHaveCount(2);
       const searchResponse = page.waitForResponse(r => new URL(r.url()).searchParams.get('q') === 'DEMO-P-001');
       await submit('DEMO-P-001');
@@ -104,23 +110,22 @@ try {
       assert.equal(search.total, 1);
       assert.equal(search.items[0].id, bySku['DEMO-P-001'].id);
       await expect(cards).toHaveCount(1);
-      await card('DEMO-P-001').getByRole('button', { name: bySku['DEMO-P-001'].name, exact: true }).click();
+      await closeCart(page);
+      await card('DEMO-P-001').getByRole('button', { name: 'Подробнее', exact: true }).click();
       const detail = page.getByRole('region', { name: 'Карточка позиции' });
       await expect(detail.locator('.item-description')).toContainText('Синтетический пример');
-      // Keep the open detail while changing model context: the list must be
-      // empty and detail must truthfully say unknown, never confirmed.
-      const model = page.getByRole('combobox', { name: 'Модель оборудования' });
-      await expect(model).toBeEnabled();
-      const modelId = await model.locator('option').nth(1).getAttribute('value');
-      assert(modelId);
-      const modelDetail = page.waitForResponse(r => {
-        const url = new URL(r.url());
-        return url.pathname === `/api/v1/catalog/items/${bySku['DEMO-P-001'].id}` && url.searchParams.get('model_id') === modelId;
-      });
-      await model.selectOption(modelId);
-      assert.equal((await (await modelDetail).json()).applicability.status, 'unknown');
+      // Select the model in the original list, then follow the supported item deep link.
+      await detail.getByRole('button',{name:'Назад к списку',exact:true}).click();
+      const modelResponse=await page.request.get(config.origin+'/api/v1/equipment-models?limit=100');
+      assert.equal(modelResponse.status(),200);
+      const modelId=(await modelResponse.json()).items[0].id;
+      await selectCatalogModel(page, modelId);
+      await expect(cards).toHaveCount(0);
+      const modelDetail=page.waitForResponse(r=>{const u=new URL(r.url());return u.pathname===`/api/v1/catalog/items/${bySku['DEMO-P-001'].id}`&&u.searchParams.get('model_id')===modelId});
+      await page.evaluate(id=>{location.hash='part-'+id},bySku['DEMO-P-001'].id);
+      assert.equal((await (await modelDetail).json()).applicability.status,'unknown');
       await expect(detail.getByText('Применимость не подтверждена', { exact: true })).toBeVisible();
-      await detail.getByRole('button', { name: 'Вернуться в каталог', exact: false }).click();
+      await detail.getByRole('button', { name: 'Назад к списку', exact: true }).click();
       await expect(list.getByRole('heading', { name: 'Позиции не найдены' })).toBeVisible();
       await expect(cards).toHaveCount(0);
       assert(network.some(row => row.path.includes(`model_id=${modelId}`) && row.status === 200));
@@ -142,17 +147,20 @@ try {
       assert.equal(selection.length, 2);
       for (const row of selection) assert.deepEqual(Object.keys(row).sort(), ['item_id', 'qty', 'revision']);
       await page.reload();
+      await openCart(page);
       await expect(selected.getByRole('listitem')).toHaveCount(2);
       await expect(selected.locator('.subtotal')).toContainText('314,79');
     } else {
       assert.equal(catalog.total, 3);
       assert(!bySku['DEMO-S-001']);
       await expect(cards).toHaveCount(3);
+      await openCart(page);
       await expect(selected.getByText(/Позиция обновилась/)).toBeVisible();
       await expect(selected.getByRole('alert')).toContainText('Часть позиций недоступна');
       await expect(selected.locator('.subtotal')).toContainText('300,00');
       assert.deepEqual(await stored(), config.selection, 'saved revisions must not silently change');
-      await card('DEMO-P-001').getByRole('button', { name: bySku['DEMO-P-001'].name, exact: true }).click();
+      await closeCart(page);
+      await card('DEMO-P-001').getByRole('button', { name: 'Подробнее', exact: true }).click();
       const detail = page.getByRole('region', { name: 'Карточка позиции' });
       await expect(detail.locator('.item-description')).toContainText('<img src=x onerror=');
       assert.equal(await detail.locator('.item-description img').count(), 0);
@@ -160,6 +168,8 @@ try {
       // The archived service stays in the restored selection with the existing
       // unavailable notice and explicit removal/retry controls.
       assert(network.some(row => row.path.startsWith('/api/v1/catalog/items/') && row.status === 404));
+      await detail.getByRole('button',{name:'Назад к списку',exact:true}).click();
+      await openCart(page);
       await selected.getByRole('button', { name: 'Повторить загрузку', exact: true }).click();
       await expect(selected.getByRole('alert')).toContainText('Часть позиций недоступна');
     }

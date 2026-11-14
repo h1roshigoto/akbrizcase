@@ -1,3 +1,4 @@
+import { openRequest, selectDiagnosisModel } from './portal-actions.mjs'
 // Real trusted HTTPS support intake. No fixtures replace API responses.
 import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
@@ -61,7 +62,7 @@ try {
   const first = await customer()
   const { page } = first
   progress('select published model')
-  await page.getByLabel('Модель для диагностики').selectOption(config.model_id)
+  await selectDiagnosisModel(page, config.model_id)
   await page.getByRole('button', { name: 'Синтетическая проверка оборудования', exact: true }).click()
   await current(page).getByText('Синтетический вопрос диагностики', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Синтетическое наблюдение', exact: true }).click()
@@ -110,10 +111,10 @@ try {
   progress('support success -> catalog -> commercial success -> independent site support success')
   await page.getByRole('button', { name: 'Вернуться в каталог', exact: true }).click()
   const product = page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article').filter({ hasText: 'DEMO-P-001' })
-  await product.getByRole('button', { name: 'Добавить в список', exact: true }).click()
-  await page.getByRole('button', { name: 'Оформить заявку', exact: true }).click()
+  await product.getByRole('button', { name: 'Добавить в заявку', exact: true }).click()
+  await openRequest(page)
   await page.getByRole('button', { name: 'Начать новую коммерческую заявку', exact: true }).click()
-  await page.getByRole('heading', { name: 'Оформление заявки', exact: true }).waitFor()
+  await page.getByRole('heading', { name: 'Заявка', exact: true }).waitFor()
   assert.equal(await page.getByRole('heading', { name: `Заявка №${receipt.number}`, exact: true }).count(), 0)
   await fill(page, 'SYNTHETIC-036 sequential commercial')
   await form(page).getByRole('checkbox', { name: /Я прочитал/ }).check()
