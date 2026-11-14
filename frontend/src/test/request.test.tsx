@@ -534,7 +534,7 @@ it('shows unknown prices and known zero without inventing a shipping cost', asyn
       }}
     />,
   )
-  await screen.findByText('Цена по запросу')
+  await within(screen.getByRole('region',{name:'Обзор позиций'})).findByText('Цена по запросу')
   expect(screen.getByText(/Позиций без известной цены: 1/)).toBeTruthy()
   expect(
     screen.getByText(/Стоимость доставки и общая сумма уточняются/),

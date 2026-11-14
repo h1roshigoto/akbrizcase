@@ -33,7 +33,9 @@ export async function selectCatalogModel(page, id) {
   expect(response.status()).toBe(200)
   const model = (await response.json()).items.find(row => row.id === id)
   expect(model).toBeTruthy()
-  await page.getByRole('radio', {name: model.name, exact: true}).check()
+  const radio=page.getByRole('radio',{name:model.name,exact:true})
+  await radio.locator('..').click()
+  await expect(radio).toBeChecked()
 }
 export async function knowledgeMode(page) {
   const result = page.waitForResponse(async response => {

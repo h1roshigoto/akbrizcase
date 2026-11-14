@@ -141,3 +141,36 @@ it('keeps a free-text query on an uncertain mode change and retries exactly that
   await waitFor(()=>expect(api.send).toHaveBeenCalledTimes(3))
   expect(JSON.parse(api.send.mock.calls[2]![0]).input).toEqual({type:'text',value:'SYNTHETIC retained query'})
 })
+
+it('offers original city suggestions with keyboard selection and Escape without inventing a delivery tariff', async () => {
+  render(<DeliveryEstimate />)
+  const user=userEvent.setup()
+  const input=screen.getByRole('combobox',{name:'Город получателя'})
+  await user.type(input,'рост')
+  expect(input.getAttribute('aria-expanded')).toBe('true')
+  expect(screen.getByRole('option',{name:/Ростов-на-Дону/})).toBeTruthy()
+  await user.keyboard('{ArrowDown}{Enter}')
+  expect((input as HTMLInputElement).value).toBe('Ростов-на-Дону')
+  expect(input.getAttribute('aria-expanded')).toBe('false')
+  await user.click(screen.getByRole('button',{name:'Рассчитать'}))
+  expect(screen.getByText(/стоимость и срок доставки уточним/)).toBeTruthy()
+  await user.clear(input)
+  await user.type(input,'Моск')
+  await user.keyboard('{Escape}')
+  expect(input.getAttribute('aria-expanded')).toBe('false')
+})
+
+it('loads original service prices from the published service API and retries failures without fixture fallback', async () => {
+  const {ServicePrices}=await import('../components/ServicePrices')
+  const service=fixtures.catalog_page.items.find(item=>item.kind==='service')!
+  const source={...fixtureCatalog,mode:'api' as const,getItems:vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({items:[service],total:1,offset:0,limit:100})}
+  render(<ServicePrices source={source} />)
+  await screen.findByRole('alert')
+  expect(screen.queryByRole('table')).toBeNull()
+  await userEvent.click(screen.getByRole('button',{name:'Повторить загрузку услуг'}))
+  await screen.findByRole('table')
+  expect(source.getItems.mock.calls[0]![0]).toEqual({kind:'service',limit:100,offset:0})
+  expect(within(screen.getByRole('table')).getByText(service.name)).toBeTruthy()
+  expect(within(screen.getByRole('table')).getByText('Цена по запросу')).toBeTruthy()
+  expect(within(screen.getByRole('table')).queryByText('0,00 RUB')).toBeNull()
+})

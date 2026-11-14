@@ -47,6 +47,10 @@ export function CatalogPage({
   const [requestVisited, setRequestVisited] = useState(
     () => viewFromHash(defaultView) === 'request',
   )
+  useEffect(() => {
+    const titles = {home:'Сервисный портал',catalog:'Запчасти',chat:'Помощник',wizard:'Помощник',request:'Заявка',support:'Обращение к специалисту',docs:'Нормативная база',tech:'Техинформация'}
+    document.title = `${titles[view]} · МТД-КА`
+  }, [view])
   const chatOpen = view === 'chat' || view === 'wizard'
   const requestOpen = view === 'request'
   const supportOpen = view === 'support'

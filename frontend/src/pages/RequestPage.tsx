@@ -23,6 +23,7 @@ import { Submission } from '../state/submission'
 import { useResource } from '../state/useResource'
 import { PrivacyPolicy } from '../components/PrivacyPolicy'
 import { ItemImage } from '../components/ItemImage'
+import { ServicePrices } from '../components/ServicePrices'
 import { DeliveryEstimate } from '../components/DeliveryEstimate'
 
 function CatalogChanges({
@@ -792,6 +793,7 @@ export function RequestPage({
         )}
 </section><section className="panel"><h3>Доставка СДЭК</h3><DeliveryEstimate value={values.city} disabled={!editing} onChange={city => {setValues(v=>({...v,city}));setConfirmed(false)}} /><p className="tip calc-note">Итоговая цена и условия оплаты согласуются после отправки заявки.</p></section></aside>}
       </section>
+      {!isSupport && <ServicePrices source={source} />}
     </main>
   )
 }
