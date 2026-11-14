@@ -208,3 +208,45 @@ once the capture waited for all started reads before navigating. A separate
 negative capacity probe found that ten simultaneous image reads can return 404
 under this bounded review profile; 1/2/6-way reads and an ordinary clean-browser
 catalog read passed. AV/file constraints were not relaxed.
+
+## Final review corrective patch (reviewed base f7ee767)
+
+The public scenario contract exposes only `key`, `title` and `model_id`; neither
+`ChatScenarios` nor `ScenarioChoice` carries a reviewed symptom relation. The four
+original quick choices therefore do not infer a mapping from scenario titles or
+keys. Selecting one clears the old server diagnosis and shows a clear unavailable
+mapping message, documentation link and the server's specialist action. Both the
+local scenario picker and current reply's generic start buttons are suppressed
+under that symptom. General published-scenario selection remains available through
+the original steps tab after “Начать заново”. No technical instructions are added.
+
+Restart uses existing ChatController commands: leave diagnose for knowledge, then
+select diagnose. Each command must be acknowledged before changing the visible
+problem/resetting the local picker. A same-mode selection keeps its original
+server semantics. On uncertain transport outcome the controller preserves the
+exact pending wire for retry; the UI does not relabel old actions as a new
+problem. Recover the pending command first, then repeat the choice if needed.
+No session is silently recreated and no backend contract/schema is changed.
+
+Six focused UI regressions cover all four unmapped symptoms (including a scenario
+with an identical title), progressed restart, shared chat/steps state, lost
+transition replay and interrupted reset. The linked HTTPS browser suite adds both
+P1 cases on desktop/mobile: progress a published tree, restart, reject unmapped
+quick choices, restart an allowed tree, lose a committed transition response,
+retry the exact wire and confirm the same response/version; foreign token stays
+404. Existing linked HTTP/SQL/ACL/order/consent/SMTP assertions remain.
+
+The image capacity defect is tracked separately in
+[#74](https://github.com/h1roshigoto/akbrizcase/issues/74). Reproduction on f7ee767:
+ten sequential fresh reads all 200 (0.94–1.40 seconds); ten concurrent reads all
+404 (12.87–13.47 seconds). Earlier 2/6-way and normal browser loads passed.
+Every image GET runs a fresh isolated scan/decode and maps FileRejected/OSError to
+404. Process contention or timeout is a hypothesis, not a proven root cause.
+The follow-up requires internal rejection-category/resource evidence, recovery
+and publication/revoke regressions without weakening AV, security or limits.
+There is no backend performance change in this corrective patch.
+
+Local frontend validation: 254 tests and TypeScript/production build passed.
+Exact final-head HTTPS/linked/replay and complete GitHub CI results are recorded
+in the PR verification update. Stable release and existing 16 positions/10 photos,
+IDs, prices, revisions, consent and publication state are unchanged.

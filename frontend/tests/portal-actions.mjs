@@ -52,7 +52,7 @@ export async function commerceMode(page) {
   await result
 }
 export async function diagnosisMode(page) {
-  await page.getByRole('button', {name:'Не включается', exact:true}).click()
+  await page.getByRole('tab', {name:'Подбор по шагам', exact:true}).click()
   await expect(page.getByRole('heading', {name:'Какая модификация у изделия?',exact:true})).toBeVisible()
 }
 export async function refreshSession(page) {

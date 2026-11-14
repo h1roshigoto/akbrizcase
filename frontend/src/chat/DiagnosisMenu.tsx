@@ -81,6 +81,15 @@ export function DiagnosisMenu({
   const [selecting, setSelecting] = useState(true)
   const load = useCallback(chatModels, [attempt])
   const models = useResource(load)
+  // The public scenario DTO has key/title/model only, no reviewed symptom
+  // relation. Never infer that relation from a key or a similar-looking title.
+  if (symptom) return (
+    <section className="chat-panel" aria-label="Начало диагностики">
+      <h3 className="wz-q">Неисправность: {symptom}</h3>
+      <p role="status">Для этой неисправности нет подтверждённого соответствия опубликованному сценарию. Диагностика не запущена. Откройте документацию или обратитесь к специалисту через действие в ответе помощника.</p>
+      <a className="doc" href="#docs">Открыть документацию</a>
+    </section>
+  )
   if (!selecting)
     return (
       <button
