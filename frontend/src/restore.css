@@ -73,3 +73,11 @@
 .restore-chat .ava svg {width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2;}
 .restore-chat .panelimg img {height:100%;width:100%;object-fit:contain;position:absolute;inset:0;}
 .restore-chat .panelimg .arch {display:none;}
+
+/* Grid children must shrink to the mobile viewport; the viewer has an intrinsic poster width. */
+.hero .wrap > div {min-width:0;}
+.request-shell .calc .rw .in {min-width:0;flex:1 1 0;}
+.request-shell .calc .rw .calc-go {flex:0 0 auto;white-space:nowrap;}
+@media(max-width:600px){
+  .request-shell .calc .rw .in,.request-shell .calc .rw .calc-go {flex:1 1 100%;}
+}

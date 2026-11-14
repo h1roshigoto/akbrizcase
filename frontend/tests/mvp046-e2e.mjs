@@ -500,12 +500,11 @@ try {
   await rpc('fact_published')
   for (const buyer of buyers) {
     await buyer.page.goto(config.origin + '/#catalog')
-    const filteredResponse = buyer.page.waitForResponse(r => {
+    stage = 'D.filter.' + buyer.name
+    const [filtered] = await Promise.all([buyer.page.waitForResponse(r => {
       const url = new URL(r.url())
       return url.pathname === '/api/v1/catalog/items' && url.searchParams.get('model_id') === config.model_id
-    })
-    await selectCatalogModel(buyer.page, config.model_id)
-    const filtered = await filteredResponse
+    }), selectCatalogModel(buyer.page, config.model_id)])
     stage = 'D.catalog-http.' + buyer.name + '.' + filtered.status()
     safe(filtered.status() === 200, 'Actual model-filtered catalog response')
     const filteredBody = await filtered.json()

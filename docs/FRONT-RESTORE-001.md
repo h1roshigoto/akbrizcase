@@ -53,7 +53,7 @@ No merge/cherry-pick of #71 or #72. The request/policy recovery copy from #72 is
 reused. Its stable synthetic privacy publication is verified as runtime state,
 not reproduced through a new seed. Its three-mode assistant UI is not imported.
 Existing commercial/support request mechanisms already present in main remain the
-business owners. The same unchanged existing synthetic privacy packet was published in review through authenticated migrator authorization, with separate review staff. Actual submission/SMTP checks remain pending.
+business owners. The same unchanged existing synthetic privacy packet was published in review through authenticated migrator authorization, with separate review staff. Two actual review orders (commercial and owned chat support) passed 201 creation, byte-identical 200 replay, protected manager reads, original selection snapshots and sent notifications. The closed SMTP sink received exactly two distinct order notifications. Only artificial contacts were used.
 
 ## Outstanding differences and publication gate
 
@@ -79,7 +79,7 @@ must not be marked YES.**
 ## Verification so far
 
 - Before edits: 235 frontend tests passed.
-- Current frontend: 244 tests passed; TypeScript and production build passed.
+- Current frontend: 246 tests passed; TypeScript and production build passed.
 - Unchanged original reference: **106/106 original HTTP E2E passed**, using the
   repository’s pinned Playwright package. This certifies the reference, not candidate parity.
 - PostgreSQL run encountered exhausted Docker address pools. Exactly eight unused
@@ -88,8 +88,7 @@ must not be marked YES.**
   all volumes were retained. The exact-head GitHub PostgreSQL 16 integration job passed on a44e8e1; subsequent exact-head reruns remain to be checked.
 - Initial backend container run lacked sibling frontend/scripts paths and failed
   on missing test inputs; the corrected read-only whole-repo run passed: 1166 tests, Ruff and mypy.
-- Full-stack candidate screenshots, real submission/SMTP, manager and negative
-  browser checks, Compose smoke and exact-head CI remain pending.
+- 32 real-backend candidate viewport screenshots were captured without API mocks, alongside 32 original frames. Visual audit found mobile hero clipping and an undersized delivery button; both are corrected in the continuation. Capture readiness is being improved before final evidence. Manual review commerce/support, replay, manager and actual SMTP checks passed. The full linked regression and exact-head CI remain pending: earlier runs stopped on original-UI selector adaptations; no business/security assertions were removed.
 
 Historical `*-synthetic.png` screenshots from the first PR commit remain explicitly
 synthetic and are not evidence of original matching or full-stack acceptance.

@@ -33,7 +33,7 @@ try {
   const selected = page.getByRole('complementary', { name: 'Выбранные позиции' });
   const cards = list.getByRole('article');
   const card = sku => list.getByRole('article').filter({ hasText: sku });
-  const reset = async () => {await closeCart(page);await page.getByRole('searchbox').fill('');await page.getByRole('radio',{name:'Все модели',exact:true}).check()};
+  const reset = async () => {await closeCart(page);await page.getByRole('searchbox').fill('');await page.getByRole('radio',{name:'Все модели',exact:true}).locator('..').click();await expect(page.getByRole('radio',{name:'Все модели',exact:true})).toBeChecked()};
   const submit = async query => {
     await closeCart(page);
     await page.getByRole('searchbox').fill(query);

@@ -102,7 +102,7 @@ try {
     stage = size + '.trainer'
     await navigate(page, 'Техинформация')
     for (const model of ['МТД-КА-01', 'МТД-КА-18']) {
-      await page.getByRole('radio', { name: model, exact: true }).check()
+      await page.getByRole('radio', { name: model, exact: true }).locator('..').click()
       await page.getByRole('button', { name: 'Включить макет' }).click()
       await page.getByRole('button', { name: 'Пройти с предметом' }).click()
       await expect(page.getByText('Проходы: 1 · Тревоги: 1', { exact: true })).toBeVisible()
