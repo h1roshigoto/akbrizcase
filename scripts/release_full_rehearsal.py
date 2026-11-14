@@ -292,7 +292,11 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 == "akbrizcase:synthetic-seed:demo"
             )
 
-        stack = SimpleNamespace(verify_database=verify_database, sql=release.sql)
+        stack = SimpleNamespace(
+            verify_database=verify_database,
+            sql=release.sql,
+            docker=lambda *args: run(["docker", *args]),
+        )
 
         def smtp_probe(operation):
             require(operation in {"fail", "send"})

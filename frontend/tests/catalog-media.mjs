@@ -10,6 +10,8 @@ export async function catalogMedia({ browser, context, page, origin, created, su
     const detail = async id => (await anonymous.request.get(`${origin}/api/v1/catalog/items/${id}`)).json();
     const show = async () => {
       await react.goto(origin + '/#catalog');
+      // Same-fragment navigation retains the catalog query; reload for current media.
+      await react.reload();
       await react.getByRole('searchbox').fill('MVP016');
     };
     const loaded = async img => {

@@ -82,13 +82,27 @@ must not be marked YES.**
 - Current frontend: 248 tests passed; TypeScript and production build passed.
 - Unchanged original reference: **106/106 original HTTP E2E passed**, using the
   repository’s pinned Playwright package. This certifies the reference, not candidate parity.
-- PostgreSQL run encountered exhausted Docker address pools. Exactly eight unused
-  networks from two stopped disposable rehearsal namespaces were released after
-  checking zero endpoints; stable and PR #72 review networks, all containers and
-  all volumes were retained. The exact-head GitHub PostgreSQL 16 integration job passed on a44e8e1; subsequent exact-head reruns remain to be checked.
-- Initial backend container run lacked sibling frontend/scripts paths and failed
-  on missing test inputs; the corrected read-only whole-repo run passed: 1166 tests, Ruff and mypy.
-- 32 real-backend candidate viewport screenshots were captured without API mocks, alongside 32 original frames. Visual audit found mobile hero clipping and an undersized delivery button; both are corrected in the continuation. Capture readiness is being improved before final evidence. Manual review commerce/support, replay, manager and actual SMTP checks passed. The full linked regression and exact-head CI remain pending: earlier runs stopped on original-UI selector adaptations; no business/security assertions were removed.
+- Corrected read-only whole-repository backend run: 1166 tests, Ruff and mypy.
+- Commit `6991ac7508c3cd5edfcb1bd25d69702bd69a4c96`: GitHub backend,
+  frontend, PG16 integration, encrypted restore, load/recovery, operator handover,
+  linked browser and full staging release rehearsal all passed. Compose reached
+  a stale support-navigation expectation; that interaction is corrected and its
+  full HTTPS journey passed locally. Final-head CI is recorded in the PR update.
+- Local HTTPS support, privacy retirement/config loss, request persistence and
+  manager status/conflict, admin catalog/revision/XSS/media, SMTP notification retry
+  and HTTP security all passed. The HTTP-security stack had one transient startup
+  failure before the successful clean run; no assertions or limits were bypassed.
+- **177 acceptance guards passed**, including three positive/negative port-state
+  test methods. The new test file passes Ruff; changed scripts pass formatting.
+  Additional script lint has the same 22 pre-existing E501 long SQL/code lines
+  as 6991ac7, with zero new diagnostics (backend CI lint remains passing).
+- Real review order/replay/manager/SMTP checks passed and both orders survived
+  subsequent review releases. Windows trusts the review CA in CurrentUser Root
+  with owner permission; an ordinary direct Windows HTTPS request returned 200,
+  16 catalog positions and 10 photos. No TLS validation was disabled.
+- Original/candidate screenshots use matching desktop/mobile viewports and both
+  themes. Final capture/report provenance is stored in the local evidence gallery;
+  no API responses are fabricated. Earlier frames are not claimed pixel parity.
 
 Historical `*-synthetic.png` screenshots from the first PR commit remain explicitly
 synthetic and are not evidence of original matching or full-stack acceptance.
@@ -113,13 +127,11 @@ manual review. Automated regressions continue to use isolated synthetic fixtures
 as required by AGENTS.md. Original interface tabs and the server-backed wizard
 remain in scope unless the owner explicitly removes them.
 
-The previous exact-head CI run passed backend, frontend, PG16 integration, encrypted
-restore, load/recovery and operator handover. Three jobs failed on obsolete UI
-selectors/text after restoring the original interface. Their interactions are
-being adapted to the original live search, modal cart, model buttons and quick
-actions; HTTP/SQL/ACL/replay/SMTP assertions remain. A real newly added test also
-found and fixed informational mode notices incorrectly interrupting free-text
-search. Deep links and browser Back/Forward now use original-style item hashes.
+Original navigation adapters preserve HTTP/SQL/ACL/replay/SMTP assertions.
+Browser tests now open the real modal cart, use the Contacts page for independent
+support intake, and reload before checking changed media/publication state.
+A real browser test also found and fixed informational mode notices interrupting
+free-text search. Item deep links and Back/Forward use original-style hashes.
 
 The full real regression exposed a mobile filter defect with many published
 models/long labels. The original fixed horizontal radio row clipped those
@@ -174,3 +186,14 @@ longer mistakes an already-visible handoff button for committed feedback.
 The legacy trainer's model choices and mobile sound/reset grouping now use the
 original control classes. This corrects their placement but does not claim the
 missing original technical behavior restored.
+
+## Docker Desktop port acceptance
+
+Docker Desktop 29.9.2 lists an unbound PostgreSQL EXPOSE port as a Publishers
+entry with PublishedPort=0. The SMTP rehearsal now verifies that summary together
+with actual HostConfig.PortBindings and NetworkSettings.Ports on the same daemon.
+Every configured or active host binding remains forbidden, including ephemeral
+port allocation and loopback bindings. Tests also reject malformed metadata.
+The full-release fixture adapter supplies the same Docker-inspection capability.
+No application networking, Compose publication, authorization or database schema
+was changed by this test compatibility fix.

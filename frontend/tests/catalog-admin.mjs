@@ -1,3 +1,4 @@
+import { navigate, openCart, closeCart } from './portal-actions.mjs'
 // Chromium -> trusted HTTPS -> SQLAdmin/FastAPI -> PostgreSQL. No route mocks.
 import assert from 'node:assert/strict';
 import { createInterface } from 'node:readline';
@@ -148,10 +149,13 @@ try {
 
   step = 'React updated price and saved revision';
   await react.reload();
+  await navigate(react, 'Запчасти');
+  await openCart(react);
   const selected = react.getByRole('complementary', { name: 'Выбранные позиции' });
   await expect(selected.getByText(/Позиция обновилась/)).toBeVisible();
   const stored = await react.evaluate(() => JSON.parse(sessionStorage.getItem('akbrizcase.selected-items')));
   assert.equal(stored.find(row => row.item_id === created.product.id).revision, 2);
+  await closeCart(react);
   await search('MVP016 renamed');
   await expect(list.getByRole('article')).toHaveCount(1);
   await expect(list.getByRole('article').locator('.price')).toContainText('234,56');
