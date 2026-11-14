@@ -65,7 +65,12 @@ try {
   await current().getByText('Синтетический вопрос диагностики', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Синтетическое наблюдение', exact: true }).click()
   await current().getByText('Синтетический утверждённый результат', { exact: true }).waitFor()
-  await page.getByRole('button', { name: 'Помогло', exact: true }).click()
+  const [feedback] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith('/api/v1/chat/messages') && response.request().method() === 'POST' && JSON.parse(response.request().postData()).input.type === 'feedback'),
+    page.getByRole('button', { name: 'Помогло', exact: true }).click(),
+  ])
+  assert.equal(feedback.status(), 200)
+  await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('akbrizcase.chat.v1')).pending === null)).toBe(true)
   await current().getByRole('button',{name:'Связаться со специалистом',exact:true}).waitFor()
   await page.reload()
   await current().getByRole('button',{name:'Связаться со специалистом',exact:true}).waitFor()

@@ -28,7 +28,7 @@ export function DocumentsPage() {
         {result.data.type === 'documents'
           ? result.data.data.items.map(d => <article className="docrow" key={d.id}><div><h2>{d.title}</h2><p className="tip">{d.code} · Редакция {d.version}</p></div><a className="btn ghost sm" href={documentURL(d)!} target="_blank" rel="noopener noreferrer">Открыть документ</a></article>)
           : result.data.data.items.map(hit => <article className="docrow knowledge-hit" key={hit.source.section_id}><h2>{hit.source.title}</h2><p>{hit.excerpt}</p><SourceLink source={hit.source} /></article>)}
-        <div className="catalog-pagination"><p>Найдено: {result.data.data.total}</p><div><button className="secondary-button" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - 20))}>Предыдущие документы</button><button className="secondary-button" disabled={offset + 20 >= result.data.data.total || offset + 20 > 10000} onClick={() => setOffset(n => n + 20)}>Следующие документы</button></div></div>
+        <div className="catalog-pagination"><p>Найдено: {result.data.data.total}</p><div><button className="secondary-button" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - result.data.data.limit))}>Предыдущие документы</button><button className="secondary-button" disabled={offset + result.data.data.limit >= result.data.data.total || offset + result.data.data.limit > 10000} onClick={() => setOffset(n => n + result.data.data.limit)}>Следующие документы</button></div></div>
       </>}
     </section><p className="tip docs-note">Доступность каждой версии проверяет сервер. Отозванные и закрытые материалы не публикуются. Сведения не заменяют консультацию специалиста.</p>
   </main>

@@ -41,7 +41,7 @@ export function Trainer() {
   return <section className="trainer" aria-labelledby="trainer-title">
     <h2 id="trainer-title">Тренажёр панели</h2>
     <p className="training-notice">Учебный режим · синтетическая симуляция. Не управляет оборудованием. Расположение зон и последовательность сигналов условные; это не инструкция по проверке или ремонту МТД-КА.</p>
-    <fieldset className="tr-mode"><legend>Визуальный макет</legend>{['01', '18'].map(m => <label key={m}><input type="radio" name="trainer-model" checked={model === m} onChange={() => { reset(); setModel(m) }} /> МТД-КА-{m}</label>)}</fieldset>
+    <fieldset className="choice sm tr-mode"><legend className="sr">Визуальный макет</legend>{['01', '18'].map(m => <label key={m}><input type="radio" name="trainer-model" checked={model === m} onChange={() => { reset(); setModel(m) }} /><span>МТД-КА-{m}</span></label>)}</fieldset>
     <div className="tr-grid"><figure className="tr-arch"><svg viewBox="0 0 1000 2400" role="img" aria-label="Учебный макет арки">
       <rect x="0" y="2300" width="1000" height="14" className="floor" />
       <rect x="140" y="300" width="720" height="2000" className="passage" />
@@ -61,9 +61,8 @@ export function Trainer() {
       </svg>
       <div className="tr-ctl"><button className="btn" onClick={() => { setOn(!on); setAlarm(false) }}>{on ? 'Выключить макет' : 'Включить макет'}</button><button className="btn ghost" disabled={!on || walking} onClick={() => walk(false)}>Пройти без предмета</button><button className="btn ghost" disabled={!on || walking} onClick={() => walk(true)}>Пройти с предметом</button></div>
       <div className="tr-h"><label htmlFor="trainer-zone">Условная зона: {zone}</label><input id="trainer-zone" type="range" min="1" max="6" value={zone} onChange={e => setZone(Number(e.target.value))} /></div>
-      <button className="sw" role="switch" aria-checked={sound} onClick={() => setSound(!sound)}><i aria-hidden="true" />Звук</button>
+      <div className="tr-opts"><button className="sw" role="switch" aria-checked={sound} onClick={() => setSound(!sound)}><i aria-hidden="true" />Звук</button><button className="text-button" onClick={reset}>Сбросить тренажёр</button></div>
       <div className="tr-log" role="status"><p>{!on ? 'Учебный макет выключен.' : walking ? 'Учебный проход…' : alarm ? `Учебная тревога: условная зона ${zone}.` : 'Учебный макет готов.'}</p><p>Проходы: {passes} · Тревоги: {alarms}</p></div>
-      <button className="text-button" onClick={reset}>Сбросить тренажёр</button>
     </div></div>
   </section>
 }

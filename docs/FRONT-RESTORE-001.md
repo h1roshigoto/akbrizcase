@@ -79,7 +79,7 @@ must not be marked YES.**
 ## Verification so far
 
 - Before edits: 235 frontend tests passed.
-- Current frontend: 246 tests passed; TypeScript and production build passed.
+- Current frontend: 248 tests passed; TypeScript and production build passed.
 - Unchanged original reference: **106/106 original HTTP E2E passed**, using the
   repository’s pinned Playwright package. This certifies the reference, not candidate parity.
 - PostgreSQL run encountered exhausted Docker address pools. Exactly eight unused
@@ -152,3 +152,25 @@ relabelled as production-approved material. Product readiness requires the
 owner's approved commercial descriptions/prices and legal policy through the
 existing protected editors/publication workflow. This is distinct from the
 working commercial request mechanism verified above.
+
+## Completed local regression and search contract correction
+
+The full isolated release rehearsal on `1f04b3f641f6fca50f5efd089b7e523c20fcbf06`
+passed all linked A–E cases: desktop/mobile keyboard, commercial/support writes,
+exact replays, manager/SMTP, current-publication applicability, image upload/replace/
+remove/revoke, citation withdrawal, expiry, 409/429 and network failures. It then
+passed migration-failure preservation, compatible upgrade and rollback, retained
+data checks and resource guards (three API workers, zero OOM kills).
+This is isolated test data; the manual review retains the owner's 16/10 catalog.
+
+A subsequent actual 3D read found a real frontend/API mismatch: knowledge search
+sent limit=20 although the existing backend contract caps results at five. The
+client now requests five, validates that contract and advances the document search
+using the returned page size. Positive pagination and negative envelope tests are
+added. Backend validation remains unchanged. Browser feedback acceptance now waits
+for the actual 200 response and cleared pending command before reloading; it no
+longer mistakes an already-visible handoff button for committed feedback.
+
+The legacy trainer's model choices and mobile sound/reset grouping now use the
+original control classes. This corrects their placement but does not claim the
+missing original technical behavior restored.
