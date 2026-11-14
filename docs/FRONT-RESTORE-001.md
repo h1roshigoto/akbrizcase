@@ -120,3 +120,9 @@ being adapted to the original live search, modal cart, model buttons and quick
 actions; HTTP/SQL/ACL/replay/SMTP assertions remain. A real newly added test also
 found and fixed informational mode notices incorrectly interrupting free-text
 search. Deep links and browser Back/Forward now use original-style item hashes.
+
+The full real regression exposed a mobile filter defect with many published
+models/long labels. The original fixed horizontal radio row clipped those
+choices. The adapter now wraps API-backed choices within the viewport; no
+model is removed or hidden to satisfy the test. The same shrink fix applies
+to the delivery calculator on both item and request pages.
