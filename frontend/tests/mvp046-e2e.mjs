@@ -540,6 +540,9 @@ try {
   await rpc('revoke_internal')
   for (const buyer of buyers) {
     await buyer.page.goto(config.origin + '/#catalog')
+    // A same-fragment visit retains React's already selected filter. Reload
+    // before testing a changed publication so this is a genuine public read.
+    await buyer.page.reload()
     await selectCatalogModel(buyer.page, config.model_id)
     await expect(buyer.page.getByRole('region', { name: 'Результаты каталога' }).getByRole('article')).toHaveCount(0)
     await buyer.page.getByRole('heading', { name: 'Позиции не найдены', exact: true }).waitFor()

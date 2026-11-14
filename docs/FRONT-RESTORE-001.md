@@ -126,3 +126,29 @@ models/long labels. The original fixed horizontal radio row clipped those
 choices. The adapter now wraps API-backed choices within the viewport; no
 model is removed or hidden to satisfy the test. The same shrink fix applies
 to the delivery calculator on both item and request pages.
+
+## Acceptance flags
+
+```text
+ORIGINAL_ARCHIVE_AVAILABLE=YES
+ORIGINAL_DESIGN_MATCH=NO (partial, differences above)
+ORIGINAL_PAGES_RESTORED=PARTIAL
+ORIGINAL_FUNCTIONS_RESTORED=PARTIAL
+EXISTING_CATALOG_PRESERVED=YES (16 published / 10 photos)
+LEFT_POST_ON_REQUEST=YES
+SERVICE_ICONS=YES
+COMMERCIAL_REQUEST_WORKING=YES (real review + replay + manager + SMTP)
+ORIGINAL_CHAT_WORKING=PARTIAL (real server; original technical corpus unavailable)
+ORIGINAL_WIZARD_WORKING=PARTIAL (server-owned; original technical corpus unavailable)
+REAL_BACKEND_INTEGRATION=YES
+LOCAL_REVIEW_URL=https://localhost:43351
+EXACT_HEAD=recorded in the release manifest and PR verification update
+PR_URL=https://github.com/h1roshigoto/akbrizcase/pull/73
+```
+
+The current catalog descriptions and privacy bundle are still explicitly
+synthetic/closed-demo source data. They were preserved as requested and are not
+relabelled as production-approved material. Product readiness requires the
+owner's approved commercial descriptions/prices and legal policy through the
+existing protected editors/publication workflow. This is distinct from the
+working commercial request mechanism verified above.
