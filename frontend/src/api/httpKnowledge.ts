@@ -20,7 +20,7 @@ export function isDocumentPage(v: unknown): v is DocumentPage {
   return page(v) && v.items.every(isDocument)
 }
 export function isKnowledgePage(v: unknown): v is KnowledgePage {
-  return page(v) && v.items.every(hit => {
+  return page(v) && v.limit <= 5 && v.items.length <= v.limit && v.items.length <= v.total && v.items.every(hit => {
     return record(hit) && typeof hit.excerpt === 'string' && isSource(hit.source)
   })
 }
@@ -40,6 +40,6 @@ export const httpKnowledge = {
     return get(`documents?${params}`, signal, isDocumentPage)
   },
   search(q: string, offset: number, signal: AbortSignal) {
-    return get(`knowledge/search?${new URLSearchParams({ q, limit: '20', offset: String(offset) })}`, signal, isKnowledgePage)
+    return get(`knowledge/search?${new URLSearchParams({ q, limit: '5', offset: String(offset) })}`, signal, isKnowledgePage)
   },
 }

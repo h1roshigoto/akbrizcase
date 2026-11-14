@@ -11,6 +11,38 @@ const image = (url: string | null, kind: 'product' | 'service' = 'product'): Cat
 })
 
 describe('server catalog image boundary', () => {
+  it.each([null, path('a'.repeat(64))])('shows only На заказ for the exact left-post SKU, even with a photo (%s)', (url) => {
+    const item = { ...image(url), sku: 'ЯИУШ.301421.011-02' }
+    const snapshot = structuredClone(item)
+    const { container } = render(<ItemImage item={item} />)
+    expect(screen.getByRole('img', { name: 'На заказ' }).textContent).toBe('На заказ')
+    expect(container.querySelector('img, svg, small')).toBeNull()
+    expect(item).toEqual(snapshot)
+  })
+
+  it('keeps the usual placeholder for other products and matches by SKU, not name', () => {
+    render(<ItemImage item={{ ...image(null), name: 'Стойка левая в сборе', sku: 'ЯИУШ.301421.011-01' }} />)
+    expect(screen.getByRole('img', { name: 'Изображение отсутствует' })).toBeTruthy()
+    expect(screen.queryByText('На заказ')).toBeNull()
+  })
+
+  it('uses a technical service icon without missing-image text, including after a failed image', () => {
+    const { container, rerender } = render(<ItemImage item={image(null, 'service')} />)
+    expect(screen.getByRole('img', { name: 'Сервисная услуга' }).querySelector('svg')).toBeTruthy()
+    expect(container.textContent).toBe('')
+    rerender(<ItemImage item={image(path('a'.repeat(64)), 'service')} />)
+    expect(screen.getByAltText(product.name)).toBeTruthy()
+    fireEvent.error(screen.getByAltText(product.name))
+    expect(screen.getByRole('img', { name: 'Сервисная услуга' })).toBeTruthy()
+    expect(container.textContent).toBe('')
+  })
+
+  it('does not apply the product SKU override to a service with a real photo', () => {
+    render(<ItemImage item={{ ...image(path('a'.repeat(64)), 'service'), sku: 'ЯИУШ.301421.011-02' }} />)
+    expect(screen.getByAltText(product.name)).toBeTruthy()
+    expect(screen.queryByText('На заказ')).toBeNull()
+  })
+
   it.each([
     null, 'https://example.invalid/a.png', '//example.invalid/a.png',
     'javascript:alert(1)', 'data:image/png;base64,AAAA',

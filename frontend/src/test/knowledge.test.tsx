@@ -16,7 +16,7 @@ it('uses anonymous, abortable, no-store document and search reads with encoded q
   expect(await httpKnowledge.documents({ kind: 'manual', limit: 20, offset: 0 }, signal)).toEqual(page)
   expect(await httpKnowledge.search('тест & query', 20, signal)).toEqual(fixtures.knowledge_page)
   expect(fetcher.mock.calls[0]).toEqual(['/api/v1/documents?kind=manual&limit=20&offset=0', expect.objectContaining({ credentials: 'omit', cache: 'no-store', signal })])
-  expect(fetcher.mock.calls[1]![0]).toContain('q=%D1%82%D0%B5%D1%81%D1%82+%26+query&limit=20&offset=20')
+  expect(fetcher.mock.calls[1]![0]).toContain('q=%D1%82%D0%B5%D1%81%D1%82+%26+query&limit=5&offset=20')
 })
 
 it.each([
@@ -55,4 +55,29 @@ it('displays an honest empty library without bundled knowledge fallback', async 
   render(<DocumentsPage />)
   await screen.findByText('Опубликованные материалы не найдены.')
   expect(screen.queryAllByRole('article')).toHaveLength(0)
+})
+
+it('rejects knowledge pagination beyond the server contract and inconsistent result counts', () => {
+  expect(isKnowledgePage({ ...fixtures.knowledge_page, limit: 6 })).toBe(false)
+  expect(isKnowledgePage({ ...fixtures.knowledge_page, total: 0 })).toBe(false)
+  expect(isKnowledgePage({ ...fixtures.knowledge_page, limit: 1, items: [fixtures.knowledge_page.items[0], fixtures.knowledge_page.items[0]] })).toBe(false)
+})
+
+it('paginates search with the real five-result API contract and resets to the document list', async () => {
+  const user=userEvent.setup()
+  const search={...fixtures.knowledge_page,total:6,limit:5,offset:0}
+  const fetcher=vi.fn().mockResolvedValueOnce(Response.json(page)).mockResolvedValueOnce(Response.json(search)).mockResolvedValueOnce(Response.json({...search,offset:5})).mockResolvedValueOnce(Response.json(page))
+  vi.stubGlobal('fetch',fetcher)
+  render(<DocumentsPage />)
+  await screen.findByRole('heading',{name:document.title})
+  await user.type(screen.getByRole('searchbox'),'проверка')
+  await user.click(screen.getByRole('button',{name:'Найти'}))
+  await screen.findByText('Найдено: 6')
+  await user.click(screen.getByRole('button',{name:'Следующие документы'}))
+  await screen.findByText('Найдено: 6')
+  expect(fetcher.mock.calls[2]![0]).toContain('limit=5&offset=5')
+  expect((screen.getByRole('button',{name:'Следующие документы'}) as HTMLButtonElement).disabled).toBe(true)
+  await user.click(screen.getByRole('button',{name:'Показать список документов'}))
+  await screen.findByRole('heading',{name:document.title})
+  expect(fetcher.mock.calls[3]![0]).toBe('/api/v1/documents?limit=20&offset=0')
 })

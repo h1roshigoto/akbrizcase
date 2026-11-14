@@ -1,3 +1,4 @@
+import { openCart, openRequest } from './portal-actions.mjs'
 // Real trusted HTTPS Chromium → Nginx → FastAPI → PostgreSQL, synthetic only.
 import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
@@ -78,9 +79,10 @@ try {
   for (const sku of ['DEMO-P-001', 'DEMO-S-001']) {
     const card = result.getByRole('article').filter({ hasText: sku })
     await card
-      .getByRole('button', { name: 'Добавить в список', exact: true })
+      .getByRole('button', { name: 'Добавить в заявку', exact: true })
       .click()
   }
+  await openCart(page)
   const selection = page.getByRole('complementary', {
     name: 'Выбранные позиции',
   })
@@ -90,9 +92,7 @@ try {
     JSON.parse(sessionStorage.getItem('akbrizcase.selected-items')),
   )
   async function openForm(target) {
-    await target
-      .getByRole('button', { name: 'Оформить заявку', exact: true })
-      .click()
+    await openRequest(target)
     await target
       .getByText('SYNTHETIC DEMO/TEST CONSENT PLACEHOLDER.', { exact: false })
       .waitFor()
@@ -508,9 +508,7 @@ try {
     if (r.method() === 'POST') reloadPosts++
   })
   await recovered.goto(config.origin + '/#catalog')
-  await recovered
-    .getByRole('button', { name: 'Оформить заявку', exact: true })
-    .click()
+  await openRequest(recovered)
   await recovered.getByText(/Исход предыдущей отправки неизвестен/).waitFor()
   safe(
     (await send(recovered).isDisabled()) && reloadPosts === 0,

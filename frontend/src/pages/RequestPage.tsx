@@ -22,6 +22,9 @@ import { MAX_REQUEST_ITEMS, validQty, type Selection } from '../state/selection'
 import { Submission } from '../state/submission'
 import { useResource } from '../state/useResource'
 import { PrivacyPolicy } from '../components/PrivacyPolicy'
+import { ItemImage } from '../components/ItemImage'
+import { ServicePrices } from '../components/ServicePrices'
+import { DeliveryEstimate } from '../components/DeliveryEstimate'
 
 function CatalogChanges({
   previous,
@@ -325,7 +328,7 @@ export function RequestPage({
   }
   if (state.kind === 'success')
     return (
-      <main className="page-shell request-shell" ref={anchor} tabIndex={-1}>
+      <main className="wrap request-shell" ref={anchor} tabIndex={-1}>
         {submission.succeededFor(isSupport ? 'support' : 'commercial') ? (
           <Receipt receipt={state.receipt} />
         ) : (
@@ -346,19 +349,11 @@ export function RequestPage({
       </main>
     )
   return (
-    <main className="page-shell request-shell" ref={anchor} tabIndex={-1}>
-      <button className="text-button" onClick={onBack}>
-        ← Вернуться в каталог
-      </button>
-      <section
-        className="request-panel"
-        aria-labelledby={isSupport ? 'support-title' : 'request-title'}
-      >
-        <p className="eyebrow">ОБЗОР И ПОДТВЕРЖДЕНИЕ</p>
-        <h1 id={isSupport ? 'support-title' : 'request-title'}>
-          {isSupport ? 'Обращение к специалисту' : 'Оформление заявки'}
-        </h1>
-        {isSupport ? (
+    <main className="wrap request-shell" ref={anchor} tabIndex={-1}>
+      <div className="wrap pg"><h1 id={isSupport ? 'support-title' : 'request-title'}>{isSupport ? 'Обращение к специалисту' : 'Заявка'}</h1><p className="lead">Заполните данные учреждения. После отправки мы пришлём счёт или коммерческое предложение.</p></div>
+      <section className="reqgrid" aria-labelledby={isSupport ? 'support-title' : 'request-title'}>
+        <div className="panel form r">
+        {isSupport && (
           <>
             <p>
               Опишите проблему и проверьте окончательный текст. Предложенный
@@ -376,11 +371,6 @@ export function RequestPage({
               </button>
             )}
           </>
-        ) : (
-          <p>
-            Проверьте позиции и предварительные цены. Выбранное сохраняется при
-            возвращении в каталог. Полный адрес, сроки и цена доставки согласуются менеджером после отправки заявки.
-          </p>
         )}
         {isSupport && independentRequested && owner && (
           <section aria-label="Новое независимое обращение">
@@ -478,120 +468,8 @@ export function RequestPage({
             удалены автоматически.
           </p>
         )}
-        {!isSupport && (
-          <section
-            aria-label="Обзор позиций"
-            aria-busy={details.status === 'loading'}
-          >
-            <h2>Выбранные товары и услуги</h2>
-            {details.status === 'loading' && (
-              <p role="status">Загружаем актуальные позиции…</p>
-            )}
-            {details.status === 'error' && (
-              <p role="alert">
-                Каталог недоступен. Отправка заблокирована.{' '}
-                <button
-                  className="text-button"
-                  onClick={refresh}
-                  disabled={!editing}
-                >
-                  Повторить загрузку каталога
-                </button>
-              </p>
-            )}
-            {details.status === 'success' && (
-              <ul className="request-items">
-                {selection.items.map((row) => {
-                  const item = details.data.find(
-                    (v) => v.id === row.item_id,
-                  )?.item
-                  return (
-                    <li key={row.item_id}>
-                      {item ? (
-                        <>
-                          <h3>{item.name}</h3>
-                          <p>
-                            {item.sku} ·{' '}
-                            {item.kind === 'product' ? 'Товар' : 'Услуга'} ·{' '}
-                            {row.qty} {item.unit}
-                          </p>
-                          <p>
-                            {item.price === null
-                              ? 'Цена по запросу'
-                              : `${formatPrice(item.price)} RUB / ${item.unit}`}
-                          </p>
-                          <p>
-                            {item.requires_shipping
-                              ? 'Требуется доставка, стоимость уточняется'
-                              : 'Доставка не требуется'}
-                          </p>
-                          <CatalogChanges
-                            previous={
-                              previousReview.current?.find(
-                                (v) => v.id === row.item_id,
-                              )?.item
-                            }
-                            current={item}
-                          />
-                          {item.revision !== row.revision && (
-                            <div role="alert" className="revision-note">
-                              <p>
-                                Позиция изменилась: выбранная ревизия{' '}
-                                {row.revision}, текущая {item.revision}. Выше
-                                показаны актуальные название, цена и доставка.
-                                Проверьте их.
-                              </p>
-                              <button
-                                className="secondary-button"
-                                disabled={!editing}
-                                onClick={() => {
-                                  selection.acceptRevision(
-                                    row.item_id,
-                                    row.revision,
-                                    item.revision,
-                                  )
-                                  setConfirmed(false)
-                                }}
-                              >
-                                Принять обновление {item.sku}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p role="alert">
-                          Позиция {row.item_id} недоступна. Её нельзя отправить;
-                          удалите её в каталоге.
-                        </p>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-            {details.status === 'success' && (
-              <>
-                <p>
-                  Известная часть стоимости:{' '}
-                  <strong>{formatKopecks(subtotal)} RUB</strong>
-                </p>
-                <p>
-                  Позиций без известной цены: {unknown}.{' '}
-                  {unknown > 0
-                    ? 'Полная стоимость позиций уточняется.'
-                    : 'Все цены позиций известны.'}
-                </p>
-                <p>
-                  {shipping
-                    ? 'Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.'
-                    : 'Доставка не требуется; стоимость доставки 0,00 RUB.'}
-                </p>
-              </>
-            )}
-          </section>
-        )}
-        <form noValidate onSubmit={submit}>
-          <fieldset disabled={!editing} className="request-fields">
+        <form id="reqform" noValidate onSubmit={submit}>
+          <fieldset disabled={!editing} className="request-fields f2">
             <legend>Контактные данные</legend>
             <p>Укажите хотя бы один контакт: email или телефон.</p>
             {(Object.keys(emptyForm) as (keyof FormValues)[])
@@ -610,6 +488,7 @@ export function RequestPage({
                 const id = `${isSupport ? 'support' : 'request'}-${key}`
                 const props = {
                   id,
+                  className: 'in',
                   value: values[key],
                   // DOM maxLength counts UTF-16 units. Validate support's 2000
                   // Unicode characters separately, without clipping emoji text.
@@ -634,7 +513,7 @@ export function RequestPage({
                   },
                 }
                 return (
-                  <label key={key} htmlFor={id}>
+                  <label className="f" key={key} htmlFor={id}>
                     {labels[key]}
                     {key === 'name' && ' *'}
                     {key === 'comment' ? (
@@ -689,8 +568,9 @@ export function RequestPage({
                 consent.data &&
                 policy.data.consent_version !== consent.data.version)) && (
               <p role="alert">
-                Политика недоступна или документы изменились. Отправка
-                заблокирована.
+                Политика недоступна или документы изменились. Галочки и отправка
+                заблокированы до загрузки действующих документов. Повторите загрузку;
+                если ошибка сохраняется, обратитесь к владельцу портала.
                 <button type="button" onClick={refresh} disabled={!editing}>
                   Обновить документы
                 </button>
@@ -786,11 +666,126 @@ export function RequestPage({
             Неизвестные цены и доставка уточняются менеджером. Отправка не
             означает договор, счёт или оплату.
           </p>
-          <button className="primary-button" disabled={!ready} type="submit">
+          <button className="btn" disabled={!ready} type="submit">
             Подтвердить и отправить заявку
           </button>
-        </form>
+        </form></div>
+        {!isSupport && <aside className="side"><section className="panel">        {!isSupport && (
+          <section
+            aria-label="Обзор позиций"
+            aria-busy={details.status === 'loading'}
+          >
+            <h3>Состав заявки</h3>
+            {details.status === 'loading' && (
+              <p role="status">Загружаем актуальные позиции…</p>
+            )}
+            {details.status === 'error' && (
+              <p role="alert">
+                Каталог недоступен. Отправка заблокирована.{' '}
+                <button
+                  className="text-button"
+                  onClick={refresh}
+                  disabled={!editing}
+                >
+                  Повторить загрузку каталога
+                </button>
+              </p>
+            )}
+            {details.status === 'success' && (
+              <ul className="request-items">
+                {selection.items.map((row) => {
+                  const item = details.data.find(
+                    (v) => v.id === row.item_id,
+                  )?.item
+                  return (
+                    <li key={row.item_id}>
+                      {item ? (
+                        <>
+                          <ItemImage item={item} /><h4>{item.name}</h4>
+                          <p>
+                            {item.sku} ·{' '}
+                            {item.kind === 'product' ? 'Товар' : 'Услуга'} ·{' '}
+                            {row.qty} {item.unit}
+                          </p>
+                          <p>
+                            {item.price === null
+                              ? 'Цена по запросу'
+                              : `${formatPrice(item.price)} RUB / ${item.unit}`}
+                          </p>
+                          <p>
+                            {item.requires_shipping
+                              ? 'Требуется доставка, стоимость уточняется'
+                              : 'Доставка не требуется'}
+                          </p>
+                          <div className="qty"><button type="button" disabled={!editing || row.qty <= 1} aria-label={`Меньше ${item.sku}`} onClick={() => {selection.setQty(row.item_id, row.qty-1);setConfirmed(false)}}>−</button><span>{row.qty} ед.</span><button type="button" disabled={!editing || row.qty >= 999} aria-label={`Больше ${item.sku}`} onClick={() => {selection.setQty(row.item_id, row.qty+1);setConfirmed(false)}}>+</button><button type="button" disabled={!editing} aria-label={`Удалить ${item.sku}`} onClick={() => {selection.remove(row.item_id);setConfirmed(false)}}>×</button></div>
+                          <CatalogChanges
+                            previous={
+                              previousReview.current?.find(
+                                (v) => v.id === row.item_id,
+                              )?.item
+                            }
+                            current={item}
+                          />
+                          {item.revision !== row.revision && (
+                            <div role="alert" className="revision-note">
+                              <p>
+                                Позиция изменилась: выбранная ревизия{' '}
+                                {row.revision}, текущая {item.revision}. Выше
+                                показаны актуальные название, цена и доставка.
+                                Проверьте их.
+                              </p>
+                              <button
+                                className="secondary-button"
+                                disabled={!editing}
+                                onClick={() => {
+                                  selection.acceptRevision(
+                                    row.item_id,
+                                    row.revision,
+                                    item.revision,
+                                  )
+                                  setConfirmed(false)
+                                }}
+                              >
+                                Принять обновление {item.sku}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p role="alert">
+                          Позиция {row.item_id} недоступна. Её нельзя отправить;
+                          удалите её в каталоге.
+                        </p>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {details.status === 'success' && (
+              <>
+                <p>
+                  Известная часть стоимости:{' '}
+                  <strong>{formatKopecks(subtotal)} RUB</strong>
+                </p>
+                <p>
+                  Позиций без известной цены: {unknown}.{' '}
+                  {unknown > 0
+                    ? 'Полная стоимость позиций уточняется.'
+                    : 'Все цены позиций известны.'}
+                </p>
+                <p>
+                  {shipping
+                    ? 'Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.'
+                    : 'Доставка не требуется; стоимость доставки 0,00 RUB.'}
+                </p>
+              </>
+            )}
+          </section>
+        )}
+</section><section className="panel"><h3>Доставка СДЭК</h3><DeliveryEstimate value={values.city} disabled={!editing} onChange={city => {setValues(v=>({...v,city}));setConfirmed(false)}} /><p className="tip calc-note">Итоговая цена и условия оплаты согласуются после отправки заявки.</p></section></aside>}
       </section>
+      {!isSupport && <ServicePrices source={source} />}
     </main>
   )
 }

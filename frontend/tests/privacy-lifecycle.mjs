@@ -39,7 +39,7 @@ try {
     })
     await page.goto(config.origin + '/#chat')
     await page.getByRole('article', { name: 'Актуальный ответ', exact: true }).waitFor()
-    await page.getByRole('button', { name: 'Документация', exact: true }).click()
+    await page.getByRole('button', {name:'Индикатор «Готов»',exact:true}).click()
     await page.getByText(/Исход запроса неизвестен/).waitFor()
     await rpc(shutdown)
     const replayResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/chat/messages')

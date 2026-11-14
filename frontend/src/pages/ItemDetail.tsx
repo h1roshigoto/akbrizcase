@@ -6,7 +6,8 @@ import type { Selection } from '../state/selection'
 import { ItemImage } from '../components/ItemImage'
 import { ApplicabilityStatus, ItemPrice } from '../components/ItemFacts'
 import { StatusPanel } from '../components/StatusPanel'
-import { Icon } from '../components/Icon'
+import { DeliveryEstimate } from '../components/DeliveryEstimate'
+import { AddControl } from '../components/AddControl'
 
 export function ItemDetail({
   source,
@@ -28,12 +29,8 @@ export function ItemDetail({
   )
   const result = useResource(load)
   const item = result.data
-  const selected = selection.items.some((row) => row.item_id === id)
   return (
-    <section aria-label="Карточка позиции" className="detail-section">
-      <button className="back-button" onClick={onBack}>
-        ← Вернуться в каталог
-      </button>
+    <section aria-label="Карточка позиции" className="detail-section" id="detail">
       {result.status !== 'success' ? (
         <StatusPanel
           kind={result.status}
@@ -41,14 +38,10 @@ export function ItemDetail({
         />
       ) : (
         item && (
-          <article className="item-detail">
+          <article className="panel detail item-detail">
             <ItemImage item={item} />
             <div className="detail-body">
-              <span className={`kind-label ${item.kind}`}>
-                {item.kind === 'product' ? 'Товар' : 'Услуга'}
-              </span>
-              <p className="sku">{item.sku}</p>
-              <h2>{item.name}</h2>
+              <h2 id="d-name">{item.name}</h2><p id="d-meta" className="meta">{item.sku}</p>
               <p className="item-description">
                 {item.description ||
                   (source.mode === 'fixtures'
@@ -62,14 +55,8 @@ export function ItemDetail({
                   ? 'Требуется доставка. Условия согласует менеджер.'
                   : 'Доставка не требуется.'}
               </p>
-              <button
-                className={`add-button ${selected ? 'is-selected' : ''}`}
-                disabled={selected || selection.items.length >= 100}
-                onClick={() => selection.add(item)}
-              >
-                <Icon name={selected ? 'check' : 'plus'} />
-                {selected ? 'В выбранном' : 'Добавить в список'}
-              </button>
+              {item.requires_shipping && <><b className="calc-h">Доставка СДЭК</b><DeliveryEstimate /></>}
+              <div className="d-acts"><AddControl item={item} selection={selection} large /><button className="btn ghost" id="back" onClick={onBack}>Назад к списку</button></div>
             </div>
           </article>
         )

@@ -10,6 +10,22 @@ from types import SimpleNamespace
 from https_smoke import main
 
 
+def assert_private_ports(publishers, host_bindings, network_ports):
+    """EXPOSE metadata is permitted; every real host binding remains forbidden."""
+    assert publishers is None or isinstance(publishers, list)
+    for row in publishers or []:
+        assert isinstance(row, dict)
+        assert type(row.get("PublishedPort")) is int and row["PublishedPort"] == 0
+        assert row.get("URL") in ("", None)
+    assert host_bindings is None or isinstance(host_bindings, dict)
+    assert not host_bindings, "Private service declared a host port binding"
+    assert network_ports is None or isinstance(network_ports, dict)
+    assert all(
+        bindings is None or (isinstance(bindings, list) and not bindings)
+        for bindings in (network_ports or {}).values()
+    ), "Private service has an active host port binding"
+
+
 def prepare_smtp(
     config,
     compose,
@@ -70,7 +86,16 @@ def prepare_smtp(
     compose("up", "--no-build", "--detach", "smtp-test")
     for service in ("smtp-test", "worker", "api", "postgres"):
         detail = json.loads(compose("ps", "--all", "--format", "json", service) or "{}")
-        assert not detail.get("Publishers"), "Private service published a port"
+        # Compose Desktop may list an unbound EXPOSE port as PublishedPort=0.
+        # Inspect both configured and active bindings on the same Docker daemon.
+        bindings = stack.docker(
+            "inspect",
+            "--format",
+            "{{json .HostConfig.PortBindings}}\n{{json .NetworkSettings.Ports}}",
+            detail["ID"],
+        ).splitlines()
+        assert len(bindings) == 2
+        assert_private_ports(detail.get("Publishers"), *map(json.loads, bindings))
 
     def probe(operation):
         output = compose(
