@@ -309,7 +309,13 @@ def _state(session: Session, pack: Pack) -> dict[str, str] | None:
         or receipts[0].details.get("pack_sha256") != pack.digest
     ):
         raise PackRefused("TARGET_CONFLICT")
-    receipt = receipts[0].details.get("images")
+    raw_images = receipts[0].details.get("image_sha256")
+    if not isinstance(raw_images, str):
+        raise PackRefused("TARGET_CONFLICT")
+    try:
+        receipt = _json(raw_images.encode())
+    except ValueError:
+        raise PackRefused("TARGET_CONFLICT") from None
     if not isinstance(receipt, dict) or set(receipt) != set(pack.images):
         raise PackRefused("TARGET_CONFLICT")
     if len(items) != len(pack.catalog.catalog_items) or len(models) != len(
@@ -413,7 +419,9 @@ def import_pack(
                 receipt = session.scalars(
                     select(AuditEvent).where(AuditEvent.action == ACTION)
                 ).one()
-                if receipt.details.get("images") != outputs:
+                if receipt.details.get("image_sha256") != json.dumps(
+                    outputs, sort_keys=True
+                ):
                     raise PackRefused("TARGET_IMAGE_CHANGED")
             else:
                 for model in pack.catalog.equipment_models:
@@ -434,7 +442,10 @@ def import_pack(
                         entity_type="developer_pack",
                         entity_id=pack.manifest.pack_id,
                         result="success",
-                        details={"pack_sha256": pack.digest, "images": outputs},
+                        details={
+                            "pack_sha256": pack.digest,
+                            "image_sha256": json.dumps(outputs, sort_keys=True),
+                        },
                     )
                 )
                 session.flush()
