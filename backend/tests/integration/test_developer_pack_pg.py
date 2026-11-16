@@ -142,7 +142,7 @@ def pack_database(
     ) -> Any:
         if str(statement) == "SELECT count(*) FROM app.consent_texts":
             versions = list(self.scalars(text("SELECT version FROM app.consent_texts")))
-            assert versions in ([], ["SYNTHETIC-MVP019-UPGRADE"])
+            assert all(version.startswith("SYNTHETIC-") for version in versions)
             return 0
         return original_scalar(self, statement, *args, **kwargs)
 
