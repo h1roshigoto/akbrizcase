@@ -410,12 +410,14 @@ def import_pack(
             _target(session)
             # This also serializes with ordinary catalog writes. Files are
             # already prepared; there is no scan while holding database locks.
+            # consent_texts is SELECT-only for runtime; its publication writers
+            # are serialized by the existing staff lock held above.
             actor_id = _authorize(session, login, password)
             session.execute(
                 text(
                     "LOCK TABLE app.catalog_items, app.equipment_models, app.orders, "
                     "app.documents, app.chat_sessions, app.catalog_item_models, "
-                    "app.consent_texts, app.diag_trees "
+                    "app.diag_trees "
                     "IN SHARE ROW EXCLUSIVE MODE"
                 )
             )
