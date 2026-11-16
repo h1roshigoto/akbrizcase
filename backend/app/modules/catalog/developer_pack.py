@@ -33,6 +33,7 @@ from app.core.staff_models import AuditEvent
 from app.modules.catalog.images.pipeline import MAX_BYTES, ImagePipeline, signature
 from app.modules.catalog.models import CatalogItem, EquipmentModel
 from app.modules.catalog.write_dto import ItemCreate, ModelFields
+from app.modules.catalog.write_service import command_values
 from app.modules.kb.files import FileRejected
 from app.schemas.common import DTO
 
@@ -326,7 +327,8 @@ def _state(session: Session, pack: Pack) -> dict[str, str] | None:
     keys: dict[str, str] = {}
     for item in pack.catalog.catalog_items:
         row = by_id.get(item.id)
-        fields = item.model_dump(exclude={"image_file"})
+        fields = command_values(item)
+        fields.pop("image_file")
         if row is None or any(
             getattr(row, field) != value for field, value in fields.items()
         ):
@@ -436,7 +438,11 @@ def import_pack(
                 for item in pack.catalog.catalog_items:
                     session.add(
                         CatalogItem(
-                            **item.model_dump(exclude={"image_file"}),
+                            **{
+                                k: v
+                                for k, v in command_values(item).items()
+                                if k != "image_file"
+                            },
                             image_key=keys[item.image_file]
                             if item.image_file
                             else None,

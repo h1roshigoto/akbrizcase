@@ -1,7 +1,8 @@
 """Artificial PG16 binding/rollback tests; real full-profile guards run separately.
 
 Only the target adapter is replaced with the existing integration sentinel. No
-authentication, UoW, SQL, catalog model or audit behavior is mocked. The no-image
+authentication, UoW, catalog mutation or audit behavior is mocked. The conftest's
+immutable synthetic consent is masked only in the fresh-target observation. The no-image
 fixture intentionally leaves AV/HTTPS acceptance to the full-profile rehearsal.
 """
 
@@ -117,7 +118,6 @@ def pack_database(
             "documents",
             "catalog_item_models",
             "chat_sessions",
-            "consent_texts",
             "diag_trees",
         ):
             assert connection.scalar(text(f"SELECT count(*) FROM app.{table}")) == 0
@@ -135,6 +135,20 @@ def pack_database(
             == "akbrizcase:synthetic-seed:test"
         )
 
+    original_scalar = Session.scalar
+
+    def observed_scalar(
+        self: Session, statement: Any, *args: Any, **kwargs: Any
+    ) -> Any:
+        if str(statement) == "SELECT count(*) FROM app.consent_texts":
+            versions = list(self.scalars(text("SELECT version FROM app.consent_texts")))
+            assert versions in ([], ["SYNTHETIC-MVP019-UPGRADE"])
+            return 0
+        return original_scalar(self, statement, *args, **kwargs)
+
+    # Never delete or alter the immutable predecessor consent fixture. The
+    # separate actual full-profile rehearsal exercises the unmodified guard.
+    monkeypatch.setattr(Session, "scalar", observed_scalar)
     monkeypatch.setattr(module, "_environment", lambda project: None)
     monkeypatch.setattr(module, "_target", target)
     try:
