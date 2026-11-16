@@ -14,14 +14,14 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import delete, event, insert, select, text
 from sqlalchemy.orm import Session
 
 from app.core.db import Database
 from app.core.staff import bootstrap_admin
 from app.modules.catalog import developer_pack as module
 from app.modules.catalog.images.pipeline import ImagePipeline
-from app.modules.catalog.models import CatalogItem
+from app.modules.catalog.models import CatalogItem, EquipmentModel
 
 pytestmark = pytest.mark.integration
 LOGIN = "artificial-pack-admin"
@@ -90,10 +90,39 @@ def pack_database(
     runtime, migrator = databases
     assert os.environ["DB_INTEGRATION_ISOLATED"] == "1"
     assert os.environ["DB_HOST"] == "postgres-test"
-    with runtime.unit_of_work() as session:
-        for table in ("catalog_items", "equipment_models", "staff_users", "orders"):
-            assert session.scalar(text(f"SELECT count(*) FROM app.{table}")) == 0
-        assert bootstrap_admin(session, login=LOGIN, password=PASSWORD).ok
+    # The shared integration conftest can retain exactly the public seed's four
+    # artificial cards and one artificial model. Borrow those fixture slots only
+    # after proving their identity; restore every original field/UUID afterwards.
+    # No importer or operational command performs this test-only preparation.
+    with migrator.engine.begin() as connection:
+        original_items = [
+            dict(row)
+            for row in connection.execute(select(CatalogItem.__table__)).mappings()
+        ]
+        original_models = [
+            dict(row)
+            for row in connection.execute(select(EquipmentModel.__table__)).mappings()
+        ]
+        assert {row["sku"] for row in original_items} <= {
+            "DEMO-P-001",
+            "DEMO-P-002",
+            "DEMO-P-003",
+            "DEMO-S-001",
+        }
+        assert all(row["attributes"].get("demo_only") is True for row in original_items)
+        assert {row["code"] for row in original_models} <= {"DEMO-MODEL-001"}
+        for table in (
+            "staff_users",
+            "orders",
+            "documents",
+            "catalog_item_models",
+            "chat_sessions",
+            "consent_texts",
+            "diag_trees",
+        ):
+            assert connection.scalar(text(f"SELECT count(*) FROM app.{table}")) == 0
+        connection.execute(delete(CatalogItem))
+        connection.execute(delete(EquipmentModel))
 
     def target(session: Session) -> None:
         assert (
@@ -109,10 +138,12 @@ def pack_database(
     monkeypatch.setattr(module, "_environment", lambda project: None)
     monkeypatch.setattr(module, "_target", target)
     try:
+        with runtime.unit_of_work() as session:
+            assert bootstrap_admin(session, login=LOGIN, password=PASSWORD).ok
         yield runtime
     finally:
         # Only this conftest's sentinel-checked disposable database; no source
-        # connection exists and no pre-existing rows were present or removed.
+        # connection exists; restore the borrowed artificial seed rows exactly.
         with migrator.engine.begin() as connection:
             for table in (
                 "audit_events",
@@ -121,6 +152,10 @@ def pack_database(
                 "staff_users",
             ):
                 connection.execute(text(f"DELETE FROM app.{table}"))
+            if original_models:
+                connection.execute(insert(EquipmentModel), original_models)
+            if original_items:
+                connection.execute(insert(CatalogItem), original_items)
 
 
 def run(database: Database, root: Path) -> dict[str, object]:

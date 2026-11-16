@@ -236,3 +236,33 @@ def test_environment_flag_alone_cannot_authorize(
     monkeypatch.setenv("RELEASE_PROJECT", "akbriz-staging-0123456789ab")
     with pytest.raises(PackRefused):
         _environment("akbriz-staging-0123456789ab")
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        {},
+        {"pack_sha256": "a" * 64},
+        {"pack_sha256": "a" * 64, "images_sha256": "bad"},
+        {"pack_sha256": "a" * 64, "images_sha256": "b" * 64, "password": "artificial"},
+    ],
+)
+def test_developer_audit_is_closed(details: dict[str, str]) -> None:
+    from app.core.audit_schema import validate_audit
+
+    with pytest.raises(ValueError, match="AUDIT_SCHEMA_INVALID"):
+        validate_audit("catalog.developer_import", "developer_pack", "success", details)
+
+
+def test_developer_audit_accepts_only_two_hashes() -> None:
+    from app.core.audit_schema import validate_audit
+
+    validate_audit(
+        "catalog.developer_import",
+        "developer_pack",
+        "success",
+        {
+            "pack_sha256": "a" * 64,
+            "images_sha256": "b" * 64,
+        },
+    )

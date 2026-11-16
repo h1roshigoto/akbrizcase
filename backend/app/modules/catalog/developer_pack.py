@@ -316,14 +316,7 @@ def _state(session: Session, pack: Pack) -> dict[str, str] | None:
         or receipts[0].details.get("pack_sha256") != pack.digest
     ):
         raise PackRefused("TARGET_CONFLICT")
-    raw_images = receipts[0].details.get("image_sha256")
-    if not isinstance(raw_images, str):
-        raise PackRefused("TARGET_CONFLICT")
-    try:
-        receipt = _json(raw_images.encode())
-    except ValueError:
-        raise PackRefused("TARGET_CONFLICT") from None
-    if not isinstance(receipt, dict) or set(receipt) != set(pack.images):
+    if set(receipts[0].details) != {"pack_sha256", "images_sha256"}:
         raise PackRefused("TARGET_CONFLICT")
     if len(items) != len(pack.catalog.catalog_items) or len(models) != len(
         pack.catalog.equipment_models
@@ -405,6 +398,13 @@ def import_pack(
             metadata, _ = files.enter_context(pipeline.prepare(key))
             keys[path] = key
             outputs[path] = metadata.checksum_sha256
+        bindings_digest = hashlib.sha256(
+            json.dumps(
+                {path: {"key": keys[path], "sha256": outputs[path]} for path in keys},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
         _environment(project)
         with database.unit_of_work() as session:
             _target(session)
@@ -428,9 +428,7 @@ def import_pack(
                 receipt = session.scalars(
                     select(AuditEvent).where(AuditEvent.action == ACTION)
                 ).one()
-                if receipt.details.get("image_sha256") != json.dumps(
-                    outputs, sort_keys=True
-                ):
+                if receipt.details.get("images_sha256") != bindings_digest:
                     raise PackRefused("TARGET_IMAGE_CHANGED")
             else:
                 for model in pack.catalog.equipment_models:
@@ -453,7 +451,7 @@ def import_pack(
                         result="success",
                         details={
                             "pack_sha256": pack.digest,
-                            "image_sha256": json.dumps(outputs, sort_keys=True),
+                            "images_sha256": bindings_digest,
                         },
                     )
                 )

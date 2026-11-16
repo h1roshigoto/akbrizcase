@@ -91,7 +91,9 @@ by `ImagePipeline`. Source/served SHA-256 values are reported separately: JPEG
 re-encoding may change bytes. Never infer byte parity from visual similarity.
 
 All model/item bindings, original revisions/statuses and a **new local** audit
-receipt commit in one shared UoW. File processing precedes DB locks; staff and
+receipt commit in one shared UoW. Its new allowlisted event admits exactly two
+SHA-256 values, binding the pack and target keys/served-image bytes; no arbitrary
+audit payload or source history is accepted. File processing precedes DB locks; staff and
 catalog locks serialize final authorization/binding. Exit integrity checks run
 before commit. A failure leaves no successful DB receipt or partial catalog;
 private unbound/quarantine objects may remain. Preserve them for inspection and
