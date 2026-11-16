@@ -190,6 +190,7 @@ def test_reject_mutations(tmp_path: Path, attack: str) -> None:
         "hardlink",
         "duplicate_json",
         "archive",
+        "deep_json",
     ],
 )
 def test_reject_files(tmp_path: Path, attack: str) -> None:
@@ -214,6 +215,11 @@ def test_reject_files(tmp_path: Path, attack: str) -> None:
     elif attack == "duplicate_json":
         p = tmp_path / "manifest.json"
         p.write_text(p.read_text().replace('"format": 1', '"format": 1, "format": 1'))
+    elif attack == "deep_json":
+        data = b"[" * 2000 + b"0" + b"]" * 2000
+        (tmp_path / "catalog.json").write_bytes(data)
+        manifest["files"]["catalog.json"] = hashlib.sha256(data).hexdigest()
+        (tmp_path / "manifest.json").write_text(json.dumps(manifest))
     elif attack == "archive":
         with pytest.raises(PackRefused):
             load_pack(image)

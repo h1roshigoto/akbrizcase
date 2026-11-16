@@ -238,7 +238,14 @@ def load_pack(root: Path) -> Pack:
                 {p: files[p] for p in expected_images},
                 hashlib.sha256(manifest_bytes).hexdigest(),
             )
-    except (OSError, ValidationError, UnicodeError, ValueError, FileRejected) as error:
+    except (
+        OSError,
+        ValidationError,
+        UnicodeError,
+        ValueError,
+        RecursionError,
+        FileRejected,
+    ) as error:
         if isinstance(error, PackRefused):
             raise
         raise PackRefused("PACK_INVALID") from None
