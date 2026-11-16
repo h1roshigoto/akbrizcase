@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import briz from '../design/assets/logo-briz.png'
 import brizLight from '../design/assets/logo-briz-light.png'
 import kemz from '../design/assets/logo-kemz.png'
@@ -14,6 +14,7 @@ export function SiteHeader({ view, navigate }: {
   onSupport: () => void
   onCart: () => void
 }) {
+  const header = useRef<HTMLElement>(null)
   const [menu, setMenu] = useState(false)
   const [dark, setDark] = useState(() => {
     try { const saved = localStorage.getItem('theme') ?? localStorage.getItem('mtdka-theme'); return saved === 'dark' || (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches) } catch { return window.matchMedia('(prefers-color-scheme: dark)').matches }
@@ -22,11 +23,21 @@ export function SiteHeader({ view, navigate }: {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   }, [dark])
   useEffect(() => { setMenu(false) }, [view])
+  useEffect(() => {
+    if (menu) header.current?.querySelector<HTMLAnchorElement>('.nav a')?.focus({ preventScroll: true })
+  }, [menu])
+  useEffect(() => {
+    const element = header.current
+    const updateBorder = () => element?.classList.toggle('stuck', window.scrollY > 8)
+    updateBorder()
+    window.addEventListener('scroll', updateBorder, { passive: true })
+    return () => window.removeEventListener('scroll', updateBorder)
+  }, [])
   const links = [
     ['chat', 'Помощник'], ['catalog', 'Запчасти'],
     ['docs', 'Нормативная база'], ['tech', 'Техинформация'], ['request', 'Заявка'],
   ] as const
-  return <header className="hdr site-header">
+  return <header className="hdr site-header" ref={header}>
     <div className="wrap">
       <a className="logo" href="#home" aria-label="АК Бриз — на главную" onClick={() => navigate('#home')}>
         <img className="on-light" src={briz} alt="АК Бриз" width="134" height="120" />

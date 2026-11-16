@@ -168,7 +168,9 @@ export function RequestPage({
   const [attempt, setAttempt] = useState(0)
   const [touched, setTouched] = useState(false)
   useEffect(() => {
-    if (active) anchor.current?.focus()
+    if (!active) return
+    anchor.current?.focus({ preventScroll: true })
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' })
   }, [active, state.kind === 'success'])
   const idsKey = selection.items.map((row) => row.item_id).join(',')
   const load = useCallback(

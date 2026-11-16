@@ -39,8 +39,8 @@ export function Trainer() {
     }
   }
   return <section className="trainer" aria-labelledby="trainer-title">
-    <h2 id="trainer-title">Тренажёр панели</h2>
-    <p className="training-notice">Учебный режим · синтетическая симуляция. Не управляет оборудованием. Расположение зон и последовательность сигналов условные; это не инструкция по проверке или ремонту МТД-КА.</p>
+    <h2 id="trainer-title">Тренажёр панели МТД-КА-{model}</h2>
+    <p className="tr-lead">Учебная симуляция. Зоны и последовательность сигналов условные. Для проверки и ремонта используйте опубликованную документацию.</p>
     <fieldset className="choice sm tr-mode"><legend className="sr">Визуальный макет</legend>{['01', '18'].map(m => <label key={m}><input type="radio" name="trainer-model" checked={model === m} onChange={() => { reset(); setModel(m) }} /><span>МТД-КА-{m}</span></label>)}</fieldset>
     <div className="tr-grid"><figure className="tr-arch"><svg viewBox="0 0 1000 2400" role="img" aria-label="Учебный макет арки">
       <rect x="0" y="2300" width="1000" height="14" className="floor" />
