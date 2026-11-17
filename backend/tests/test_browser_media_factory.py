@@ -1,5 +1,6 @@
 """The owned scanner fixture uses the same worker count and full lifespan."""
 
+import builtins
 import runpy
 import sys
 from collections.abc import AsyncIterator
@@ -16,11 +17,32 @@ from app.modules.catalog.images.pipeline import ImagePipeline
 from app.modules.kb.files import FilePipeline
 
 
+def reject_application_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = builtins.__import__
+
+    def guarded(name, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if name == "app.main":
+            raise AssertionError("Non-server composition initialized the ASGI app")
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded)
+
+
+def test_importing_scanner_seam_does_not_initialize_application(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    reject_application_import(monkeypatch)
+    module = runpy.run_path(str(Path(__file__).with_name("browser_media_server.py")))
+    assert callable(module["release_scanner"])
+
+
 @pytest.mark.parametrize("documents", [False, True])
 def test_fixture_launches_importable_factory_with_all_api_workers(
     monkeypatch: pytest.MonkeyPatch, documents: bool
 ) -> None:
     launch = Mock()
+    reject_application_import(monkeypatch)
     monkeypatch.setattr("uvicorn.run", launch)
     monkeypatch.setattr(sys, "path", sys.path.copy())
     monkeypatch.setattr(

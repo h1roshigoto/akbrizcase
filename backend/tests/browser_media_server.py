@@ -21,7 +21,6 @@ sys.path.insert(0, "/app")
 
 from app.core.db import API_WORKERS  # noqa: E402
 from app.core.release import FullReleaseModes, release_modes, require_files  # noqa: E402
-from app.main import app  # noqa: E402
 from app.modules.catalog.images.pipeline import ImagePipeline  # noqa: E402
 from app.modules.kb.files import FilePipeline  # noqa: E402
 from app.modules.kb.files.scanner import ClamAV  # noqa: E402
@@ -112,10 +111,14 @@ def _synthetic_app(application: FastAPI, *, documents: bool) -> FastAPI:
 
 
 def create_image_app() -> FastAPI:
+    from app.main import app
+
     return _synthetic_app(app, documents=False)
 
 
 def create_document_app() -> FastAPI:
+    from app.main import app
+
     return _synthetic_app(app, documents=True)
 
 
