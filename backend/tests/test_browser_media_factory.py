@@ -9,12 +9,23 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.db import API_WORKERS
 from app.modules.catalog.images.pipeline import ImagePipeline
 from app.modules.kb.files import FilePipeline
+
+
+def test_release_supervisor_uses_importable_factory_and_all_workers() -> None:
+    root = Path(__file__).resolve().parents[2]
+    fixture = yaml.safe_load((root / "compose.release-fixture.yml").read_text())
+    command = fixture["services"]["api"]["command"]
+    assert command[:2] == ["uvicorn", "browser_media_server:create_document_app"]
+    assert command[command.index("--workers") + 1] == str(API_WORKERS)
+    assert command[command.index("--app-dir") + 1] == "/opt/release"
+    assert {"--factory", "--no-access-log", "--no-proxy-headers"} <= set(command)
 
 
 def reject_application_import(monkeypatch: pytest.MonkeyPatch) -> None:
