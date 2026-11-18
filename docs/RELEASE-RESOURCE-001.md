@@ -108,6 +108,13 @@ measurements. Repeat the complete command on another fresh namespace, then check
 the nine mandatory CI jobs on that exact HEAD. Do not reset cgroup counters,
 reuse a failed cap-saturated run as proof of margin, or retry OOM until PASS.
 
+The Linked browser E2E job uses the official Ubuntu archive over HTTPS for
+both Azure and EC2 runner mirrors. Two runs reached the existing 20-minute
+deadline during the second browser stack after downloading 32.1 MB of
+Chromium dependencies from the EC2 mirror in over five minutes. The job still
+installs signed packages, uses pinned Chromium, runs both fresh stacks and
+keeps its original timeout.
+
 Investigation also used the existing `--prepare-only --root` mode followed by
 `scripts/release.py apply` and `files_and_resources(Release(...))`, with an external
 role-only sampler for comparison. Private root values and raw child logs are not

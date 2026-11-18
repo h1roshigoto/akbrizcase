@@ -195,13 +195,12 @@ jobs:
         run: |
           npm install --global npm@11.9.0 --strict-ssl=true --no-audit --no-fund
           make frontend-sync
-          # Avoid long Azure mirror stalls consuming the browser test budget.
+          # Avoid Azure and EC2 mirror stalls consuming the two-run budget.
           # Preserve signed Ubuntu packages and TLS verification.
           for apt_source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
             if [ -f "$apt_source_file" ]; then
-              sudo sed -i \
-                -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
-                -e 's|https://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+              sudo sed -Ei \
+                -e 's#https?://(azure\.archive|[a-z0-9-]+\.ec2\.archive)\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
                 "$apt_source_file"
             fi
           done
