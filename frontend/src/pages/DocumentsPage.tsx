@@ -18,9 +18,9 @@ export function DocumentsPage() {
   return <main className="wrap restore-documents">
     <div className="wrap pg"><h1>Нормативная база</h1><p className="lead">Нормативные акты и документы завода, на которые опираются ответы помощника.</p></div>
     <form className="bar" onSubmit={submit}>
-      <label className="document-search"><span className="sr">Поиск по документам</span><input className="in" id="dsearch" type="search" maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder="Поиск по опубликованным фрагментам" /></label>
+      <label className="document-search"><span className="sr">Поиск по документам</span><input className="in" id="dsearch" type="search" maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder="Поиск по документам" /></label>
       <button className="btn sm">Найти</button>
-      <label className="document-kind">Вид документа
+      <label className="document-kind"><span className="sr">Вид документа</span>
         <select value={kind ?? ''} disabled={!!q} onChange={e => { setKind(e.target.value ? e.target.value as NonNullable<DocumentQuery['kind']> : null); setOffset(0) }}>
           <option value="">Все документы</option><option value="regulation">Нормативные акты</option><option value="manual">Руководства</option><option value="article">Статьи</option><option value="other">Другие материалы</option>
         </select>

@@ -12,7 +12,7 @@ import { reply, result, transport } from './chatFixtures'
 import type { ChatMessageResult, ChatReply } from '../api/types'
 
 const question = () => reply('diagnose', { text: 'SYNTHETIC approved question', resolution: 'question', buttons: [{ id: 'observe', label: 'SYNTHETIC observation', input: { type: 'button', option_id: 'observed' } }] })
-function mount({ lose = '' } = {}) {
+function mount({ lose = '', holdText }: { lose?: string; holdText?: Promise<void> } = {}) {
   const api = transport()
   let version = 0, transitions = 0, lost = false
   let current: ChatReply = reply()
@@ -22,11 +22,14 @@ function mount({ lose = '' } = {}) {
     if (saved.has(request_id)) return saved.get(request_id)!
     if (input.type === 'select_mode') {
       if (current.mode !== input.mode) current = reply(input.mode, { buttons: input.mode === 'diagnose' ? [{ id: 'scenario', label: 'Unrelated server scenario', input: { type: 'start_diagnosis', model_id: fixtures.models.items[0]!.id, tree_key: 'unrelated' } }] : [] })
+    } else if (input.type === 'text') {
+      await holdText
+      current = reply('knowledge', { text: 'SYNTHETIC delayed chat answer' })
     } else if (input.type === 'start_diagnosis') current = question()
     else if (input.type === 'button') { transitions++; current = reply('diagnose', { text: 'SYNTHETIC approved result', resolution: 'results' }) }
     const response = result(++version, current)
     saved.set(request_id, response)
-    if (!lost && (lose === 'reset' && input.mode === 'knowledge' || lose === 'transition' && input.type === 'button')) { lost = true; throw new ChatError(503, 'UNCERTAIN') }
+    if (!lost && (lose === 'reset' && input.mode === 'knowledge' || lose === 'transition' && input.type === 'button' || lose === 'text' && input.type === 'text')) { lost = true; throw new ChatError(503, 'UNCERTAIN') }
     return response
   })
   vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('equipment-models') ? fixtures.models : { items: [{ key: 'unrelated', title: 'Не включается', model_id: fixtures.models.items[0]!.id }] } })))
@@ -92,4 +95,55 @@ it('keeps an uncertain reset command for exact retry without relabelling the old
   expect(active().queryByRole('button', { name: 'SYNTHETIC observation' })).toBeNull()
   await user.click(screen.getByRole('button', { name: 'Ложные тревоги' }))
   await screen.findByRole('heading', { name: 'Неисправность: Ложные тревоги' })
+})
+
+it('keeps chat history and a delayed chat response out of the step panel', async () => {
+  let release!: () => void
+  const holdText = new Promise<void>((resolve) => { release = resolve })
+  const { user, api } = mount({ holdText })
+  const steps = screen.getByRole('tab', { name: 'Подбор по шагам' })
+  const chat = screen.getByRole('tab', { name: 'Чат с помощником' })
+  const input = await screen.findByRole('textbox', { name: 'Сообщение' })
+  await waitFor(() => expect(input.hasAttribute('disabled')).toBe(false))
+  await user.type(input, 'SYNTHETIC request')
+  await user.click(screen.getByRole('button', { name: 'Отправить' }))
+
+  const noChat = () => {
+    expect(document.querySelector('#p-chat, #chatform, [role="log"], .chat-reply, .chat-controls, .assistant-recovery')).toBeNull()
+    expect(screen.queryByText('SYNTHETIC delayed chat answer')).toBeNull()
+  }
+  await user.click(steps)
+  noChat()
+  release()
+  await screen.findByRole('heading', { name: 'Какая модификация у изделия?' })
+  noChat()
+  expect(api.send.mock.calls.map(([wire]) => JSON.parse(wire).input)).toEqual([
+    { type: 'select_mode', mode: 'knowledge' },
+    { type: 'text', value: 'SYNTHETIC request' },
+    { type: 'select_mode', mode: 'diagnose' },
+  ])
+  await user.click(chat)
+  await screen.findByText('SYNTHETIC delayed chat answer')
+  expect(screen.getByRole('textbox', { name: 'Сообщение' })).toBeTruthy()
+  await user.click(steps)
+  noChat()
+})
+
+it('keeps recovery available in steps after a chat error and replays the same request', async () => {
+  const { user, api } = mount({ lose: 'text' })
+  const input = await screen.findByRole('textbox', { name: 'Сообщение' })
+  await waitFor(() => expect(input.hasAttribute('disabled')).toBe(false))
+  await user.type(input, 'SYNTHETIC interrupted request')
+  await user.click(screen.getByRole('button', { name: 'Отправить' }))
+  await screen.findByText(/Исход запроса неизвестен/)
+  const wire = api.send.mock.calls.at(-1)![0]
+
+  await user.click(screen.getByRole('tab', { name: 'Подбор по шагам' }))
+  const steps = within(screen.getByRole('tabpanel', { name: 'Подбор по шагам' }))
+  expect(screen.queryByRole('log')).toBeNull()
+  expect(steps.queryByText(/Исход запроса неизвестен/)).toBeNull()
+  await user.click(steps.getByRole('button', { name: 'Повторить тот же запрос' }))
+  await steps.findByRole('heading', { name: 'Какая модификация у изделия?' })
+  expect(api.send.mock.calls.filter(([body]) => body === wire)).toHaveLength(2)
+  expect(steps.queryByText('SYNTHETIC delayed chat answer')).toBeNull()
 })

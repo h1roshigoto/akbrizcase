@@ -45,7 +45,9 @@ export function ChatPage({
   const [actionBusy, setActionBusy] = useState(false)
   const actionLock = useRef(false)
   const alive = useRef<AbortController | null>(null)
-  const [actionNotice, setActionNotice] = useState('')
+  const [notice, setNotice] = useState<{ mode: typeof presentation; text: string } | null>(null)
+  const actionNotice = notice?.mode === presentation ? notice.text : ''
+  const setActionNotice = (text: string) => setNotice(text ? { mode: presentation, text } : null)
   useEffect(() => {
     const lifetime = new AbortController()
     alive.current = lifetime
@@ -60,12 +62,23 @@ export function ChatPage({
     state.busy || !state.ready || state.pending || actionBusy || !opened
   const reply = opened ? state.reply : null
   const visibleNotice = /^Режим (переключён|подтверждён) сервером\./.test(state.notice) ? '' : state.notice
+  const stepModeRequested = useRef(false)
+  const mode = useRef(presentation)
+  const modeRevision = useRef(0)
   useEffect(() => {
-    if (!opened || presentation !== 'steps') return
-    const current = controller.snapshot()
-    if (current.ready && !current.busy && !current.pending && current.reply?.mode !== 'diagnose')
-      void controller.send({ type: 'select_mode', mode: 'diagnose' })
-  }, [controller, opened, presentation])
+    mode.current = presentation
+    modeRevision.current++
+    setNotice(null)
+  }, [presentation])
+  useEffect(() => {
+    if (presentation !== 'steps') {
+      stepModeRequested.current = false
+      return
+    }
+    if (!opened || !state.ready || state.busy || state.pending || state.error || reply?.mode === 'diagnose' || stepModeRequested.current) return
+    stepModeRequested.current = true
+    void controller.send({ type: 'select_mode', mode: 'diagnose' })
+  }, [controller, opened, presentation, reply?.mode, state.ready, state.busy, state.pending, state.error])
   const act = async (action: ChatReply['actions'][number]) => {
     const current = controller.snapshot()
     if (
@@ -92,13 +105,15 @@ export function ChatPage({
       return
     }
     const signal = alive.current!.signal
+    const initiatedIn = modeRevision.current
+    const currentPanel = () => !signal.aborted && modeRevision.current === initiatedIn
     actionLock.current = true
     setActionBusy(true)
     setActionNotice('')
     try {
       if (action.type === 'open_item') {
         await catalog.getItem(action.payload.item_id, null, signal)
-        if (!signal.aborted) onItem(action.payload.item_id)
+        if (currentPanel()) onItem(action.payload.item_id)
       } else if (
         action.type === 'open_request_form' &&
         action.payload.kind === 'commercial'
@@ -108,7 +123,7 @@ export function ChatPage({
         const cards = await Promise.all(
           suggestions.map((s) => catalog.getItem(s.item_id, null, signal)),
         )
-        if (!signal.aborted) {
+        if (currentPanel()) {
           const result = selection.addSuggestions(
             cards.map((card, i) => ({ card, qty: suggestions[i]!.qty })),
           )
@@ -122,7 +137,7 @@ export function ChatPage({
         }
       }
     } catch {
-      if (!signal.aborted)
+      if (currentPanel())
         setActionNotice(
           'Не удалось подготовить действие. Проверьте доступность позиций и лимит выбранного, затем повторите. Заявка не отправлена.',
         )
@@ -147,7 +162,7 @@ export function ChatPage({
       if (current.reply?.mode === 'diagnose' && !inDiagnosis) {
         await controller.send({ type: 'select_mode', mode: 'knowledge' })
         const next = controller.snapshot()
-        if (!next.ready || next.error || next.pending || next.reply?.mode !== 'knowledge') return
+        if (mode.current !== 'chat' || !next.ready || next.error || next.pending || next.reply?.mode !== 'knowledge') return
       }
       await controller.send({ type: 'text', value: submitted })
       const result = controller.snapshot()
@@ -159,6 +174,7 @@ export function ChatPage({
   // Leave diagnosis first; only publish the new local choice after both ACKs.
   const pickDiagnosis = async (nextSymptom: string | null) => {
     if (disabled || actionLock.current) return
+    const initiatedIn = modeRevision.current
     actionLock.current = true
     setActionBusy(true)
     setActionNotice('')
@@ -176,12 +192,12 @@ export function ChatPage({
       if (!accepted('diagnose')) return
       setSymptom(nextSymptom)
       setPickRevision(n => n + 1)
-      setText('')
+      if (presentation === 'chat') setText('')
     } finally {
       // Pending commands remain owned by ChatController and retry byte-for-byte.
       // After a failed reset, retry/refresh first, then choose the problem again.
       if (!alive.current?.signal.aborted) {
-        if (!accepted('diagnose')) setActionNotice('Выбор неисправности не завершён. Восстановите сессию и повторите выбор или нажмите «Начать заново».')
+        if (modeRevision.current === initiatedIn && !accepted('diagnose')) setActionNotice('Выбор неисправности не завершён. Восстановите сессию и повторите выбор или нажмите «Начать заново».')
         setActionBusy(false)
       }
       actionLock.current = false
@@ -189,17 +205,28 @@ export function ChatPage({
   }
   const askIndicator = async (name: string) => {
     if (disabled) return
+    if (presentation === 'steps') onPresentation?.('chat')
     await controller.send({ type: 'select_mode', mode: 'knowledge' })
     const next = controller.snapshot()
     if (next.ready && !next.error && !next.pending && next.reply?.mode === 'knowledge')
       await controller.send({ type: 'text', value: `Индикатор: ${name}` })
   }
-  const replies = <>
-    {state.next && <button className="chip" disabled={disabled} onClick={() => void controller.more()}>Загрузить предыдущие ответы</button>}
-    {state.messages.filter(m => m.state_version !== state.version).map(m => <ReplyView key={m.message_id} reply={m.reply} />)}
-    {reply && <ReplyView reply={symptom ? { ...reply, buttons: reply.buttons.filter(b => b.input.type !== 'start_diagnosis') } : reply} current disabled={disabled} onInput={input => { setActionNotice(''); void controller.send(input) }} onAction={action => void act(action)} onItem={openItem} />}
-  </>
-  const diagnosis = reply?.mode === 'diagnose' && <DiagnosisMenu key={pickRevision} disabled={disabled} symptom={symptom} onStart={input => { setActionNotice(''); void controller.send(input) }} />
+  const currentReply = (step: boolean) => reply && <ReplyView
+    reply={!step && symptom ? { ...reply, buttons: reply.buttons.filter(b => b.input.type !== 'start_diagnosis') } : reply}
+    current
+    step={step}
+    disabled={disabled}
+    onInput={input => { setActionNotice(''); void controller.send(input) }}
+    onAction={action => void act(action)}
+    onItem={openItem}
+  />
+  const diagnosis = (step: boolean) => <DiagnosisMenu key={pickRevision} disabled={disabled}
+    symptom={step ? null : symptom}
+    onStart={input => { setActionNotice(''); void controller.send(input) }} />
+  const refreshSteps = () => {
+    stepModeRequested.current = false
+    void controller.refresh()
+  }
   const recovery = <>
     {state.storageFailed && <p className="inline-error" role="alert">Хранилище сессии недоступно или запись не удалась. Восстановление после обновления страницы и сохранение запроса для повтора не гарантируются.</p>}
     {visibleNotice && <p role="status">{visibleNotice}</p>}
@@ -217,21 +244,52 @@ export function ChatPage({
     <div className="wrap pg"><h1>Помощник</h1><p className="lead">Опишите, что случилось, или пройдите подбор по шагам. Ответы только по опубликованным документам.</p></div>
     <div className="chatgrid"><div className="chatcol">
       <div className="tabs" role="tablist" aria-label="Способ поиска неисправности">{(['chat','steps'] as const).map((tab, i) => <button key={tab} role="tab" type="button" id={i ? 't-wizard' : 't-chat'} aria-controls={i ? 'p-wizard' : 'p-chat'} aria-selected={presentation === tab} tabIndex={presentation === tab ? 0 : -1} onClick={() => onPresentation?.(tab)} onKeyDown={e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {e.preventDefault(); onPresentation?.(i ? 'chat' : 'steps'); document.getElementById(i ? 't-chat' : 't-wizard')?.focus()} }}>{i ? 'Подбор по шагам' : 'Чат с помощником'}</button>)}</div>
-      <section className="panel chat" id="p-chat" role="tabpanel" aria-labelledby="t-chat" hidden={presentation !== 'chat'}>
+      {presentation === 'chat' ? <section className="panel chat" id="p-chat" role="tabpanel" aria-labelledby="t-chat">
         <div className="top"><div className="ava"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v1.1A7 7 0 0 1 19 11v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-1H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a7 7 0 0 1 6-6.9V3a1 1 0 0 1 1-1Zm-3 9a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" /></svg></div><div><b>Помощник по МТД-КА</b><small>Отвечает по документам завода</small></div></div>
         <div className="msgs" id="msgs" role="log" aria-live="polite">
           <p className="chat-privacy">Не указывайте в чате ФИО, телефон, email и другие персональные данные. Для обращения используйте предназначенную для этого форму.</p>
           {reply && <><div className="m bot">Здравствуйте! Я помогу разобраться с неисправностью металлодетектора МТД-КА и заказать запчасть. Что случилось?</div>
             <div className="chips">{['Не включается','Ложные тревоги','Не считает проходы','Сигнал не прекращается'].map(label => <button className="chip" disabled={disabled} key={label} onClick={() => void pickDiagnosis(label)}>{label}</button>)}<button className="chip" disabled={disabled} onClick={() => void controller.send({type:'select_mode',mode:'commerce'})}>Нужна запчасть</button><button className="chip" disabled={disabled} onClick={() => onPresentation?.('steps')}>Подбор по шагам</button></div>
             {symptom && <div className="m me">{symptom}</div>}
-            {presentation === 'chat' && <>{diagnosis}{replies}{reply.mode === 'commerce' && <div className="chips"><button className="chip" disabled={disabled} onClick={onBack}>Перейти в каталог</button></div>}</>}</>}
-          {presentation === 'chat' && recovery}
+            {reply.mode === 'diagnose' && diagnosis(false)}
+            {state.next && <button className="chip" disabled={disabled} onClick={() => void controller.more()}>Загрузить предыдущие ответы</button>}
+            {state.messages.filter(m => m.state_version !== state.version).map(m => <ReplyView key={m.message_id} reply={m.reply} />)}
+            {currentReply(false)}
+            {reply.mode === 'commerce' && <div className="chips"><button className="chip" disabled={disabled} onClick={onBack}>Перейти в каталог</button></div>}
+          </>}
+          {recovery}
         </div>
         <form className="inp" id="chatform" onSubmit={submit} autoComplete="off"><label className="sr" htmlFor="q">Сообщение</label><input className="in" id="q" value={text} onChange={e => setText(e.target.value)} disabled={disabled} placeholder="Опишите, что случилось…" maxLength={1000} /><button className="send" disabled={disabled || !text.trim()} type="submit" aria-label="Отправить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 19 9-19 9 3-8 9-1-9-1z" /></svg></button></form>
-      </section>
-      <section className="panel wz" id="p-wizard" role="tabpanel" aria-labelledby="t-wizard" hidden={presentation !== 'steps'}><div id="wizard">
-        {presentation === 'steps' && <>{recovery}{reply && <>{diagnosis}{replies}<div className="wz-end"><button className="lnk" onClick={() => onPresentation?.('chat')}>Обсудить в чате</button><button className="lnk" disabled={disabled} onClick={() => void pickDiagnosis(null)}>Начать заново</button></div></>}</>}
-      </div></section>
+      </section> : (
+        <section className="panel wz" id="p-wizard" role="tabpanel" aria-labelledby="t-wizard">
+          <div id="wizard">
+            {reply?.mode === 'diagnose' ? <>
+              {diagnosis(true)}
+              {currentReply(true)}
+              <div className="wz-end">
+                <button className="lnk" onClick={() => onPresentation?.('chat')}>Обсудить в чате</button>
+                <button className="lnk" disabled={disabled} onClick={() => void pickDiagnosis(null)}>Начать заново</button>
+              </div>
+            </> : state.busy || !opened ? <p className="wz-lead" role="status">Подготавливаем пошаговый подбор…</p> : null}
+            {actionNotice && <p role="status">{actionNotice}</p>}
+            {state.terminal ? (
+              <button className="wz-o" disabled={state.busy} onClick={() => {
+                stepModeRequested.current = false
+                void controller.start()
+              }}>Создать новую сессию</button>
+            ) : (state.error || (state.pending && !state.busy)) && (
+              <div className="wz-opts">
+                <p role="alert">{state.pending ? 'Сначала завершите предыдущий запрос к помощнику.' : 'Не удалось продолжить пошаговый подбор. Перечитайте сессию.'}</p>
+                <button className="wz-o" disabled={state.busy || actionBusy} onClick={refreshSteps}>Перечитать сессию</button>
+                {state.pending && <button className="wz-o" disabled={state.busy || actionBusy} onClick={() => {
+                  stepModeRequested.current = false
+                  void controller.retry()
+                }}>Повторить тот же запрос</button>}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div><aside className="side"><section className="panel"><h3>Что показывает панель?</h3>
       <div className="panelimg"><div className="arch" aria-hidden="true"><div className="top" /><div className="post l"><i className="led" /></div><div className="post r"><i className="led" /></div></div><img data-slot="" src={detector} alt="" loading="lazy" /><button className="hot g" type="button" disabled={disabled} aria-label="Индикатор «Готов»" onClick={() => void askIndicator('Готов')} /><button className="hot a" type="button" disabled={disabled} aria-label="Индикатор «Тревога»" onClick={() => void askIndicator('Тревога')} /></div>
       <p className="hint">Нажмите на индикатор на изображении, и помощник уточнит, что он означает.</p><div className="legend"><span><i className="g" />Готов</span><span><i className="a" />Тревога</span></div>

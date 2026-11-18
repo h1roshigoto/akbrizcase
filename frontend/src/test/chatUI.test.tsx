@@ -481,7 +481,7 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
   )
   await screen.findByRole('heading', { name: 'Заявка' })
   expect(window.location.hash).toBe('#request')
-  fireEvent.change(screen.getByLabelText(/Контактное имя/), {
+  fireEvent.change(screen.getByLabelText(/Контактное лицо/), {
     target: { value: 'SYNTHETIC NAVIGATION' },
   })
   const checkView = async (hash: string, title: string) => {
@@ -501,7 +501,7 @@ it('synchronizes catalog, chat and commercial form on browser Back/Forward and h
   act(() => window.history.forward())
   await checkView('#request', 'Заявка')
   expect(
-    (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
+    (screen.getByLabelText(/Контактное лицо/) as HTMLInputElement).value,
   ).toBe('SYNTHETIC NAVIGATION')
   await user.click(screen.getByRole('link', { name: 'Запчасти' }))
   await checkView('#catalog', 'Запчасти')
