@@ -19,9 +19,6 @@ import warnings
 from collections.abc import Callable
 from pathlib import Path
 
-import pypdf
-from pypdf import _cmap, _text_extraction  # noqa: F401  (preload before seccomp)
-
 
 def image_task(source: int, *, check: bool) -> None:
     """Only called after the default-deny filter, on a sealed input fd."""
@@ -201,6 +198,11 @@ def network_filter(*, parser: bool) -> None:
 
 def main() -> None:
     task, descriptor, cpu, memory = sys.argv[1:5]
+    pdf_task = task in {"pdf", "pdf-info", "pdf-text"}
+    if pdf_task:
+        # Load PDF dependencies before the pathname-denying filter.
+        from pypdf import PdfReader, _cmap, _text_extraction  # noqa: F401
+
     if task in {"image", "image-check"}:
         # EXIF uses Pillow's TIFF metadata reader even for JPEG. Preload it
         # before seccomp; Image.open still allowlists JPEG/PNG exclusively.
@@ -234,9 +236,9 @@ def main() -> None:
     source = int(descriptor)
     if task in {"image", "image-check"}:
         image_task(source, check=task == "image-check")
-    elif task in {"pdf", "pdf-info", "pdf-text"}:
+    elif pdf_task:
         with os.fdopen(os.dup(source), "rb") as file:
-            reader = pypdf.PdfReader(file, strict=True)
+            reader = PdfReader(file, strict=True)
             if reader.is_encrypted or len(reader.pages) < 1:
                 raise ValueError("pdf")
             # Touch page dictionaries; no text extraction or actions are executed.

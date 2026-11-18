@@ -27,7 +27,7 @@ still reached the cap in CI and locally. CI recorded 106 memory-limit events,
 38,731,776 bytes of swap peak, and zero OOM or PID-limit events. The locally
 reproduced failure recorded 197 memory-limit events and 30,810,112 bytes of
 swap peak. An additional import-only experiment in the file driver and scanner
-bootstrap still saturated the cap. Those runtime edits were dropped.
+bootstrap still saturated the cap on its own.
 
 The owned release fixture keeps Uvicorn's supervisor and uses Linux forkserver
 worker creation. An isolated three-child import probe measured 222,478,336
@@ -43,8 +43,15 @@ Each of the three workers composes its own application state, restores safe
 runtime logging and enters the original lifespan, with independent database
 connections. Uvicorn keeps ownership of listener sockets, readiness, worker
 supervision and shutdown. The fixture and its preload module are verified
-against the manifest commit before mounting. Production worker creation and
-the ordinary runtime image remain unchanged.
+against the manifest commit before mounting. Production worker creation is
+unchanged.
+
+With the dormant app preloaded, a full local run still hit 512 MiB with 11
+cap events and 2,052,096 bytes of swap peak. At a sample near saturation it
+observed three sandbox bootstraps alongside the Argon2 operations. The shared
+file bootstrap now loads PDF modules only for PDF tasks, still before applying
+the pathname-denying seccomp filter. The ClamAV command, limits, isolation,
+signature checks, and PDF/image validation semantics are unchanged.
 
 The existing source/immutable-image/profile/ownership/TLS guards remain in place.
 The release controller already checks both changed fixture source files against
