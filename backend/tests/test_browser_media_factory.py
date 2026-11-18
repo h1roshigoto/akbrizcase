@@ -62,9 +62,9 @@ def test_release_launcher_preserves_uvicorn_supervision(
     context = Mock()
     original = _subprocess.spawn
 
-    def launch(factory: str, **options: object) -> None:
+    def launch(application: str, **options: object) -> None:
         assert _subprocess.spawn is context
-        assert factory == "browser_media_server:create_release_app"
+        assert application == "browser_media_server:create_release_app"
         assert options == {
             "factory": True,
             "workers": API_WORKERS,
@@ -88,8 +88,7 @@ def test_release_launcher_preserves_uvicorn_supervision(
             run_name="__main__",
         )
     choose_context.assert_called_once_with("forkserver")
-    context.set_forkserver_preload.assert_called_once()
-    assert "app.main" not in context.set_forkserver_preload.call_args.args[0]
+    context.set_forkserver_preload.assert_called_once_with(["release_api_preload"])
     assert _subprocess.spawn is original
 
 

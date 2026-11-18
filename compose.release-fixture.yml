@@ -1,10 +1,13 @@
 # Trusted real-ClamAV synthetic composition, confined to owned rehearsals.
 services:
   api:
-    # Only this owned fixture shares route imports through a clean forkserver.
+    # Only this owned fixture shares startup imports through a clean forkserver.
     command: [python, /opt/release/browser_media_server.py, --release-api, '3']
+    environment:
+      PYTHONPATH: /app:/opt/release
     volumes:
       - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
+      - ./backend/tests/release_api_preload.py:/opt/release/release_api_preload.py:ro
       - ./backend/tests/integration/operator_terminal.py:/opt/release/operator_terminal.py:ro
   probe:
     command: [python, /opt/release/browser_media_server.py, --release-probe]

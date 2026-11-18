@@ -29,16 +29,22 @@ reproduced failure recorded 197 memory-limit events and 30,810,112 bytes of
 swap peak. An additional import-only experiment in the file driver and scanner
 bootstrap still saturated the cap. Those runtime edits were dropped.
 
-The owned release fixture uses Uvicorn's supervisor with Linux forkserver
-worker creation. The forkserver preloads fixed route-definition modules for
-copy-on-write sharing. Neither it nor the supervisor constructs `app.main`.
-Each of the three workers creates the original ASGI app after it starts, opens
-its own connections inside the original lifespan, and keeps the original
-Uvicorn readiness, worker supervision and shutdown. An isolated three-child
-ASGI import probe measured 222,478,336 bytes of aggregate cgroup current with
-spawn and 136,409,088 with route preload, including the forkserver. These
-import-only probes did not run an application lifespan or the release workload.
-Production worker creation and the ordinary runtime image remain unchanged.
+The owned release fixture keeps Uvicorn's supervisor and uses Linux forkserver
+worker creation. An isolated three-child import probe measured 222,478,336
+bytes of aggregate cgroup current with spawn, 136,409,088 with route preload,
+and 105,840,640 when preloading the dormant app itself. These import probes
+did not run the lifespan or the release workload. Preloading only route
+definitions still hit the cap in a full local rehearsal.
+
+The forkserver now constructs a single dormant copy of the original ASGI app
+and freezes preloaded objects for copy-on-write sharing. It checks that the
+application has no attached database and only one thread before forking.
+Each of the three workers composes its own application state, restores safe
+runtime logging and enters the original lifespan, with independent database
+connections. Uvicorn keeps ownership of listener sockets, readiness, worker
+supervision and shutdown. The fixture and its preload module are verified
+against the manifest commit before mounting. Production worker creation and
+the ordinary runtime image remain unchanged.
 
 The existing source/immutable-image/profile/ownership/TLS guards remain in place.
 The release controller already checks both changed fixture source files against

@@ -61,10 +61,10 @@ def require_resource_bounds(value):
 
 
 def forkserver_command(args):
-    return (
-        len(args) >= 3
-        and args[1] == b"-c"
-        and args[2].startswith(b"from multiprocessing.forkserver import main;")
+    marker = b"from multiprocessing.forkserver import main;"
+    return any(
+        flag == b"-c" and command.startswith(marker)
+        for flag, command in zip(args, args[1:])
     )
 
 

@@ -23,18 +23,6 @@ if TYPE_CHECKING:
 # Executed from a read-only test bind at /tmp, outside the application package.
 sys.path.insert(0, "/app")
 
-# These imports prepare route definitions, without constructing app.main or running
-# a lifespan. The forkserver shares those pages and never accepts API traffic.
-RELEASE_PRELOAD = (
-    "app.admin.auth",
-    "app.admin.orders",
-    "app.admin.sqladmin",
-    "app.modules.catalog.router",
-    "app.modules.chat.router",
-    "app.modules.kb.router",
-    "app.modules.orders.router",
-)
-
 
 @contextmanager
 def release_scanner() -> Iterator[None]:
@@ -142,9 +130,15 @@ def create_document_app() -> FastAPI:
 
 def create_release_app() -> FastAPI:
     assert get_start_method() == "forkserver"
-    assert "app.main" not in sys.modules
-    assert all(name in sys.modules for name in RELEASE_PRELOAD)
-    return create_document_app()
+    assert "release_api_preload" in sys.modules
+    from release_api_preload import app
+
+    from app.core.observability import configure_logging
+
+    # Uvicorn resets logging in each worker. Restore the app's safe formatter
+    # before startup, as the ordinary app import does on the spawn path.
+    configure_logging()
+    return _synthetic_app(app, documents=True)
 
 
 def serve(factory: str, workers: int) -> None:
@@ -165,7 +159,7 @@ def serve_release(workers: int) -> None:
     from uvicorn import _subprocess
 
     context = get_context("forkserver")
-    context.set_forkserver_preload(list(RELEASE_PRELOAD))
+    context.set_forkserver_preload(["release_api_preload"])
     # Uvicorn's pinned supervisor still manages its sockets, workers, readiness
     # and shutdown. Only the child creation context changes in this fixture.
     with patch.object(_subprocess, "spawn", context):

@@ -21,7 +21,12 @@ from release import (
     protected,
     write_json,
 )
-from release_resource_probe import ResourceProbe, require_resource_bounds, role_memory
+from release_resource_probe import (
+    ResourceProbe,
+    forkserver_command,
+    require_resource_bounds,
+    role_memory,
+)
 
 
 def manifest():
@@ -201,6 +206,11 @@ class ReleaseTest(unittest.TestCase):
 
 
 class ResourceEvidenceTest(unittest.TestCase):
+    def test_forkserver_detection_allows_interpreter_flags(self):
+        command = b"from multiprocessing.forkserver import main; main(1, 2)"
+        self.assertTrue(forkserver_command([b"python", b"-B", b"-c", command]))
+        self.assertFalse(forkserver_command([b"python", b"-c", b"# " + command]))
+
     def evidence(self):
         return {
             "memory.max": 512 * 1024**2,
