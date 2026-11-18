@@ -1,4 +1,4 @@
-import { navigate, openRequest, selectDiagnosisModel } from './portal-actions.mjs'
+import { fillCommercial, navigate, openRequest, reviewCommercial, selectDiagnosisModel } from './portal-actions.mjs'
 // Real trusted HTTPS support intake. No fixtures replace API responses.
 import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
@@ -116,7 +116,12 @@ try {
   await page.getByRole('button', { name: 'Начать новую коммерческую заявку', exact: true }).click()
   await page.getByRole('heading', { name: 'Заявка', exact: true }).waitFor()
   assert.equal(await page.getByRole('heading', { name: `Заявка №${receipt.number}`, exact: true }).count(), 0)
-  await fill(page, 'SYNTHETIC-036 sequential commercial')
+  await fillCommercial(page, {
+    name: 'Synthetic Support Buyer',
+    email: 'sequential-support@example.invalid',
+    comment: 'SYNTHETIC-036 sequential commercial',
+  })
+  await reviewCommercial(page)
   await form(page).getByRole('checkbox', { name: /Я прочитал/ }).check()
   await form(page).getByRole('checkbox', { name: /Подтверждаю показанные/ }).check()
   const commercialPending = response(page)
@@ -128,7 +133,12 @@ try {
   assert(commercialReceipt.number !== receipt.number, 'Independent commercial receipt')
   await page.getByRole('button', { name: 'Вернуться в каталог', exact: true }).click()
   await navigate(page, 'Контакты')
-  await page.getByRole('link', { name: 'Обратиться к специалисту', exact: true }).click()
+  const quick = page.locator('#quick')
+  await quick.getByLabel('Имя', { exact: true }).fill('Synthetic Site Buyer')
+  await quick.getByLabel('Номер телефона', { exact: true }).fill('89000000002')
+  await quick.getByLabel('Комментарий', { exact: true }).fill('SYNTHETIC-036 quick draft')
+  await quick.getByRole('checkbox').check()
+  await quick.getByRole('button', { name: 'Отправить', exact: true }).click()
   await page.getByRole('button', { name: 'Начать новое независимое обращение с сайта', exact: true }).click()
   await page.getByRole('heading', { name: 'Обращение к специалисту', exact: true }).waitFor()
   assert.equal(await page.getByRole('heading', { name: `Заявка №${commercialReceipt.number}`, exact: true }).count(), 0)

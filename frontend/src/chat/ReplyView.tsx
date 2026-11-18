@@ -13,6 +13,7 @@ const status = {
 export function ReplyView({
   reply,
   current = false,
+  step = false,
   disabled = true,
   onInput,
   onAction,
@@ -20,18 +21,20 @@ export function ReplyView({
 }: {
   reply: ChatReply
   current?: boolean
+  step?: boolean
   disabled?: boolean
   onInput?: (input: ChatReply['buttons'][number]['input']) => void
   onAction?: (action: ChatReply['actions'][number]) => void
   onItem?: (id: UUID) => void
 }) {
+  const buttons = reply.buttons.filter((button) => button.input.type !== 'select_mode')
   return (
     <article
-      className={`chat-reply ${reply.resolution}`}
+      className={`${step ? 'wizard-step' : 'chat-reply'} ${reply.resolution}`}
       aria-label={current ? 'Актуальный ответ' : 'Ответ из истории'}
     >
-      <p className="eyebrow">{status[reply.resolution]}</p>
-      <p className="chat-text">{reply.text}</p>
+      <p className={step ? "wz-q" : "eyebrow"}>{status[reply.resolution]}</p>
+      <p className={step ? "wz-lead" : "chat-text"}>{reply.text}</p>
       {reply.sources.length > 0 && (
         <ul aria-label="Источники">
           {reply.sources.map((s) => (
@@ -54,7 +57,7 @@ export function ReplyView({
                 <p>Редакция позиции: {item.revision}</p>
                 {current && (
                   <button
-                    className="secondary-button"
+                    className={step ? "wz-o" : "secondary-button"}
                     disabled={disabled}
                     onClick={() => onItem?.(item.id)}
                   >
@@ -68,21 +71,19 @@ export function ReplyView({
       )}
       {current && (
         <>
-          <div className="chat-controls" aria-label="Текущий шаг">
-            {reply.buttons
-              .filter((b) => b.input.type !== 'select_mode')
-              .map((b) => (
-                <button
-                  key={b.id}
-                  className="secondary-button"
-                  disabled={disabled}
-                  onClick={() => onInput?.(b.input)}
-                >
-                  {b.label}
-                </button>
-              ))}
-          </div>
-          <div className="chat-controls" aria-label="Действия ответа">
+          {(!step || buttons.length > 0) && <div className={step ? "wz-opts" : "chat-controls"} aria-label="Текущий шаг">
+            {buttons.map((b) => (
+              <button
+                key={b.id}
+                className={step ? "wz-o" : "secondary-button"}
+                disabled={disabled}
+                onClick={() => onInput?.(b.input)}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>}
+          {(!step || reply.actions.length > 0) && <div className={step ? "wz-opts" : "chat-controls"} aria-label="Действия ответа">
             {reply.actions.map((action, index) => {
               switch (action.type) {
                 case 'open_document':
@@ -97,7 +98,7 @@ export function ReplyView({
                   return (
                     <button
                       key={index}
-                      className="secondary-button"
+                      className={step ? "wz-o" : "secondary-button"}
                       disabled={disabled}
                       onClick={() => onAction?.(action)}
                     >
@@ -110,7 +111,7 @@ export function ReplyView({
                   return (
                     <button
                       key={index}
-                      className="secondary-button"
+                      className={step ? "wz-o" : "secondary-button"}
                       disabled={disabled}
                       onClick={() => onAction?.(action)}
                     >
@@ -123,7 +124,7 @@ export function ReplyView({
                   return (
                     <button
                       key={index}
-                      className="secondary-button"
+                      className={step ? "wz-o" : "secondary-button"}
                       disabled={disabled}
                       onClick={() => onAction?.(action)}
                     >
@@ -134,7 +135,7 @@ export function ReplyView({
                   return null
               }
             })}
-          </div>
+          </div>}
         </>
       )}
     </article>

@@ -16,11 +16,14 @@ import { ChatPage } from '../chat/ChatPage'
 import { SiteHeader, SiteFooter, type PortalView, type PortalHash } from '../components/SiteHeader'
 import { SelectionDrawer } from '../components/SelectionDrawer'
 import { HomePage } from './HomePage'
+import { ReferenceFooter } from '../components/ReferenceFooter'
+import type { QuickSupportDraft } from '../components/HomeContacts'
 import { DocumentsPage } from './DocumentsPage'
 import { TechnicalPage } from './TechnicalPage'
 
 const viewFromHash = (defaultView: PortalView): PortalView => {
   const key = window.location.hash.slice(1)
+  if (key === 'contacts') return 'home'
   if (/^part-[0-9a-f-]{36}$/i.test(key)) return 'catalog'
   if (/^wizard(?:=\w+)?$/.test(key)) return 'wizard'
   return ['home', 'catalog', 'chat', 'wizard', 'request', 'support', 'docs', 'tech'].includes(key)
@@ -63,6 +66,8 @@ export function CatalogPage({
   const syncView = useCallback(() => {
     const next = viewFromHash(defaultView)
     setView(next)
+    if (window.location.hash === '#contacts')
+      requestAnimationFrame(() => document.getElementById('contacts')?.scrollIntoView())
     setActiveId(itemFromHash())
     if (next !== 'support') setIndependentRequested(false)
     if (next === 'request') setRequestVisited(true)
@@ -70,6 +75,7 @@ export function CatalogPage({
       setSupportContext((current) => current ?? { draft: null, owner: null })
   }, [defaultView])
   useEffect(() => {
+    if (window.location.hash === '#contacts') syncView()
     window.addEventListener('hashchange', syncView)
     window.addEventListener('popstate', syncView)
     return () => {
@@ -100,6 +106,20 @@ export function CatalogPage({
   const openRequest = () => navigate('#request')
   const openSiteSupport = () => {
     if (supportContext?.owner) setIndependentRequested(true)
+    navigate('#support')
+  }
+  const openContacts = () => {
+    navigate('#home')
+    requestAnimationFrame(() => document.getElementById('contacts')?.scrollIntoView())
+  }
+  const reviewQuickSupport = ({ comment, ...contactDraft }: QuickSupportDraft) => {
+    if (supportContext?.owner || submission.snapshot().kind !== 'editing') {
+      openSiteSupport()
+      return
+    }
+    setIndependentRequested(false)
+    setSupportContext({ owner: null, draft: comment, contactDraft })
+    setSupportGeneration((n) => n + 1)
     navigate('#support')
   }
   const selection = useSelection()
@@ -149,7 +169,7 @@ export function CatalogPage({
         Перейти к каталогу
       </a>
       <SiteHeader view={view} count={selection.items.length} navigate={navigate} onSupport={openSiteSupport} onCart={() => setDrawerOpen(true)} />
-      {view === 'home' && <HomePage onSupport={openSiteSupport} />}
+      {view === 'home' && <HomePage onSupport={reviewQuickSupport} onAssistant={() => navigate('#chat')} />}
       {view === 'docs' && <DocumentsPage />}
       {view === 'tech' && <TechnicalPage />}
       {source.mode === 'fixtures' && (
@@ -195,10 +215,10 @@ export function CatalogPage({
             <form className="bar" aria-label="Поиск и фильтры" onSubmit={submitSearch}>
               <label className="sr" htmlFor="search">Поиск по названию или SKU</label>
               <input className="in" id="search" type="search" placeholder="Название детали или обозначение" maxLength={1000} value={search} onChange={e => setSearch(e.target.value)} />
-              <fieldset className="choice sm" id="model"><legend className="sr">Модификация</legend>
+              <div className="choice sm" id="model" role="radiogroup" aria-label="Модификация">
                 <label><input type="radio" name="m" checked={!query.model_id} onChange={() => setQuery(v => ({...v, model_id:null, offset:0}))} /><span>Все модели</span></label>
                 {models.data?.map(m => <label key={m.id}><input type="radio" name="m" checked={query.model_id === m.id} onChange={() => setQuery(v => ({...v, model_id:m.id, offset:0}))} /><span>{m.name}</span></label>)}
-              </fieldset>
+              </div>
               <button className="btn sm" type="button" data-cart="" aria-label={`Открыть корзину, позиций: ${selection.items.length}`} onClick={() => setDrawerOpen(true)}>Заявка ({selection.items.reduce((n,i) => n+i.qty,0)})</button>
             </form>
             {models.status === 'success' && !models.data.length && <p className="tip">Модели оборудования пока не опубликованы.</p>}
@@ -223,6 +243,7 @@ export function CatalogPage({
             active={requestOpen}
             onBack={() => navigate('#catalog')}
             onNew={() => startNew('commercial')}
+            onEmptyRequest={reviewQuickSupport}
           />
         </div>
       )}
@@ -252,8 +273,8 @@ export function CatalogPage({
       {drawerOpen && <SelectionDrawer onClose={() => setDrawerOpen(false)}>
         <SelectedItems source={source} selection={selection} onOpen={id => { navigate('#catalog'); openItem(id) }} onRequest={openRequest} />
       </SelectionDrawer>}
-      {!chatOpen && <div className="fab-rail"><a className="fab" href="#chat" aria-label="Открыть помощника"><span className="lbl">Помощник</span><span className="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v1.1A7 7 0 0 1 19 11v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-1H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a7 7 0 0 1 6-6.9V3a1 1 0 0 1 1-1Zm-3 9a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" /></svg></span></a></div>}
-      <SiteFooter />
+      {!chatOpen && view !== 'home' && !requestOpen && <div className="fab-rail"><a className="fab" href="#chat" aria-label="Открыть помощника"><span className="lbl">Помощник</span><span className="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v1.1A7 7 0 0 1 19 11v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-1H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a7 7 0 0 1 6-6.9V3a1 1 0 0 1 1-1Zm-3 9a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" /></svg></span></a></div>}
+      {view === 'home' || requestOpen ? <ReferenceFooter navigate={navigate} onContacts={openContacts} /> : <SiteFooter />}
     </>
   )
 }

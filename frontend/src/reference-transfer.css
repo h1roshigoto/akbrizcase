@@ -1,0 +1,25 @@
+.request-review {
+  width: min(720px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: clamp(18px, 4vw, 32px);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: auto;
+}
+.request-review::backdrop { background: rgba(3, 9, 24, .65); }
+.request-review h2 { font-size: 24px; }
+.request-review .consent-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.request-item-photo .item-image { width: 100%; height: 100%; padding: 0; }
+.request-item-photo .image-placeholder span,
+.request-item-photo .image-placeholder small { display: none; }
+.request-item-photo .image-placeholder svg { width: 30px; height: 30px; }
+
+/* Published tax notes can be longer than the reference's fixed price labels. */
+.prices .svc-t td.pr small {
+  display: block;
+  font-weight: 400;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

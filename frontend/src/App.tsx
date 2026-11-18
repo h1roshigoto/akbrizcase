@@ -4,6 +4,6 @@ import { PrivacyPage } from './pages/PrivacyPage'
 
 export default function App() {
   if (window.location.pathname === '/privacy-policy') return <PrivacyPage />
-  const pages = { '/index.html': 'home', '/zapchasti.html': 'catalog', '/pomoshchnik.html': 'chat', '/zayavka.html': 'request', '/tehinfo.html': 'tech', '/normy.html': 'docs' } as const
+  const pages = { '/index.html': 'home', '/zapchasti.html': 'catalog', '/pomoshchnik.html': 'chat', '/zayavka.html': 'request', '/request': 'request', '/tehinfo.html': 'tech', '/normy.html': 'docs' } as const
   return <CatalogPage source={httpCatalog} defaultView={pages[window.location.pathname as keyof typeof pages] ?? 'home'} />
 }

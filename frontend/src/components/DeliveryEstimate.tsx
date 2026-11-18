@@ -2,7 +2,7 @@ import { useId, useRef, useState } from 'react'
 import { cities } from '../design/cities'
 
 /** Original offline city suggestions and explicit manager-confirmed quote, without invented tariffs. */
-export function DeliveryEstimate({ value, onChange, disabled = false }: { value?: string; onChange?: (city: string) => void; disabled?: boolean }) {
+export function DeliveryEstimate({ value, onChange, disabled = false, fieldId }: { fieldId?: string; value?: string; onChange?: (city: string) => void; disabled?: boolean }) {
   const [local, setLocal] = useState('')
   const [result, setResult] = useState('')
   const [open, setOpen] = useState(false)
@@ -15,7 +15,7 @@ export function DeliveryEstimate({ value, onChange, disabled = false }: { value?
   const shown = open && matches.length > 0 && !disabled
   const change = (next: string) => {setLocal(next);onChange?.(next);setResult('');setCurrent(-1)}
   const pick = (index: number) => {if(matches[index]) change(matches[index].n);setOpen(false)}
-  return <div className="calc plain"><div className="rw"><input className="in" role="combobox" aria-label="Город получателя" aria-autocomplete="list" aria-expanded={shown} aria-controls={listId} aria-activedescendant={shown && current >= 0 ? `${listId}-${current}` : undefined} placeholder="Город получателя" autoComplete="off" maxLength={80} value={city} disabled={disabled}
+  return <div className="calc plain"><div className="rw">{fieldId && <label className="sr" htmlFor={fieldId}>Город получателя</label>}<input id={fieldId} data-city={fieldId ? '' : undefined} className="in" role="combobox" aria-label="Город получателя" aria-autocomplete="list" aria-expanded={shown} aria-controls={listId} aria-activedescendant={shown && current >= 0 ? `${listId}-${current}` : undefined} placeholder="Город получателя" autoComplete="off" maxLength={80} value={city} disabled={disabled}
     onChange={e=>{change(e.target.value);setOpen(true)}} onFocus={()=>{if(city)setOpen(true)}} onBlur={()=>setOpen(false)}
     onKeyDown={e=>{
       if(e.key==='Escape'){setOpen(false);setCurrent(-1);return}

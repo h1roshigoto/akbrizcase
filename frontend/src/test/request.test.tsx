@@ -78,21 +78,39 @@ const send = () =>
 const accept = () => screen.getByRole('checkbox', { name: /Я прочитал/ })
 const confirm = () =>
   screen.getByRole('checkbox', { name: /Подтверждаю показанные/ })
-async function fill() {
-  await waitFor(() =>
-    expect((send() as HTMLButtonElement).disabled).toBe(false),
-  )
-  fireEvent.change(screen.getByLabelText(/Контактное имя/), {
-    target: { value: '  Synthetic Buyer  ' },
-  })
-  fireEvent.change(screen.getByLabelText('Email'), {
-    target: { value: 'buyer@example.invalid' },
-  })
-  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
+const nameField = () => screen.getByLabelText(/Контактное имя|Контактное лицо/)
+const emailField = () => screen.getByLabelText(/^Email$|^E-mail/)
+const reviewAction = () => screen.getByRole('button', { name: 'Отправить заявку' })
+function prepareCommercial() {
+  if (!screen.queryByRole('heading', { name: 'Данные учреждения' })) return
+  fireEvent.change(screen.getByLabelText(/Название учреждения/), { target: { value: 'Synthetic facility' } })
+  fireEvent.change(screen.getByLabelText(/^Телефон/), { target: { value: '89000000001' } })
+  fireEvent.change(screen.getByLabelText(/^Адрес доставки/), { target: { value: 'Synthetic address' } })
+  const checkbox = screen.getByRole('checkbox', { name: /Согласен на обработку/ }) as HTMLInputElement
+  if (!checkbox.checked) fireEvent.click(checkbox)
+}
+function enterReview() {
+  if (screen.queryByRole('dialog')) return
+  fireEvent.click(reviewAction())
+}
+async function fillFields() {
+  fireEvent.change(nameField(), { target: { value: '  Synthetic Buyer  ' } })
+  fireEvent.change(emailField(), { target: { value: 'buyer@example.invalid' } })
+  fireEvent.change(screen.getByLabelText(/^(Комментарий|Описание проблемы)/), {
     target: { value: '  exact\ncomment  ' },
   })
+  prepareCommercial()
 }
+async function fill() {
+  await fillFields()
+  if (screen.queryByRole('button', { name: 'Отправить заявку' })) enterReview()
+  await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false))
+}
+const reviewedComment = (shipping: boolean) =>
+  '  exact\ncomment  \nТип учреждения: Образовательное учреждение' +
+    (shipping ? '\nАдрес доставки учреждения: Synthetic address' : '')
 async function approve() {
+  await waitFor(() => expect((accept() as HTMLInputElement).disabled).toBe(false))
   fireEvent.click(accept())
   fireEvent.click(confirm())
   fireEvent.click(send())
@@ -108,7 +126,7 @@ it('requires a meaningful support comment, resets confirmation and sends exact s
   const api = orders()
   render(<Harness api={api} support={{ draft: null, owner: null }} />)
   await fill()
-  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
+  fireEvent.change(screen.getByLabelText(/^(Комментарий|Описание проблемы)/), {
     target: { value: '   ' },
   })
   fireEvent.click(accept())
@@ -120,7 +138,7 @@ it('requires a meaningful support comment, resets confirmation and sends exact s
   expect(api.submit).not.toHaveBeenCalled()
   expect(screen.getByText(/Опишите проблему:/)).toBeTruthy()
   const exact = '  <img src=x onerror=alert(1)>\nSYNTHETIC-036 edited  '
-  fireEvent.change(screen.getByLabelText(/Комментарий|Описание проблемы/), {
+  fireEvent.change(screen.getByLabelText(/^(Комментарий|Описание проблемы)/), {
     target: { value: exact },
   })
   expect((approval as HTMLInputElement).checked).toBe(false)
@@ -234,7 +252,7 @@ it('keeps support edits after 410 and requires explicit site review with new sec
       ) as HTMLTextAreaElement
     ).value,
   ).toBe('  exact\ncomment  ')
-  expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
+  expect((emailField() as HTMLInputElement).value).toBe(
     'buyer@example.invalid',
   )
   expect(api.submit).toHaveBeenCalledTimes(1)
@@ -279,8 +297,9 @@ it.each([
     source: 'site',
     confirmed: true,
     consent: { version: consent.version, accepted: true },
-    contact: { name: '  Synthetic Buyer  ', email: 'buyer@example.invalid' },
-    comment: '  exact\ncomment  ',
+    contact: { name: '  Synthetic Buyer  ', email: 'buyer@example.invalid', phone: '+7 (900) 000-00-01' },
+    organization_name: 'Synthetic facility',
+    comment: reviewedComment(items.some((item) => item.requires_shipping)),
   })
   expect(body.items).toEqual(
     items.map((item) => ({
@@ -296,6 +315,7 @@ it.each([
     'contact',
     'items',
     'kind',
+    'organization_name',
     'source',
   ])
   expect(screen.queryByLabelText('Email')).toBeNull()
@@ -313,10 +333,11 @@ it('requires both explicit consent and confirmation, preserving inputs on valida
   fireEvent.click(accept())
   fireEvent.click(send())
   expect(api.submit).not.toHaveBeenCalled()
-  fireEvent.change(screen.getByLabelText('Email'), { target: { value: '' } })
-  fireEvent.click(confirm())
-  fireEvent.click(send())
-  expect(screen.getByText('Укажите email или телефон.')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться к форме' }))
+  fireEvent.change(emailField(), { target: { value: '' } })
+  fireEvent.click(reviewAction())
+  expect(emailField().getAttribute('aria-invalid')).toBe('true')
+  expect(screen.queryByRole('dialog')).toBeNull()
   expect(api.submit).not.toHaveBeenCalled()
 })
 it('reconciles stale revisions only after explicit acceptance', async () => {
@@ -332,10 +353,13 @@ it('reconciles stale revisions only after explicit acceptance', async () => {
   }
   render(<Harness api={api} catalog={catalog} />)
   await screen.findByText(/Позиция изменилась:/)
+  await fillFields()
+  enterReview()
   expect((send() as HTMLButtonElement).disabled).toBe(true)
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)[0].revision).toBe(
     product.revision,
   )
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться к форме' }))
   fireEvent.click(screen.getByRole('button', { name: /Принять обновление/ }))
   await fill()
   await approve()
@@ -351,6 +375,8 @@ it('blocks unavailable positions and distinguishes backend outages', async () =>
   }
   render(<Harness api={api} catalog={catalog} />)
   await screen.findByText(/Её нельзя отправить/)
+  await fillFields()
+  enterReview()
   expect((send() as HTMLButtonElement).disabled).toBe(true)
   expect(api.submit).not.toHaveBeenCalled()
 })
@@ -364,6 +390,8 @@ it.each(['catalog', 'consent'])(
       vi.mocked(api.getConsent).mockRejectedValueOnce(new Error('down'))
     else catalog.getItem.mockRejectedValueOnce(new Error('down'))
     render(<Harness api={api} catalog={catalog} />)
+    await fillFields()
+    enterReview()
     await screen.findByText(
       resource === 'consent'
         ? /Не удалось загрузить согласие/
@@ -426,7 +454,7 @@ it.each(['catalog_changed', 'consent_changed', 'validation'] as const)(
     expect((accept() as HTMLInputElement).checked).toBe(false)
     expect((confirm() as HTMLInputElement).checked).toBe(false)
     expect(
-      (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
+      (nameField() as HTMLInputElement).value,
     ).toBe('  Synthetic Buyer  ')
     if (reason === 'consent_changed')
       await screen.findByText('Changed plain text <script>literal</script>')
@@ -469,7 +497,7 @@ it('locks inputs and double clicks, retries original request after uncertain fai
     fireEvent.click(send())
   })
   await screen.findByRole('button', { name: 'Повторить отправку' })
-  expect(screen.getByLabelText('Email').matches(':disabled')).toBe(true)
+  expect(emailField().matches(':disabled')).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Повторить отправку' }))
   await screen.findByRole('heading', { name: /Заявка №/ })
   expect(vi.mocked(api.submit).mock.calls[0]).toEqual(
@@ -517,6 +545,8 @@ it('blocks >50 selections without dropping positions', async () => {
     />,
   )
   await screen.findByText(/Для заявки нужно от 1 до 50/)
+  await fillFields()
+  enterReview()
   expect((send() as HTMLButtonElement).disabled).toBe(true)
   expect(JSON.parse(sessionStorage.getItem(SELECTION_KEY)!)).toHaveLength(51)
   expect(api.submit).not.toHaveBeenCalled()
@@ -553,7 +583,7 @@ it('retains form and selected values across catalog navigation while pending', a
   fireEvent.click(screen.getByRole('link', { name: 'Запчасти' }))
   fireEvent.click(screen.getByRole('link', { name: 'Заявка' }))
   expect(
-    (screen.getByLabelText(/Контактное имя/) as HTMLInputElement).value,
+    (nameField() as HTMLInputElement).value,
   ).toBe('  Synthetic Buyer  ')
   expect(api.submit).toHaveBeenCalledTimes(1)
 })
@@ -563,7 +593,7 @@ it('explains ambiguous reload and never starts another request', async () => {
   const api = orders()
   render(<Harness api={api} />)
   await screen.findByText(/Исход предыдущей отправки неизвестен/)
-  expect((send() as HTMLButtonElement).disabled).toBe(true)
+  expect((reviewAction() as HTMLButtonElement).disabled).toBe(true)
   expect(api.submit).not.toHaveBeenCalled()
 })
 it('connects App catalog → form → real same-origin consent and POST adapters', async () => {
@@ -667,11 +697,12 @@ it.each([false, true])(
           : {})}
       />,
     )
+    if (!support) { await fillFields(); enterReview() }
     await screen.findByText(/Политика недоступна или документы изменились/)
-    fireEvent.change(screen.getByLabelText(/Контактное имя/), {
+    fireEvent.change(nameField(), {
       target: { value: 'Synthetic retained' },
     })
-    fireEvent.change(screen.getByLabelText('Email'), {
+    fireEvent.change(emailField(), {
       target: { value: 'retained@example.invalid' },
     })
     expect((send() as HTMLButtonElement).disabled).toBe(true)
@@ -728,6 +759,7 @@ it.each([false, true])(
           : {})}
       />,
     )
+    if (!support) { await fillFields(); enterReview() }
     await screen.findByText(/Политика недоступна или документы изменились/)
     expect((send() as HTMLButtonElement).disabled).toBe(true)
     expect(api.submit).not.toHaveBeenCalled()
@@ -759,9 +791,16 @@ it.each([false, true])(
       />,
     )
     await fill()
-    fireEvent.click(accept())
-    fireEvent.click(screen.getByRole('checkbox', { name: /Подтверждаю/ }))
-    fireEvent.click(send())
+    const user = userEvent.setup()
+    const approveForActiveForm = async () => {
+      const confirmation = screen.getByRole('checkbox', { name: /Подтверждаю/ })
+      await user.click(accept())
+      expect((accept() as HTMLInputElement).checked).toBe(true)
+      await user.click(confirmation)
+      expect((confirmation as HTMLInputElement).checked).toBe(true)
+      await user.click(send())
+    }
+    await approveForActiveForm()
     await screen.findByRole('button', { name: 'Пересмотреть заявку' })
     expect(api.submit).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Пересмотреть заявку' }))
@@ -782,24 +821,22 @@ it.each([false, true])(
         }) as HTMLInputElement
       ).checked,
     ).toBe(false)
-    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe(
+    expect((emailField() as HTMLInputElement).value).toBe(
       'buyer@example.invalid',
     )
     expect(
       (
         screen.getByLabelText(
-          /Комментарий|Описание проблемы/,
+          /^(Комментарий|Описание проблемы)/,
         ) as HTMLTextAreaElement
       ).value,
     ).toBe('  exact\ncomment  ')
     expect(api.submit).toHaveBeenCalledTimes(1)
-    fireEvent.click(accept())
-    fireEvent.click(screen.getByRole('checkbox', { name: /Подтверждаю/ }))
-    fireEvent.click(send())
+    await approveForActiveForm()
     await screen.findByRole('heading', { name: /Заявка №/ })
     const submitted = JSON.parse(vi.mocked(api.submit).mock.calls[1]![0])
     expect(submitted.consent.version).toBe('next-approved')
-    expect(submitted.comment).toBe('  exact\ncomment  ')
+    expect(submitted.comment).toBe(support ? '  exact\ncomment  ' : reviewedComment(product.requires_shipping))
   },
 )
 
@@ -821,6 +858,7 @@ it.each([false, true])(
           : {})}
       />,
     )
+    if (!support) { await fillFields(); enterReview() }
     await screen.findByText(/Приём новых обращений закрыт/)
     expect((send() as HTMLButtonElement).disabled).toBe(true)
     expect((accept() as HTMLInputElement).disabled).toBe(true)

@@ -20,7 +20,17 @@ import { id, page, reply, transport } from './chatFixtures'
 const catalog = { ...fixtureCatalog, mode: 'api' as const }
 const active = () => within(screen.getByRole('main'))
 const send = () =>
-  active().getByRole('button', { name: 'Подтвердить и отправить заявку' })
+  active().queryByRole('button', { name: 'Подтвердить и отправить заявку' }) ??
+  active().getByRole('button', { name: 'Отправить заявку' })
+async function quickSupport() {
+  const form = document.querySelector<HTMLFormElement>('#quick')!
+  const view = within(form)
+  fireEvent.change(view.getByLabelText('Имя'), { target: { value: 'Synthetic contact' } })
+  fireEvent.input(view.getByLabelText('Номер телефона'), { target: { value: '89000000001' } })
+  fireEvent.change(view.getByLabelText('Комментарий'), { target: { value: 'Synthetic description' } })
+  fireEvent.click(view.getByRole('checkbox'))
+  await userEvent.click(view.getByRole('button', { name: 'Отправить' }))
+}
 const receipt = (n: number) =>
   screen.findByRole('heading', { name: `Заявка №${n}` })
 const nav = (name: string) =>
@@ -61,15 +71,23 @@ async function edit(text: string) {
   await waitFor(() =>
     expect((send() as HTMLButtonElement).disabled).toBe(false),
   )
-  fireEvent.change(active().getByLabelText(/Контактное имя/), {
+  fireEvent.change(active().getByLabelText(/Контактное имя|Контактное лицо/), {
     target: { value: 'Synthetic lifecycle buyer' },
   })
-  fireEvent.change(active().getByLabelText('Email'), {
+  fireEvent.change(active().getByLabelText(/^Email$|^E-mail/), {
     target: { value: 'lifecycle@example.invalid' },
   })
   fireEvent.change(active().getByLabelText(/Комментарий|Описание проблемы/), {
     target: { value: text },
   })
+  if (active().queryByRole('heading', { name: 'Данные учреждения' })) {
+    fireEvent.change(active().getByLabelText(/Название учреждения/), { target: { value: 'Synthetic institution' } })
+    fireEvent.change(active().getByLabelText(/^Телефон/), { target: { value: '89000000001' } })
+    fireEvent.change(active().getByLabelText(/^Адрес доставки/), { target: { value: 'Synthetic address' } })
+    fireEvent.click(active().getByRole('checkbox', { name: /Согласен на обработку/ }))
+    await userEvent.click(active().getByRole('button', { name: 'Отправить заявку' }))
+    await waitFor(() => expect((send() as HTMLButtonElement).disabled).toBe(false))
+  }
 }
 async function submit() {
   await userEvent.click(active().getByRole('checkbox', { name: /Я прочитал/ }))
@@ -144,7 +162,7 @@ it.each(['support', 'commercial'] as const)(
       )
     } else {
       await route('#home')
-      await nav('Обратиться к специалисту')
+      await quickSupport()
       expect(screen.queryByRole('heading', { name: 'Заявка №1' })).toBeNull()
       fireEvent.click(
         screen.getByRole('button', {
@@ -161,7 +179,9 @@ it.each(['support', 'commercial'] as const)(
     expect(JSON.parse(b![0])).toMatchObject({
       kind: first === 'support' ? 'commercial' : 'support',
       source: 'site',
-      comment: 'Synthetic second request',
+      comment: first === 'support'
+        ? 'Synthetic second request\nТип учреждения: Образовательное учреждение\nАдрес доставки учреждения: Synthetic address'
+        : 'Synthetic second request',
     })
     expect(b![1]['Idempotency-Key']).not.toBe(a![1]['Idempotency-Key'])
     expect(b![1]['X-Request-Token']).not.toBe(a![1]['X-Request-Token'])
@@ -218,7 +238,7 @@ it('preserves chat draft/context on history navigation and requires explicit sit
     (active().getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
   ).toBe('Synthetic edited chat draft')
   await route('#home')
-      await nav('Обратиться к специалисту')
+      await quickSupport()
   expect((send() as HTMLButtonElement).disabled).toBe(true)
   expect(orders.submit).not.toHaveBeenCalled()
   fireEvent.click(
@@ -230,7 +250,7 @@ it('preserves chat draft/context on history navigation and requires explicit sit
   expect(
     (active().getByLabelText(/Описание проблемы/) as HTMLTextAreaElement).value,
   ).toBe('Synthetic edited chat draft')
-  expect((active().getByLabelText('Email') as HTMLInputElement).value).toBe(
+  expect((active().getByLabelText(/^Email$|^E-mail/) as HTMLInputElement).value).toBe(
     'lifecycle@example.invalid',
   )
   expect(
