@@ -197,7 +197,7 @@ jobs:
           make frontend-sync
           # Avoid Azure and EC2 mirror stalls consuming the two-run budget.
           # Preserve signed Ubuntu packages and TLS verification.
-          for apt_source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+          for apt_source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list /etc/apt/apt-mirrors.txt; do
             if [ -f "$apt_source_file" ]; then
               sudo sed -Ei \
                 -e 's#https?://(azure\.archive|[a-z0-9-]+\.ec2\.archive)\.ubuntu\.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
