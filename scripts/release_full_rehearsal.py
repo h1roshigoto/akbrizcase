@@ -16,6 +16,7 @@ from https_smoke import browser_trust
 from mvp046_browser_smoke import run_browser
 from release import FULL_MODES, Release, read_json, require, run, write_json
 from release_rehearsal import invoke, verify_leaks
+from release_resource_probe import require_resource_bounds
 
 
 def execute(release, code, payload=None, *, service="api", args=()):
@@ -132,48 +133,88 @@ def files_and_resources(release):
     # same bounded API container. The test composition never enters app images.
     output = execute(
         release,
-        """
-import sys,io,concurrent.futures,threading,json
+        Path("scripts/release_resource_probe.py").read_text()
+        + """
+import sys,io,concurrent.futures,threading,json,time
+from contextlib import contextmanager
 from pathlib import Path
 sys.path.insert(0,'/opt/release')
 from browser_media_server import release_scanner
 from app.modules.kb.files import FilePipeline,FileRejected
 from argon2 import PasswordHasher
 from app.core.db import API_WORKERS
+assert 'app.main' not in sys.modules
+probe=ResourceProbe()
+probe.start()
 barrier=threading.Barrier(6)
+intervals=[]
+interval_lock=threading.Lock()
+@contextmanager
+def operation(role):
+ barrier.wait()
+ begin=time.monotonic()
+ try: yield
+ finally:
+  with interval_lock: intervals.append((role,begin,time.monotonic()))
 def scan(infected):
- barrier.wait()
- p=FilePipeline.from_environment()
- try:
-  p.accept(io.BytesIO(b'SYNTHINFECTED' if infected else b'SYNTHETIC SAFE RELEASE FILE'),filename='safe.txt',mime='text/plain')
- except FileRejected:
-  assert infected
- else:
-  assert not infected
+ with operation('av'):
+  p=FilePipeline.from_environment()
+  try:
+   p.accept(io.BytesIO(b'SYNTHINFECTED' if infected else b'SYNTHETIC SAFE RELEASE FILE'),filename='safe.txt',mime='text/plain')
+  except FileRejected as error:
+   assert infected and error.code=='SCANNER_INFECTED'
+  else:
+   assert not infected
 def password():
- barrier.wait()
- hasher=PasswordHasher()
- value=hasher.hash('SYNTHETIC-RESOURCE-CHECK-ONLY')
- assert hasher.verify(value,'SYNTHETIC-RESOURCE-CHECK-ONLY')
-with release_scanner(), concurrent.futures.ThreadPoolExecutor(6) as pool:
- futures=[pool.submit(scan,n==0) for n in range(3)] + [pool.submit(password) for _ in range(3)]
- for future in futures: future.result(timeout=60)
-workers=0
-for process in Path('/proc').glob('[0-9]*/cmdline'):
- try: arguments=process.read_bytes().split(bytes([0]))
- except (OSError,ProcessLookupError): continue
- workers+=b'--multiprocessing-fork' in arguments
+ with operation('argon2'):
+  hasher=PasswordHasher()
+  assert (hasher.time_cost,hasher.memory_cost,hasher.parallelism)==(3,65536,4)
+  value=hasher.hash('SYNTHETIC-RESOURCE-CHECK-ONLY')
+  assert hasher.verify(value,'SYNTHETIC-RESOURCE-CHECK-ONLY')
+started=time.monotonic()
+try:
+ with release_scanner(), concurrent.futures.ThreadPoolExecutor(6) as pool:
+  futures=[pool.submit(scan,n==0) for n in range(3)] + [pool.submit(password) for _ in range(3)]
+  for future in futures: future.result(timeout=max(.001,60-(time.monotonic()-started)))
+ assert time.monotonic()-started<=60
+ assert len(intervals)==6
+ assert sum(role=='av' for role,_,_ in intervals)==3
+ assert sum(role=='argon2' for role,_,_ in intervals)==3
+ assert max(begin for _,begin,_ in intervals)<min(end for _,_,end in intervals)
+finally:
+ resources=probe.finish()
+workers=probe.last_roles.get('api_worker',{}).get('count',0)
 assert workers==API_WORKERS
+assert resources['roles_at_sampled_peak']['roles']['api_worker']['count']==API_WORKERS
 events=Path('/sys/fs/cgroup/memory.events')
 oom_kills=None
 if events.exists():
  oom_kills=dict(line.split() for line in events.read_text().splitlines()).get('oom_kill')
  assert oom_kills=='0'
 peak=Path('/sys/fs/cgroup/memory.peak')
-print(json.dumps({'api_workers':workers,'oom_kills':int(oom_kills) if oom_kills is not None else None,'memory_peak_bytes':int(peak.read_text()) if peak.exists() else None}))
+print(json.dumps({'api_workers':workers,'oom_kills':int(oom_kills) if oom_kills is not None else None,'memory_peak_bytes':int(peak.read_text()) if peak.exists() else None,'resources':resources,'duration_seconds':round(time.monotonic()-started,3)}))
 """,
     )
     return json.loads(output)
+
+
+def api_resource_snapshot(release):
+    return json.loads(
+        execute(
+            release,
+            Path("scripts/release_resource_probe.py").read_text()
+            + "\nimport json\nprint(json.dumps(resource_snapshot()))",
+        )
+    )
+
+
+def check_api_resources(release, stage):
+    counters = api_resource_snapshot(release)
+    print(
+        "FULL_REHEARSAL_API_CGROUP " + json.dumps({"stage": stage, **counters}),
+        flush=True,
+    )
+    require_resource_bounds(counters)
 
 
 def protected_cli(release, config):
@@ -393,6 +434,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         finally:
             write_json(root / "accepted.json", accepted)
         invoke(root, root / "candidate.json", rollback=True, success=False)
+        check_api_resources(release, "before_upgrade")
         secret_path = root / "migrator_password"
         original = secret_path.read_bytes()
         secret_path.unlink()
@@ -414,8 +456,10 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
             secret_path.chmod(0o444)
         invoke(root, root / "candidate.json")
         require(retained(release) == before)
+        check_api_resources(release, "upgraded")
         invoke(root, root / "first.json", rollback=True)
         require(retained(release) == before)
+        check_api_resources(release, "rolled_back")
         release.sql(
             "ALTER TABLE app.alembic_version RENAME TO rehearsal_version_hidden"
         )
@@ -441,6 +485,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 "SYNTHETIC046 Buyer",
             ],
         )
+        check_api_resources(release, "final_rollback")
         require(resource_samples)
         require(pg_samples)
         require(
@@ -493,22 +538,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 flush=True,
             )
         try:
-            counters = json.loads(
-                execute(
-                    release,
-                    """
-import json
-from pathlib import Path
-result={}
-for name in ('memory.events','pids.events'):
- path=Path('/sys/fs/cgroup')/name
- if path.exists():
-  values=dict(line.split() for line in path.read_text().splitlines())
-  result[name]={key:int(values[key]) for key in ('max','oom','oom_kill') if key in values}
-print(json.dumps(result))
-""",
-                )
-            )
+            counters = api_resource_snapshot(release)
             print("FULL_REHEARSAL_FAILURE_CGROUP " + json.dumps(counters), flush=True)
         except Exception:
             pass
