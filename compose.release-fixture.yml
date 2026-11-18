@@ -1,9 +1,8 @@
 # Trusted real-ClamAV synthetic composition, confined to owned rehearsals.
 services:
   api:
-    # Keep the supervisor free of application initialization. Each of the three
-    # workers still creates the same app and owns its original full lifespan.
-    command: [uvicorn, 'browser_media_server:create_document_app', --app-dir, /opt/release, --factory, --workers, '3', --host, 0.0.0.0, --port, '8000', --no-access-log, --no-proxy-headers]
+    # Only this owned fixture shares route imports through a clean forkserver.
+    command: [python, /opt/release/browser_media_server.py, --release-api, '3']
     volumes:
       - ./backend/tests/browser_media_server.py:/opt/release/browser_media_server.py:ro
       - ./backend/tests/integration/operator_terminal.py:/opt/release/operator_terminal.py:ro

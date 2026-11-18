@@ -16,6 +16,7 @@ from https_smoke import browser_trust
 from mvp046_browser_smoke import run_browser
 from release import FULL_MODES, Release, read_json, require, run, write_json
 from release_rehearsal import invoke, verify_leaks
+from release_resource_probe import require_resource_bounds
 
 
 def execute(release, code, payload=None, *, service="api", args=()):
@@ -182,12 +183,9 @@ try:
  assert max(begin for _,begin,_ in intervals)<min(end for _,_,end in intervals)
 finally:
  resources=probe.finish()
-workers=0
-for process in Path('/proc').glob('[0-9]*/cmdline'):
- try: arguments=process.read_bytes().split(bytes([0]))
- except (OSError,ProcessLookupError): continue
- workers+=b'--multiprocessing-fork' in arguments
+workers=probe.last_roles.get('api_worker',{}).get('count',0)
 assert workers==API_WORKERS
+assert resources['roles_at_sampled_peak']['roles']['api_worker']['count']==API_WORKERS
 events=Path('/sys/fs/cgroup/memory.events')
 oom_kills=None
 if events.exists():
@@ -198,6 +196,25 @@ print(json.dumps({'api_workers':workers,'oom_kills':int(oom_kills) if oom_kills 
 """,
     )
     return json.loads(output)
+
+
+def api_resource_snapshot(release):
+    return json.loads(
+        execute(
+            release,
+            Path("scripts/release_resource_probe.py").read_text()
+            + "\nimport json\nprint(json.dumps(resource_snapshot()))",
+        )
+    )
+
+
+def check_api_resources(release, stage):
+    counters = api_resource_snapshot(release)
+    print(
+        "FULL_REHEARSAL_API_CGROUP " + json.dumps({"stage": stage, **counters}),
+        flush=True,
+    )
+    require_resource_bounds(counters)
 
 
 def protected_cli(release, config):
@@ -417,6 +434,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
         finally:
             write_json(root / "accepted.json", accepted)
         invoke(root, root / "candidate.json", rollback=True, success=False)
+        check_api_resources(release, "before_upgrade")
         secret_path = root / "migrator_password"
         original = secret_path.read_bytes()
         secret_path.unlink()
@@ -438,8 +456,10 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
             secret_path.chmod(0o444)
         invoke(root, root / "candidate.json")
         require(retained(release) == before)
+        check_api_resources(release, "upgraded")
         invoke(root, root / "first.json", rollback=True)
         require(retained(release) == before)
+        check_api_resources(release, "rolled_back")
         release.sql(
             "ALTER TABLE app.alembic_version RENAME TO rehearsal_version_hidden"
         )
@@ -465,6 +485,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 "SYNTHETIC046 Buyer",
             ],
         )
+        check_api_resources(release, "final_rollback")
         require(resource_samples)
         require(pg_samples)
         require(
@@ -517,13 +538,7 @@ def exercise_full(root: Path, first: dict, second: dict) -> None:
                 flush=True,
             )
         try:
-            counters = json.loads(
-                execute(
-                    release,
-                    Path("scripts/release_resource_probe.py").read_text()
-                    + "\nimport json\nprint(json.dumps(resource_snapshot()))",
-                )
-            )
+            counters = api_resource_snapshot(release)
             print("FULL_REHEARSAL_FAILURE_CGROUP " + json.dumps(counters), flush=True)
         except Exception:
             pass

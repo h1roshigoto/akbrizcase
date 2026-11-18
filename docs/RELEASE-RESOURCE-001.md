@@ -22,14 +22,23 @@ the file pipeline import and 70,360,064 after the browser/scanner module import;
 workload, but still reached 536,870,912 bytes, `memory.events.max=657`, with
 `oom_kill=0` and `pids.events.max=0`. It is explicitly **insufficient**.
 
-The final composition also launches the importable document factory directly
-through Uvicorn in `compose.release-fixture.yml`. The supervisor loads Uvicorn;
-each of the same three workers creates the original application and enters its
-full original lifespan. ASGI initialization remains inside the two factories.
-The synthetic scanner context, real ClamAV, decoder, security checks and runtime
-application sources are unchanged. No admission gate, queue, new service, API,
-ACL, migration or authentication change is introduced. Queue/refusal semantics
-for a new resource admission mechanism are consequently not claimed.
+The direct Uvicorn launcher (`fc1ad3992b3bc65b30601184bb441232d0d18987`)
+still reached the cap in CI and locally. CI recorded 106 memory-limit events,
+38,731,776 bytes of swap peak, and zero OOM or PID-limit events. The locally
+reproduced failure recorded 197 memory-limit events and 30,810,112 bytes of
+swap peak. An additional import-only experiment in the file driver and scanner
+bootstrap still saturated the cap. Those runtime edits were dropped.
+
+The owned release fixture uses Uvicorn's supervisor with Linux forkserver
+worker creation. The forkserver preloads fixed route-definition modules for
+copy-on-write sharing. Neither it nor the supervisor constructs `app.main`.
+Each of the three workers creates the original ASGI app after it starts, opens
+its own connections inside the original lifespan, and keeps the original
+Uvicorn readiness, worker supervision and shutdown. An isolated three-child
+ASGI import probe measured 222,478,336 bytes of aggregate cgroup current with
+spawn and 136,409,088 with route preload, including the forkserver. These
+import-only probes did not run an application lifespan or the release workload.
+Production worker creation and the ordinary runtime image remain unchanged.
 
 The existing source/immutable-image/profile/ownership/TLS guards remain in place.
 The release controller already checks both changed fixture source files against
@@ -54,13 +63,14 @@ must not be summed or described as a simultaneous allocation breakdown. Kernel
 `memory.peak` and event counters are authoritative for cap/OOM evidence.
 Process arguments select fixed roles internally and are never emitted.
 
-Acceptance refuses any cap event, OOM event/kill, PID-limit event, widened memory,
-CPU or PID limit, sampled swap use or supported nonzero swap peak. It checks the
-sampler's termination and absence of leftover scanner/parser processes. Sampling
-errors cannot certify acceptance. Failure output retains numeric kernel counters.
-Missing mandatory Linux/cgroup evidence blocks acceptance; unsupported optional
-peak counters remain explicitly null. The monitor adds a thread in the existing
-driver, not another application process.
+Acceptance requires a kernel memory peak strictly below the limit. It refuses
+any cap event, OOM event/kill, PID-limit event, changed memory/CPU/PID limit or
+swap use. With swap allowed, the kernel swap peak must establish zero use.
+The probe checks three workers near the sampled peak and at completion, sampler
+termination and absence of leftover scanner/parser processes. The full
+rehearsal checks cumulative API cgroup counters before replacement, after
+upgrade and after both rollback paths. Failure output retains numeric kernel
+counters. The concurrent workload's monitor uses a thread in the existing driver.
 
 Tests cover the lazy import boundary and three-worker factory/lifespan contract,
 valid evidence and sampler cleanup after an operation refusal, cap/OOM/PID/swap

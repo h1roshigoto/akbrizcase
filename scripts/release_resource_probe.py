@@ -44,7 +44,7 @@ def require_resource_bounds(value):
     assert value["pids.max"] == 64
     quota, period = value["cpu.max"]
     assert quota == period and period > 0
-    assert 0 < value["memory.peak"] <= value["memory.max"]
+    assert 0 < value["memory.peak"] < value["memory.max"]
     assert value["memory.events"]["max"] == 0
     for key in ("oom", "oom_kill", "oom_group_kill"):
         assert value["memory.events"].get(key, 0) == 0
@@ -52,10 +52,20 @@ def require_resource_bounds(value):
     assert 0 < value["pids.current"] <= value["pids.max"]
     if value["pids.peak"] is not None:
         assert value["pids.peak"] <= value["pids.max"]
-    if value["memory.swap.current"] is not None:
+    if value["memory.swap.max"] == 0:
+        assert value["memory.swap.current"] in (None, 0)
+        assert value.get("memory.swap.peak") in (None, 0)
+    else:
         assert value["memory.swap.current"] == 0
-    if value.get("memory.swap.peak") is not None:
         assert value["memory.swap.peak"] == 0
+
+
+def forkserver_command(args):
+    return (
+        len(args) >= 3
+        and args[1] == b"-c"
+        and args[2].startswith(b"from multiprocessing.forkserver import main;")
+    )
 
 
 def role_memory():
@@ -69,6 +79,18 @@ def role_memory():
                 role = "stress_driver"
             elif comm == "clamscan":
                 role = "clamav"
+            elif forkserver_command(args):
+                parent = next(
+                    line.split()[1]
+                    for line in process.joinpath("status").read_text().splitlines()
+                    if line.startswith("PPid:")
+                )
+                parent_args = (
+                    process.parent.joinpath(parent, "cmdline").read_bytes().split(b"\0")
+                )
+                role = (
+                    "api_worker" if forkserver_command(parent_args) else "api_forkserver"
+                )
             elif b"--multiprocessing-fork" in args:
                 role = "api_worker"
             elif any(a.endswith(b"/files/worker.py") for a in args):
