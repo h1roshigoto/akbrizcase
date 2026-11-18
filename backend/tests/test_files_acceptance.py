@@ -20,7 +20,7 @@ from app.modules.kb.files import FilePipeline, FileRejected
 from app.modules.kb.files import scanner as scanner_module
 from app.modules.kb.files.formats import validate
 from app.modules.kb.files.process import Limits, run_bounded
-from app.modules.kb.files.sandbox import run_parser, run_tool, sealed_snapshot
+from app.modules.kb.files.sandbox import WORKER, run_parser, run_tool, sealed_snapshot
 from app.modules.kb.files.scanner import ClamAV
 from app.modules.kb.files.storage import MAX_BYTES
 
@@ -52,6 +52,37 @@ def pdf() -> bytes:
     writer.add_blank_page(72, 72)
     writer.write(buffer)
     return buffer.getvalue()
+
+
+def test_scanner_bootstrap_does_not_import_pdf_dependencies() -> None:
+    code, output = run_bounded(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            """
+import builtins, runpy, sys
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name.partition(".")[0] == "pypdf":
+        raise AssertionError("Scanner bootstrap imported PDF dependencies")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+""",
+            WORKER,
+            "exec",
+            "-1",
+            str(scanner_module.SCAN_LIMITS.cpu),
+            str(scanner_module.SCAN_LIMITS.memory),
+            "/usr/bin/clamscan",
+            "--version",
+        ],
+        limits=scanner_module.SCAN_LIMITS,
+    )
+    assert code == 0
+    assert output.startswith(b"ClamAV ")
 
 
 @pytest.mark.parametrize(

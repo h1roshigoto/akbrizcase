@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +20,12 @@ from release import (
     manifest_valid,
     protected,
     write_json,
+)
+from release_resource_probe import (
+    ResourceProbe,
+    forkserver_command,
+    require_resource_bounds,
+    role_memory,
 )
 
 
@@ -196,6 +203,99 @@ class ReleaseTest(unittest.TestCase):
                     release.apply(rollback=True)
             self.assertNotIn("START", release.calls)
             self.assertNotIn("MIGRATION", release.calls)
+
+
+class ResourceEvidenceTest(unittest.TestCase):
+    def test_forkserver_detection_allows_interpreter_flags(self):
+        command = b"from multiprocessing.forkserver import main; main(1, 2)"
+        self.assertTrue(forkserver_command([b"python", b"-B", b"-c", command]))
+        self.assertFalse(forkserver_command([b"python", b"-c", b"# " + command]))
+
+    def evidence(self):
+        return {
+            "memory.max": 512 * 1024**2,
+            "memory.current": 300 * 1024**2,
+            "memory.peak": 450 * 1024**2,
+            "memory.swap.current": 0,
+            "memory.swap.max": 512 * 1024**2,
+            "memory.swap.peak": 0,
+            "memory.events": {"max": 0, "oom": 0, "oom_kill": 0},
+            "pids.max": 64,
+            "pids.current": 16,
+            "pids.peak": 40,
+            "pids.events": {"max": 0},
+            "cpu.max": (100000, 100000),
+        }
+
+    def test_unchanged_envelope_and_closed_sampler_cleanup(self):
+        evidence = self.evidence()
+        require_resource_bounds(evidence)
+        with (
+            patch("release_resource_probe.resource_snapshot", return_value=evidence),
+            patch("release_resource_probe.role_memory", return_value={}),
+        ):
+            probe = ResourceProbe()
+            probe.start()
+            try:
+                raise RuntimeError("synthetic operation refusal")
+            except RuntimeError:
+                pass
+            finally:
+                result = probe.finish()
+            self.assertFalse(probe.thread.is_alive())
+            self.assertGreaterEqual(result["samples"], 2)
+
+    def test_pressure_oom_pid_swap_and_widened_bounds_refuse(self):
+        changes = (
+            {"memory.events": {"max": 1, "oom": 0, "oom_kill": 0}},
+            {"memory.events": {"max": 0, "oom": 1, "oom_kill": 0}},
+            {"memory.events": {"max": 0, "oom": 0, "oom_kill": 1}},
+            {"memory.events": {"max": 0, "oom": 0, "oom_kill": 0, "oom_group_kill": 1}},
+            {"pids.events": {"max": 1}},
+            {"memory.max": 1024 * 1024**2},
+            {"memory.peak": 512 * 1024**2},
+            {"memory.peak": 513 * 1024**2},
+            {"memory.peak": None},
+            {"memory.swap.current": 4096},
+            {"memory.swap.peak": 4096},
+            {"memory.swap.peak": None},
+            {"pids.max": 65},
+            {"pids.peak": 65},
+            {"cpu.max": (200000, 100000)},
+        )
+        for change in changes:
+            with (
+                self.subTest(change=change),
+                self.assertRaises((AssertionError, TypeError)),
+            ):
+                require_resource_bounds(deepcopy(self.evidence()) | change)
+
+    def test_process_evidence_emits_only_roles_and_numeric_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            process = Path(directory) / "1"
+            process.mkdir()
+            (process / "cmdline").write_bytes(
+                b"python\0PRIVATE_ARG\0/private/path\0--multiprocessing-fork\0"
+            )
+            (process / "comm").write_text("python")
+            (process / "smaps_rollup").write_text(
+                "Rss: 100 kB\nPss: 80 kB\nSwapPss: 0 kB\n"
+            )
+            with patch.object(Path, "glob", return_value=iter([process])):
+                result = role_memory()
+            self.assertEqual(
+                result,
+                {
+                    "api_worker": {
+                        "count": 1,
+                        "rss": 102400,
+                        "pss": 81920,
+                        "swap_pss": 0,
+                    }
+                },
+            )
+            self.assertNotIn("PRIVATE", json.dumps(result))
+            self.assertNotIn("/private", json.dumps(result))
 
 
 if __name__ == "__main__":
