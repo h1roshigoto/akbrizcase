@@ -91,6 +91,12 @@ review_reference approved_at published_by published_at
 
 def _schema(action: str) -> tuple[set[str], set[str], frozenset[str]]:
     family, _, operation = action.partition(".")
+    if action == "catalog.developer_import":
+        return (
+            {"developer_pack"},
+            {"pack_sha256", "images_sha256"},
+            frozenset({"success"}),
+        )
     if family == "staff" and operation in STAFF_ACTIONS:
         return {"staff_user"}, {"role", "is_active"}, STAFF_RESULTS
     if action == "order.status.change":
@@ -264,6 +270,8 @@ def validate_audit(action: str, entity: str, result: str, details: object) -> No
             or result not in results
             or not isinstance(details, dict)
         ):
+            raise ValueError
+        if action == "catalog.developer_import" and details.keys() != keys:
             raise ValueError
         if not details.keys() <= keys or not all(
             _value(k, v) for k, v in details.items()
