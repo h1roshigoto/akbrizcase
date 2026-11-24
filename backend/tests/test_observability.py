@@ -393,3 +393,125 @@ def test_existing_refusal_events_remain_auditable(
     details: object,
 ) -> None:
     validate_audit(action, entity, result, details)
+
+
+def test_reason_codes_schema_and_file_reason_mapping() -> None:
+    from app.core.observability import safe_file_reason
+    from app.modules.kb.files.process import FileRejected
+
+    valid = checked_event(
+        {
+            "event_code": "FILE_ERROR",
+            "at": datetime.now(UTC).isoformat(),
+            "endpoint": "catalog",
+            "reason": "PIPELINE_BUSY",
+        }
+    )
+    assert valid["reason"] == "PIPELINE_BUSY"
+
+    for bad_event in (
+        {
+            "event_code": "FILE_ERROR",
+            "at": datetime.now(UTC).isoformat(),
+            "reason": CANARIES[0],
+        },
+        {
+            "event_code": "HTTP_REQUEST",
+            "at": datetime.now(UTC).isoformat(),
+            "request_id": str(uuid4()),
+            "status": 404,
+            "endpoint": "catalog",
+            "duration_ms": 1.0,
+            "reason": "IMAGE_NOT_FOUND",
+        },
+    ):
+        with pytest.raises(ValueError, match="EVENT_SCHEMA_INVALID"):
+            checked_event(bad_event)
+
+    assert safe_file_reason(FileRejected("PIPELINE_BUSY")) == "PIPELINE_BUSY"
+    assert safe_file_reason(FileRejected(CANARIES[0])) == "FILE_REJECTED"
+    assert safe_file_reason(OSError(RAW)) == "OS_ERROR"
+
+
+def test_readyz_distinguishes_db_av_smtp_and_mode_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from app.main import readyz
+
+    class FakeApp:
+        def __init__(self, db: object) -> None:
+            self.state = SimpleNamespace(database=db)
+
+    def call_readyz(
+        db: object, dep_reason: str | None
+    ) -> tuple[int, dict[str, object]]:
+        req = SimpleNamespace(
+            app=FakeApp(db),
+            state=SimpleNamespace(request_id=uuid4()),
+        )
+        with (
+            patch("app.main.dependencies_failure_reason", return_value=dep_reason),
+            caplog.at_level(logging.INFO, logger="akbrizcase.runtime"),
+        ):
+            resp = readyz(req)  # type: ignore[arg-type]
+        event = checked_event(json.loads(caplog.records[-1].getMessage()))
+        return resp.status_code, event
+
+    caplog.clear()
+    status, ev = call_readyz(None, None)
+    assert status == 503
+    assert ev["event_code"] == "DB_ERROR" and ev["reason"] == "DB_UNAVAILABLE"
+
+    healthy_db = SimpleNamespace(ready=lambda: True)
+    for dep_reason, expected_code in (
+        ("AV_UNAVAILABLE", "FILE_ERROR"),
+        ("SMTP_UNAVAILABLE", "SMTP_FAILURE"),
+        ("RELEASE_MODE_INVALID", "API_ERROR"),
+    ):
+        caplog.clear()
+        status, ev = call_readyz(healthy_db, dep_reason)
+        assert status == 503
+        assert ev["event_code"] == expected_code and ev["reason"] == dep_reason
+
+
+def test_catalog_image_emits_safe_file_error_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from fastapi import FastAPI
+
+    from app.core.api_errors import install_api_errors
+    from app.modules.catalog.router import image_pipeline
+    from app.modules.catalog.router import router as catalog_router
+    from app.modules.kb.files.process import FileRejected
+
+    app = FastAPI()
+    install_api_errors(app)
+    app.include_router(catalog_router)
+    mock_session = MagicMock()
+    mock_session.scalar.return_value = uuid4()
+    mock_db = MagicMock()
+    mock_db.unit_of_work.side_effect = lambda: nullcontext(mock_session)
+    app.state.database = mock_db
+
+    class FailingPipeline:
+        def prepare(self, key: str) -> object:
+            raise FileRejected("PIPELINE_BUSY")
+
+    app.dependency_overrides[image_pipeline] = lambda: FailingPipeline()
+    valid_key = "a" * 64 + ".jpg"
+    item_id = uuid4()
+    with (
+        TestClient(app) as client,
+        caplog.at_level(logging.INFO, logger="akbrizcase.runtime"),
+    ):
+        resp = client.get(f"/api/v1/catalog/items/{item_id}/image/{valid_key}")
+    assert resp.status_code == 404
+    file_events = [
+        checked_event(json.loads(r.getMessage()))
+        for r in caplog.records
+        if r.name == "akbrizcase.runtime"
+        and json.loads(r.getMessage()).get("event_code") == "FILE_ERROR"
+    ]
+    assert len(file_events) == 1
+    assert file_events[0]["endpoint"] == "catalog"
+    assert file_events[0]["reason"] == "PIPELINE_BUSY"

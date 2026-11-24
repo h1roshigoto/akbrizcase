@@ -11,8 +11,7 @@ from app.core.api_errors import install_api_errors
 from app.core.config import settings
 from app.core.db import Database, database_lifespan
 from app.core.observability import configure_logging, emit
-from app.core.release import release_modes
-from app.core.release_probe import dependencies_ready
+from app.core.release_probe import dependencies_failure_reason
 from app.core.timing import TimingMiddleware
 from app.modules.catalog.router import router as catalog_router
 from app.modules.chat.router import router as chat_router
@@ -49,14 +48,22 @@ async def healthz() -> dict[str, str]:
 def readyz(request: Request) -> JSONResponse:
     """Accept traffic only with an accessible, compatible PostgreSQL schema."""
     database: Database | None = request.app.state.database
+    req_id = str(request.state.request_id)
     ready = database is not None and database.ready()
-    try:
-        release_modes()
-        ready = ready and dependencies_ready()
-    except ValueError:
-        ready = False
     if not ready:
-        emit("DB_ERROR", request_id=str(request.state.request_id))
+        emit("DB_ERROR", request_id=req_id, reason="DB_UNAVAILABLE")
+    else:
+        dep_reason = dependencies_failure_reason()
+        if dep_reason is not None:
+            ready = False
+            event_code = (
+                "FILE_ERROR"
+                if dep_reason == "AV_UNAVAILABLE"
+                else "SMTP_FAILURE"
+                if dep_reason == "SMTP_UNAVAILABLE"
+                else "API_ERROR"
+            )
+            emit(event_code, request_id=req_id, reason=dep_reason)
     return JSONResponse(
         {"status": "ok" if ready else "unavailable"},
         status_code=200 if ready else 503,

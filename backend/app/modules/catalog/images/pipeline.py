@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 from app.core.release import require_files
 from app.modules.kb.files import storage
+from app.modules.kb.files.admission import FileAdmission
 from app.modules.kb.files.process import FileRejected, Limits
 from app.modules.kb.files.sandbox import run_parser, sealed_snapshot
 from app.modules.kb.files.scanner import ClamAV, ScanStamp
@@ -87,9 +88,16 @@ class VerifiedImage:
 
 
 class ImagePipeline:
-    def __init__(self, root: Path, *, _scanner: ClamAV | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        _scanner: ClamAV | None = None,
+        _admission: FileAdmission | None = None,
+    ) -> None:
         self.root = root
         self.scanner = _scanner if _scanner is not None else ClamAV()
+        self.admission = _admission if _admission is not None else FileAdmission(root)
 
     @classmethod
     def from_environment(cls) -> "ImagePipeline":
@@ -238,8 +246,9 @@ class ImagePipeline:
             metadata, data = self._checked(verified, receipts, key)
             descriptor = sealed_snapshot(data)
             try:
-                self.scanner.scan(descriptor)
-                run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
+                with self.admission.acquire():
+                    self.scanner.scan(descriptor)
+                    run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
                 yield metadata, descriptor
                 if self._checked(verified, receipts, key)[0] != metadata:
                     raise FileRejected("FILE_CHANGED")
