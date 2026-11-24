@@ -1,5 +1,7 @@
 """Public chat ownership is independent of administrative authentication."""
 
+import os
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
@@ -11,6 +13,7 @@ from app.core.http_security import ip_subjects
 from app.core.rate_limits import check_limit
 from app.core.timing import mark, projection, run_timed, span
 from app.modules.chat.access import ChatExpired, ChatNotFound
+from app.modules.chat.grounded_chat import prepare_grounded_context, run_grounded_llm
 from app.modules.chat.message_request import parse_message_json
 from app.modules.chat.message_state import StoredStateUnavailable
 from app.modules.chat.messages import (
@@ -21,6 +24,14 @@ from app.modules.chat.messages import (
 from app.modules.chat.projection import begin_projection_read
 from app.modules.chat.service import create_session, read_session
 from app.modules.kb.tree_reads import published_scenarios
+from app.modules.llm import (
+    BudgetLedger,
+    FileBudgetLedger,
+    GigaChatClient,
+    InMemoryBudgetLedger,
+    LLMConfigurationError,
+    LLMSettings,
+)
 from app.modules.orders.service import OrderRejected, collection_gate
 from app.schemas.chat import (
     ChatMessageCreate,
@@ -101,15 +112,51 @@ def read(
         raise HTTPException(410) from None
 
 
+def resolve_llm_client(request: Request) -> GigaChatClient | None:
+    explicit = getattr(request.app.state, "llm_client", None)
+    if explicit is not None:
+        return explicit if isinstance(explicit, GigaChatClient) else explicit
+    try:
+        settings = LLMSettings.from_environment()
+    except LLMConfigurationError:
+        return None
+    if settings is None:
+        return None
+    files_root = Path(os.environ.get("APP_FILES_DIR", "/var/lib/akbrizcase/files"))
+    ledger: BudgetLedger = (
+        FileBudgetLedger(
+            files_root,
+            daily_token_budget=settings.daily_token_budget,
+            max_requests_per_minute=settings.max_requests_per_minute,
+        )
+        if files_root.is_dir()
+        else InMemoryBudgetLedger(
+            daily_token_budget=settings.daily_token_budget,
+            max_requests_per_minute=settings.max_requests_per_minute,
+        )
+    )
+    client = GigaChatClient(settings, ledger=ledger)
+    request.app.state.llm_client = client
+    return client
+
+
 def persist_message(
     request: Request, body: ChatMessageCreate, token: str | None
 ) -> ChatMessageResult:
-    with span("chat_write_ms"), database_for(request).unit_of_work() as session:
-        message_id = create_message(session, body, token)
+    db = database_for(request)
+    llm_client = resolve_llm_client(request)
+    candidate = None
+    if llm_client is not None:
+        with db.unit_of_work() as session:
+            ctx = prepare_grounded_context(session, body, token)
+        if ctx is not None:
+            candidate = run_grounded_llm(llm_client, ctx)
+    with span("chat_write_ms"), db.unit_of_work() as session:
+        message_id = create_message(session, body, token, grounded=candidate)
     # A failed flush/COMMIT must never emit an HTTP success.
     # Fresh snapshot after COMMIT: dependency validation in the writer's UoW
     # does not authorize disclosure. Never reroute or apply an input here.
-    with projection(), database_for(request).unit_of_work() as session:
+    with projection(), db.unit_of_work() as session:
         begin_projection_read(session)
         return read_message_result(session, body.session_id, message_id, token)
 
