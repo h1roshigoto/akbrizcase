@@ -12,6 +12,7 @@ from app.modules.catalog import models  # noqa: F401 -- register domain metadata
 from app.modules.chat import models as chat_models  # noqa: F401
 from app.modules.kb import models as kb_models  # noqa: F401
 from app.modules.kb import tree_models  # noqa: F401
+from app.modules.llm import budget as llm_budget  # noqa: F401
 from app.modules.notify import models as notify_models  # noqa: F401
 from app.modules.orders import models as orders_models  # noqa: F401
 

@@ -432,7 +432,7 @@ def validate_result(r, *, expected_head):
     for key in ("backend", "frontend", "postgres", "generator"):
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", r["identities"][key]):
             raise ValueError("EVIDENCE_IMAGE_INVALID")
-    if r["identities"]["schema"] != "0011_mvp039_http_security":
+    if r["identities"]["schema"] != "0012_dn08_llm_budget":
         raise ValueError("EVIDENCE_SCHEMA_INVALID")
     closed(r["corpus"], {"items", "documents", "versions", "sections", "trees"})
     for value in r["corpus"].values():
