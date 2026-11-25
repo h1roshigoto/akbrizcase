@@ -426,13 +426,14 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 )
             ).all()
             assert new_columns == old_columns
-            assert connection.execute(
+            budget_columns = connection.execute(
                 text(
                     "SELECT column_name,data_type,is_nullable,column_default "
                     "FROM information_schema.columns WHERE table_schema='app' "
                     "AND table_name='llm_budget_attempts' ORDER BY ordinal_position"
                 )
-            ).all() == [
+            ).all()
+            assert [tuple(row) for row in budget_columns] == [
                 ("id", "uuid", "NO", None),
                 ("reserved_at", "timestamp with time zone", "NO", None),
                 ("charged_tokens", "bigint", "NO", None),
