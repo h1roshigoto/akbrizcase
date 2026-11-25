@@ -1,235 +1,207 @@
-"""Cross-process rate and daily token budget enforcement for LLM calls."""
+"""Shared budget reservations for one deployment's GigaChat completions."""
 
-import fcntl
-import json
-import os
-import stat
-import threading
-import time
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime
-from pathlib import Path
+from dataclasses import dataclass
+from datetime import UTC, datetime, time, timedelta
+from threading import Lock
 from typing import Protocol
+from uuid import UUID, uuid4
 
-from app.modules.kb.files import storage
-from app.modules.kb.files.process import FileRejected
+from sqlalchemy import BigInteger, CheckConstraint, Index, delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Mapped, Session, mapped_column
+
+from app.core.db import Database
+from app.core.db_types import Base, utc_now
 from app.modules.llm.schemas import LLMError
+
+MINUTE = timedelta(minutes=1)
+RETENTION = timedelta(days=2)
+MAX_TOKEN_COUNT = 2_147_483_647
 
 
 class BudgetLedger(Protocol):
-    def reserve(self, estimated_tokens: int) -> None: ...
+    def reserve(self, estimated_tokens: int) -> UUID: ...
 
-    def record_usage(self, actual_tokens: int, estimated_tokens: int) -> None: ...
+    def record_usage(self, reservation: UUID, actual_tokens: int) -> None: ...
 
 
-def _utc_day() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%d")
+class BudgetAttempt(Base):
+    __tablename__ = "llm_budget_attempts"
+    __table_args__ = (
+        CheckConstraint("charged_tokens >= 0", name="charge"),
+        Index("ix_llm_budget_attempts_reserved_at", "reserved_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    reserved_at: Mapped[datetime]
+    charged_tokens: Mapped[int] = mapped_column(BigInteger)
+    settled: Mapped[bool]
+
+
+def _validate_tokens(value: int) -> None:
+    if type(value) is not int or not 0 <= value <= MAX_TOKEN_COUNT:
+        raise LLMError("LLM_CONFIG_INVALID")
+
+
+def _day_start(now: datetime) -> datetime:
+    return datetime.combine(now.astimezone(UTC).date(), time.min, tzinfo=UTC)
+
+
+def _check_budget(
+    used: int, requests: int, estimated: int, daily_budget: int, max_rpm: int
+) -> None:
+    if requests >= max_rpm:
+        raise LLMError("LLM_RATE_LIMITED")
+    if used + estimated > daily_budget:
+        raise LLMError("LLM_BUDGET_EXCEEDED")
+
+
+def _lock_budget(session: Session) -> None:
+    session.execute(text("SET LOCAL lock_timeout = '2s'"))
+    session.execute(text("SET LOCAL statement_timeout = '2s'"))
+    session.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended('akbrizcase:llm:budget:v1', 0))"
+        )
+    )
+
+
+def _database_now(session: Session) -> datetime:
+    now = session.scalar(select(func.clock_timestamp()))
+    assert isinstance(now, datetime)
+    return now
+
+
+class PostgresBudgetLedger:
+    """Serialize short reserve and settlement transactions across API workers."""
+
+    def __init__(
+        self,
+        database: Database,
+        *,
+        daily_token_budget: int,
+        max_requests_per_minute: int,
+    ) -> None:
+        self.database = database
+        self.daily_token_budget = daily_token_budget
+        self.max_requests_per_minute = max_requests_per_minute
+
+    def reserve(self, estimated_tokens: int) -> UUID:
+        _validate_tokens(estimated_tokens)
+        if estimated_tokens == 0:
+            raise LLMError("LLM_CONFIG_INVALID")
+        identifier = uuid4()
+        try:
+            with self.database.unit_of_work() as session:
+                _lock_budget(session)
+                now = _database_now(session)
+                day = _day_start(now)
+                used = session.scalar(
+                    select(
+                        func.coalesce(func.sum(BudgetAttempt.charged_tokens), 0)
+                    ).where(BudgetAttempt.reserved_at >= day)
+                )
+                requests = session.scalar(
+                    select(func.count())
+                    .select_from(BudgetAttempt)
+                    .where(BudgetAttempt.reserved_at > now - MINUTE)
+                )
+                _check_budget(
+                    int(used or 0),
+                    int(requests or 0),
+                    estimated_tokens,
+                    self.daily_token_budget,
+                    self.max_requests_per_minute,
+                )
+                session.execute(
+                    delete(BudgetAttempt).where(
+                        BudgetAttempt.reserved_at < day - RETENTION
+                    )
+                )
+                session.add(
+                    BudgetAttempt(
+                        id=identifier,
+                        reserved_at=now,
+                        charged_tokens=estimated_tokens,
+                        settled=False,
+                    )
+                )
+        except (OSError, SQLAlchemyError, ValueError):
+            raise LLMError("LLM_STORAGE_ERROR") from None
+        return identifier
+
+    def record_usage(self, reservation: UUID, actual_tokens: int) -> None:
+        _validate_tokens(actual_tokens)
+        try:
+            with self.database.unit_of_work() as session:
+                _lock_budget(session)
+                attempt = session.get(BudgetAttempt, reservation)
+                if attempt is None:
+                    raise LLMError("LLM_STORAGE_ERROR")
+                if not attempt.settled:
+                    attempt.charged_tokens = actual_tokens
+                    attempt.settled = True
+        except (OSError, SQLAlchemyError, ValueError):
+            raise LLMError("LLM_STORAGE_ERROR") from None
+
+
+@dataclass
+class _Attempt:
+    reserved_at: datetime
+    charged_tokens: int
+    settled: bool = False
 
 
 class InMemoryBudgetLedger:
-    """Thread-safe in-memory ledger for isolated unit tests."""
+    """Process-local ledger for provider tests and isolated evaluation."""
 
     def __init__(
         self, *, daily_token_budget: int, max_requests_per_minute: int
     ) -> None:
         self.daily_token_budget = daily_token_budget
         self.max_requests_per_minute = max_requests_per_minute
-        self._lock = threading.Lock()
-        self._day = _utc_day()
-        self._tokens_used = 0
-        self._request_times: list[float] = []
+        self._lock = Lock()
+        self._attempts: dict[UUID, _Attempt] = {}
 
-    def reserve(self, estimated_tokens: int) -> None:
-        if estimated_tokens < 0:
+    def reserve(self, estimated_tokens: int) -> UUID:
+        _validate_tokens(estimated_tokens)
+        if estimated_tokens == 0:
             raise LLMError("LLM_CONFIG_INVALID")
         with self._lock:
-            today = _utc_day()
-            if self._day != today:
-                self._day = today
-                self._tokens_used = 0
-            now = time.time()
-            self._request_times = [t for t in self._request_times if now - t < 60.0]
-            if len(self._request_times) >= self.max_requests_per_minute:
-                raise LLMError("LLM_RATE_LIMITED")
-            if self._tokens_used + estimated_tokens > self.daily_token_budget:
-                raise LLMError("LLM_BUDGET_EXCEEDED")
-            self._request_times.append(now)
-            self._tokens_used += estimated_tokens
+            now = utc_now()
+            day = _day_start(now)
+            self._attempts = {
+                identifier: attempt
+                for identifier, attempt in self._attempts.items()
+                if attempt.reserved_at >= day - RETENTION
+            }
+            used = sum(
+                attempt.charged_tokens
+                for attempt in self._attempts.values()
+                if attempt.reserved_at >= day
+            )
+            requests = sum(
+                attempt.reserved_at > now - MINUTE
+                for attempt in self._attempts.values()
+            )
+            _check_budget(
+                used,
+                requests,
+                estimated_tokens,
+                self.daily_token_budget,
+                self.max_requests_per_minute,
+            )
+            identifier = uuid4()
+            self._attempts[identifier] = _Attempt(now, estimated_tokens)
+            return identifier
 
-    def record_usage(self, actual_tokens: int, estimated_tokens: int) -> None:
+    def record_usage(self, reservation: UUID, actual_tokens: int) -> None:
+        _validate_tokens(actual_tokens)
         with self._lock:
-            today = _utc_day()
-            if self._day != today:
-                self._day = today
-                self._tokens_used = max(0, actual_tokens)
-                return
-            self._tokens_used = max(
-                0, self._tokens_used - estimated_tokens + max(0, actual_tokens)
-            )
-
-
-class FileBudgetLedger:
-    """POSIX flock + atomic replace ledger shared across Uvicorn API workers."""
-
-    def __init__(
-        self,
-        root: Path,
-        *,
-        daily_token_budget: int,
-        max_requests_per_minute: int,
-    ) -> None:
-        if daily_token_budget < 1 or max_requests_per_minute < 1:
-            raise LLMError("LLM_CONFIG_INVALID")
-        self.root = root
-        self.daily_token_budget = daily_token_budget
-        self.max_requests_per_minute = max_requests_per_minute
-
-    @contextmanager
-    def _locked_area(self) -> Iterator[int]:
-        try:
-            root_fd = storage.open_root(self.root)
-            try:
-                llm_fd = storage.open_area(root_fd, "llm")
-            finally:
-                os.close(root_fd)
-        except (FileRejected, OSError):
-            raise LLMError("LLM_STORAGE_ERROR") from None
-
-        try:
-            lock_fd = os.open(
-                "budget.lock",
-                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
-                0o600,
-                dir_fd=llm_fd,
-            )
-        except OSError:
-            os.close(llm_fd)
-            raise LLMError("LLM_STORAGE_ERROR") from None
-
-        try:
-            info = os.fstat(lock_fd)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            attempt = self._attempts.get(reservation)
+            if attempt is None:
                 raise LLMError("LLM_STORAGE_ERROR")
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            yield llm_fd
-        except LLMError:
-            raise
-        except OSError:
-            raise LLMError("LLM_STORAGE_ERROR") from None
-        finally:
-            try:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            except OSError:
-                pass
-            os.close(lock_fd)
-            os.close(llm_fd)
-
-    def _read_state(self, llm_fd: int) -> dict[str, object]:
-        try:
-            fd = os.open(
-                "budget.json",
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                dir_fd=llm_fd,
-            )
-        except FileNotFoundError:
-            return {"day": _utc_day(), "tokens": 0, "requests": []}
-        except OSError:
-            raise LLMError("LLM_STORAGE_ERROR") from None
-        try:
-            info = os.fstat(fd)
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.geteuid()
-                or info.st_size > 1_048_576
-            ):
-                raise LLMError("LLM_STORAGE_ERROR")
-            with os.fdopen(fd, "rb") as stream:
-                raw = stream.read(1_048_577)
-            data = json.loads(raw.decode("utf-8"))
-            if not isinstance(data, dict):
-                raise LLMError("LLM_STORAGE_ERROR")
-            return data
-        except LLMError:
-            raise
-        except (OSError, ValueError, UnicodeError):
-            raise LLMError("LLM_STORAGE_ERROR") from None
-
-    def _write_state(self, llm_fd: int, state: dict[str, object]) -> None:
-        payload = json.dumps(state, separators=(",", ":"), sort_keys=True).encode(
-            "utf-8"
-        )
-        tmp_name = f"budget.{os.getpid()}.{threading.get_ident()}.tmp"
-        try:
-            fd = os.open(
-                tmp_name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                0o600,
-                dir_fd=llm_fd,
-            )
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(tmp_name, "budget.json", src_dir_fd=llm_fd, dst_dir_fd=llm_fd)
-            os.fsync(llm_fd)
-        except OSError:
-            try:
-                os.unlink(tmp_name, dir_fd=llm_fd)
-            except OSError:
-                pass
-            raise LLMError("LLM_STORAGE_ERROR") from None
-
-    def reserve(self, estimated_tokens: int) -> None:
-        if estimated_tokens < 0:
-            raise LLMError("LLM_CONFIG_INVALID")
-        with self._locked_area() as llm_fd:
-            state = self._read_state(llm_fd)
-            today = _utc_day()
-            tokens = (
-                int(state.get("tokens", 0))  # type: ignore[call-overload]
-                if state.get("day") == today
-                else 0
-            )
-            now = time.time()
-            raw_reqs = state.get("requests", [])
-            requests = [
-                float(ts)
-                for ts in (raw_reqs if isinstance(raw_reqs, list) else [])
-                if isinstance(ts, (int, float)) and now - float(ts) < 60.0
-            ]
-            if len(requests) >= self.max_requests_per_minute:
-                raise LLMError("LLM_RATE_LIMITED")
-            if tokens + estimated_tokens > self.daily_token_budget:
-                raise LLMError("LLM_BUDGET_EXCEEDED")
-            requests.append(now)
-            self._write_state(
-                llm_fd,
-                {
-                    "day": today,
-                    "tokens": tokens + estimated_tokens,
-                    "requests": requests,
-                },
-            )
-
-    def record_usage(self, actual_tokens: int, estimated_tokens: int) -> None:
-        with self._locked_area() as llm_fd:
-            state = self._read_state(llm_fd)
-            today = _utc_day()
-            tokens = (
-                int(state.get("tokens", 0))  # type: ignore[call-overload]
-                if state.get("day") == today
-                else 0
-            )
-            adjusted = max(0, tokens - estimated_tokens + max(0, actual_tokens))
-            now = time.time()
-            raw_reqs = state.get("requests", [])
-            requests = [
-                float(ts)
-                for ts in (raw_reqs if isinstance(raw_reqs, list) else [])
-                if isinstance(ts, (int, float)) and now - float(ts) < 60.0
-            ]
-            self._write_state(
-                llm_fd,
-                {"day": today, "tokens": adjusted, "requests": requests},
-            )
+            if not attempt.settled:
+                attempt.charged_tokens = actual_tokens
+                attempt.settled = True

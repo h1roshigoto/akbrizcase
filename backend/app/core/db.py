@@ -26,7 +26,7 @@ from app.core.timing import span
 from app.core.timing_pool import TimedQueuePool, observe_engine
 from app.modules.orders.security import OrderSecurity
 
-SCHEMA_REVISION = "0011_mvp039_http_security"
+SCHEMA_REVISION = "0012_dn08_llm_budget"
 # Bound the whole API tier to 3 * 8 = 24 connections, retained between bursts.
 # Other processes retain 5+5; see PERF-001 for the full connection budget.
 API_WORKERS = 3

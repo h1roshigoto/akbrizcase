@@ -1,42 +1,33 @@
-"""Unit, negative, cross-process budget, and secret-canary tests for GigaChat."""
+"""Unit, retry, budget, and secret-canary tests for GigaChat."""
 
 import json
-import multiprocessing
 import os
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+from urllib.request import Request
 from uuid import uuid4
 
 import pytest
 
 from app.modules.llm import (
-    FileBudgetLedger,
     GigaChatClient,
     GroundedCatalogItem,
     GroundedFragment,
     GroundedRequest,
+    InMemoryBudgetLedger,
     LLMCallMetrics,
     LLMConfigurationError,
     LLMError,
     LLMSettings,
     parse_grounded_output,
 )
-
-
-def _child_reserve(root_str: str, budget: int, rpm: int, queue: object) -> None:
-    ledger = FileBudgetLedger(
-        Path(root_str), daily_token_budget=budget, max_requests_per_minute=rpm
-    )
-    try:
-        ledger.reserve(60)
-        queue.put("OK")  # type: ignore[attr-defined]
-    except LLMError as exc:
-        queue.put(exc.code)  # type: ignore[attr-defined]
 
 
 @contextmanager
@@ -205,7 +196,14 @@ def test_client_oauth_cache_list_models_and_grounded_completion() -> None:
             api_base_url=f"{base}/v1",
             synthetic=True,
         )
-        client = GigaChatClient(settings, on_metrics=metrics.append)
+        client = GigaChatClient(
+            settings,
+            ledger=InMemoryBudgetLedger(
+                daily_token_budget=settings.daily_token_budget,
+                max_requests_per_minute=settings.max_requests_per_minute,
+            ),
+            on_metrics=metrics.append,
+        )
         models = client.list_models()
         assert models == ["GigaChat-2", "GigaChat-2-Pro"]
 
@@ -340,7 +338,13 @@ def test_client_retries_401_429_503_and_rejects_failures() -> None:
             max_retries=1,
             synthetic=True,
         )
-        client = GigaChatClient(settings)
+        client = GigaChatClient(
+            settings,
+            ledger=InMemoryBudgetLedger(
+                daily_token_budget=settings.daily_token_budget,
+                max_requests_per_minute=settings.max_requests_per_minute,
+            ),
+        )
         req = GroundedRequest(
             question="canary-question-pii",
             fragments=[GroundedFragment(section_id=sec_id, title="T", text="Body")],
@@ -378,36 +382,51 @@ def test_client_retries_401_429_503_and_rejects_failures() -> None:
             assert "canary-question-pii" not in msg
 
 
-def test_file_budget_ledger_enforces_across_processes_and_restarts(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("usage", "expected_charge"),
+    [(None, None), ({"total_tokens": -1}, None), ({"total_tokens": 75}, 75)],
+)
+def test_usage_is_settled_even_when_model_text_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    usage: dict[str, int] | None,
+    expected_charge: int | None,
 ) -> None:
-    root = tmp_path / "files"
-    root.mkdir(mode=0o700)
-
-    # 1. Cross-process daily budget enforcement (100 limit, 60 each -> 1 OK, 1 denied)
-    ctx = multiprocessing.get_context("spawn")
-    q: Any = ctx.Queue()
-    p1 = ctx.Process(target=_child_reserve, args=(str(root), 100, 10, q))
-    p2 = ctx.Process(target=_child_reserve, args=(str(root), 100, 10, q))
-    p1.start()
-    p2.start()
-    p1.join(timeout=15)
-    p2.join(timeout=15)
-    assert p1.exitcode == 0 and p2.exitcode == 0
-    outcomes = sorted([q.get(timeout=5), q.get(timeout=5)])
-    assert outcomes == ["LLM_BUDGET_EXCEEDED", "OK"]
-
-    # 2. Restart survival + RPM limit
-    ledger_restarted = FileBudgetLedger(
-        root, daily_token_budget=1000, max_requests_per_minute=2
+    ledger = InMemoryBudgetLedger(daily_token_budget=10000, max_requests_per_minute=2)
+    client = GigaChatClient(LLMSettings(auth_key="synthetic"), ledger=ledger)
+    monkeypatch.setattr(client, "_get_token", lambda: "synthetic-token")
+    monkeypatch.setattr(
+        client,
+        "_read_json_response",
+        lambda req, timeout: {
+            "choices": [{"message": {"content": "invalid"}}],
+            "usage": usage,
+        },
     )
-    ledger_restarted.reserve(10)
-    with pytest.raises(LLMError) as rpm_exc:
-        ledger_restarted.reserve(10)
-    assert rpm_exc.value.code == "LLM_RATE_LIMITED"
+    with pytest.raises(LLMError, match="LLM_MALFORMED_OUTPUT"):
+        client.generate_grounded(GroundedRequest(question="Synthetic test"))
+    (attempt,) = ledger._attempts.values()
+    if expected_charge is None:
+        assert attempt.charged_tokens > 75 and not attempt.settled
+    else:
+        assert (attempt.charged_tokens, attempt.settled) == (expected_charge, True)
 
-    # 3. Symlink/permission rejection
-    (root / "llm").chmod(0o755)
-    with pytest.raises(LLMError) as perm_exc:
-        ledger_restarted.reserve(10)
-    assert perm_exc.value.code == "LLM_STORAGE_ERROR"
+
+def test_retry_requires_an_additional_budget_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = InMemoryBudgetLedger(daily_token_budget=10000, max_requests_per_minute=1)
+    client = GigaChatClient(LLMSettings(auth_key="synthetic"), ledger=ledger)
+    monkeypatch.setattr(client, "_get_token", lambda: "synthetic-token")
+    calls = 0
+
+    def unavailable(req: Request, timeout: float) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        raise HTTPError(req.full_url, 502, "Synthetic failure", Message(), None)
+
+    monkeypatch.setattr(client, "_read_json_response", unavailable)
+    with pytest.raises(LLMError, match="LLM_RATE_LIMITED"):
+        client.generate_grounded(GroundedRequest(question="Synthetic test"))
+    assert calls == 1
+    (attempt,) = ledger._attempts.values()
+    assert attempt.charged_tokens > 0 and not attempt.settled

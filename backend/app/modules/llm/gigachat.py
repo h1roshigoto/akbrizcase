@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Callable
 from uuid import uuid4
 
-from app.modules.llm.budget import BudgetLedger, InMemoryBudgetLedger
+from app.modules.llm.budget import MAX_TOKEN_COUNT, BudgetLedger
 from app.modules.llm.config import LLMSettings
 from app.modules.llm.schemas import (
     GroundedAnswer,
@@ -69,14 +69,11 @@ class GigaChatClient:
         self,
         settings: LLMSettings,
         *,
-        ledger: BudgetLedger | None = None,
+        ledger: BudgetLedger,
         on_metrics: Callable[[LLMCallMetrics], None] | None = None,
     ) -> None:
         self.settings = settings
-        self.ledger: BudgetLedger = ledger or InMemoryBudgetLedger(
-            daily_token_budget=settings.daily_token_budget,
-            max_requests_per_minute=settings.max_requests_per_minute,
-        )
+        self.ledger = ledger
         self.on_metrics = on_metrics
         self._token_lock = threading.Lock()
         self._access_token: str | None = None
@@ -248,16 +245,11 @@ class GigaChatClient:
     ) -> tuple[GroundedAnswer, TokenUsage]:
         """Execute bounded grounded completion with budget reserve & safe fallback."""
         started = time.monotonic()
-        prompt_chars = len(request.question) + sum(
-            len(f.text) for f in request.fragments
+        user_prompt = _format_user_prompt(request)
+        prompt_bytes = len(SYSTEM_PROMPT.encode("utf-8")) + len(
+            user_prompt.encode("utf-8")
         )
-        estimated = self.settings.max_tokens + max(128, prompt_chars // 3)
-        try:
-            self.ledger.reserve(estimated)
-        except LLMError as err:
-            self._emit_metrics(err.code, started)
-            raise
-
+        estimated = self.settings.max_tokens + prompt_bytes + 128
         payload = json.dumps(
             {
                 "model": self.settings.model,
@@ -266,7 +258,7 @@ class GigaChatClient:
                 "stream": False,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": _format_user_prompt(request)},
+                    {"role": "user", "content": user_prompt},
                 ],
             },
             ensure_ascii=False,
@@ -279,6 +271,7 @@ class GigaChatClient:
         try:
             token = self._get_token()
             while True:
+                reservation = self.ledger.reserve(estimated)
                 req = urllib.request.Request(
                     f"{self.settings.api_base_url}/chat/completions",
                     data=payload,
@@ -287,7 +280,7 @@ class GigaChatClient:
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
-                        "X-Request-ID": str(uuid4()),
+                        "X-Request-ID": str(reservation),
                     },
                 )
                 try:
@@ -309,34 +302,45 @@ class GigaChatClient:
                     raise self._map_http_error(err) from None
 
             usage = _extract_usage(data)
+            if usage is not None:
+                self.ledger.record_usage(reservation, usage.total_tokens)
             content = _extract_content(data)
             answer = parse_grounded_output(content)
-            self.ledger.record_usage(usage.total_tokens, estimated)
+            usage = usage or TokenUsage()
             self._emit_metrics("OK", started, usage)
             return answer, usage
         except LLMError as err:
-            self.ledger.record_usage(0, estimated)
             self._emit_metrics(err.code, started)
             raise
 
 
-def _as_nonneg_int(value: object) -> int:
-    if isinstance(value, int) and not isinstance(value, bool):
-        return max(0, value)
-    return 0
+def _token_count(value: object) -> int | None:
+    if type(value) is int and 0 <= value <= MAX_TOKEN_COUNT:
+        return value
+    return None
 
 
-def _extract_usage(data: dict[str, object]) -> TokenUsage:
+def _extract_usage(data: dict[str, object]) -> TokenUsage | None:
     raw = data.get("usage")
     if not isinstance(raw, dict):
-        return TokenUsage()
-    prompt = _as_nonneg_int(raw.get("prompt_tokens"))
-    completion = _as_nonneg_int(raw.get("completion_tokens"))
-    total_raw = raw.get("total_tokens")
-    total = _as_nonneg_int(total_raw) if total_raw is not None else prompt + completion
+        return None
+    prompt = _token_count(raw.get("prompt_tokens"))
+    completion = _token_count(raw.get("completion_tokens"))
+    total = _token_count(raw.get("total_tokens"))
+    if ("prompt_tokens" in raw and prompt is None) or (
+        "completion_tokens" in raw and completion is None
+    ):
+        return None
+    known_components = (prompt or 0) + (completion or 0)
+    if total is None:
+        if "total_tokens" in raw or prompt is None or completion is None:
+            return None
+        total = known_components
+    if not known_components <= total <= MAX_TOKEN_COUNT:
+        return None
     return TokenUsage(
-        prompt_tokens=prompt,
-        completion_tokens=completion,
+        prompt_tokens=prompt or 0,
+        completion_tokens=completion or 0,
         total_tokens=total,
     )
 
