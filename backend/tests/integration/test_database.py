@@ -81,6 +81,7 @@ def test_migration_from_staff_and_repeat(databases: tuple[Database, Database]) -
             "deletion_journal",
             "cleanup_cursors",
             "rate_limit_buckets",
+            "llm_budget_attempts",
         }
 
 
