@@ -418,13 +418,26 @@ def databases() -> Iterator[tuple[Database, Database]]:
                     "'catalog_item_models','diag_trees',"
                     "'diag_tree_sources','diag_tree_items',"
                     "'chat_sessions','chat_messages','consent_publications',"
-                    "'deletion_journal','cleanup_cursors','rate_limit_buckets') "
+                    "'deletion_journal','cleanup_cursors','rate_limit_buckets',"
+                    "'llm_budget_attempts') "
                     "AND column_name NOT IN ('manual_document_id','chat_session_id',"
                     "'terminal_at','failed_at') "
                     "ORDER BY table_name,ordinal_position"
                 )
             ).all()
             assert new_columns == old_columns
+            assert connection.execute(
+                text(
+                    "SELECT column_name,data_type,is_nullable,column_default "
+                    "FROM information_schema.columns WHERE table_schema='app' "
+                    "AND table_name='llm_budget_attempts' ORDER BY ordinal_position"
+                )
+            ).all() == [
+                ("id", "uuid", "NO", None),
+                ("reserved_at", "timestamp with time zone", "NO", None),
+                ("charged_tokens", "bigint", "NO", None),
+                ("settled", "boolean", "NO", None),
+            ]
             new_schema = connection.execute(schema_sql).all()
             # Only the planned additive objects and source enum may change.
             old_names = {row[1] for row in old_schema}
@@ -476,6 +489,12 @@ def databases() -> Iterator[tuple[Database, Database]]:
                 )
                 or name == "fk_equipment_models_manual_document_id_documents"
                 or name == "erased_reasons"
+                or name
+                in {
+                    "pk_llm_budget_attempts",
+                    "ck_llm_budget_attempts_charge",
+                    "ix_llm_budget_attempts_reserved_at",
+                }
                 for name in added_names
             ), sorted(added_names)
             assert (
