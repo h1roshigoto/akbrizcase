@@ -16,6 +16,7 @@ from app.modules.chat.access import ChatExpired, ChatNotFound, require_owner
 from app.modules.chat.actions import ActionRejected, ActionValidator
 from app.modules.chat.diagnosis import DiagnosisState
 from app.modules.chat.handoff import support_handoff
+from app.modules.chat.message_request import minimized_input
 from app.modules.chat.message_state import GroundedMeta, grounded_digest
 from app.modules.chat.mode_router import (
     ModeRouter,
@@ -112,6 +113,8 @@ def prepare_grounded_context(
         return None
 
     question = body.input.value
+    if minimized_input(body).get("value") != question:
+        return None
     knowledge = KnowledgeReadService(session, PUBLIC_VIEWER)
     catalog = CatalogService(CatalogRepository(session))
 

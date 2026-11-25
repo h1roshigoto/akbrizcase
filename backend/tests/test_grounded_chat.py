@@ -5,6 +5,10 @@ from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+from fastapi import Request
+
+from app.core.db import Database
 from app.modules.chat.diagnosis import HANDOFF_TEXT, DiagnosisState
 from app.modules.chat.grounded_chat import PreparedGroundedContext, run_grounded_llm
 from app.modules.chat.message_state import (
@@ -14,10 +18,49 @@ from app.modules.chat.message_state import (
     grounded_digest,
 )
 from app.modules.chat.projection import ChatReplyProjector
-from app.modules.llm import GroundedAnswer, LLMError, TokenUsage
+from app.modules.chat.router import resolve_llm_client
+from app.modules.llm import (
+    GroundedAnswer,
+    LLMError,
+    LLMSettings,
+    PostgresBudgetLedger,
+    TokenUsage,
+)
 from app.modules.llm.schemas import GroundedCatalogItem, GroundedFragment
 from app.schemas.chat import ChatReply
 from app.schemas.sources import SourceRef
+
+
+def test_chat_binds_provider_to_shared_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("RELEASE_CONFIG_FILE", raising=False)
+    monkeypatch.setattr(
+        LLMSettings, "from_environment", lambda: LLMSettings(auth_key="synthetic-key")
+    )
+    database = MagicMock(spec=Database)
+    request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace())})
+    client = resolve_llm_client(request, database)
+    assert client is not None
+    assert isinstance(client.ledger, PostgresBudgetLedger)
+    assert client.ledger.database is database
+    assert resolve_llm_client(request, database) is client
+
+
+@pytest.mark.parametrize("profile", ["test", "staging"])
+def test_synthetic_profile_blocks_environment_provider(
+    monkeypatch: pytest.MonkeyPatch, profile: str
+) -> None:
+    monkeypatch.setenv("APP_ENV", profile)
+    monkeypatch.setenv("LLM_ENABLED", "true")
+
+    def unexpected_settings() -> None:
+        pytest.fail("Synthetic profile must not load provider credentials")
+
+    monkeypatch.setattr(LLMSettings, "from_environment", unexpected_settings)
+    request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace())})
+    assert resolve_llm_client(request, MagicMock(spec=Database)) is None
 
 
 def _fake_client(answer: GroundedAnswer | Exception, model: str = "GigaChat-2") -> Any:
