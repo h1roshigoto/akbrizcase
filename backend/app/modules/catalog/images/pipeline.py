@@ -7,7 +7,7 @@ import re
 import secrets
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -242,15 +242,16 @@ class ImagePipeline:
         Exit this context inside the binding UoW, before its commit.
         """
         valid_key(key)
-        with self._areas() as (_, verified, receipts):
-            metadata, data = self._checked(verified, receipts, key)
-            descriptor = sealed_snapshot(data)
-            try:
-                with self.admission.acquire():
-                    self.scanner.scan(descriptor)
-                    run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
-                yield metadata, descriptor
-                if self._checked(verified, receipts, key)[0] != metadata:
-                    raise FileRejected("FILE_CHANGED")
-            finally:
-                os.close(descriptor)
+        with ExitStack() as prepared:
+            # Queued calls must not retain a full image or sealed snapshot.
+            with self.admission.acquire():
+                _, verified, receipts = prepared.enter_context(self._areas())
+                metadata, data = self._checked(verified, receipts, key)
+                descriptor = sealed_snapshot(data)
+                prepared.callback(os.close, descriptor)
+                del data
+                self.scanner.scan(descriptor)
+                run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
+            yield metadata, descriptor
+            if self._checked(verified, receipts, key)[0] != metadata:
+                raise FileRejected("FILE_CHANGED")

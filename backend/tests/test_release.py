@@ -1,6 +1,7 @@
 """Release modes are enforced before body validation and domain side effects."""
 
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -60,7 +61,7 @@ def packet() -> dict[str, object]:
 
 
 def test_release_direct_http_and_missing_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setenv("APP_ENV", "staging")
     path = tmp_path / "modes.json"
@@ -85,7 +86,21 @@ def test_release_direct_http_and_missing_config(
             FilePipeline.from_environment()
         path.unlink()
         assert client.get("/healthz").status_code == 200
-        assert client.get("/readyz").status_code == 503
+        with caplog.at_level(logging.INFO, logger="akbrizcase.runtime"):
+            readiness = client.get("/readyz")
+        assert readiness.status_code == 503
+        assert readiness.json() == {"status": "unavailable"}
+        events = (
+            json.loads(record.getMessage())
+            for record in caplog.records
+            if record.name == "akbrizcase.runtime"
+        )
+        assert [
+            (event["event_code"], event["reason"])
+            for event in events
+            if event.get("request_id") == readiness.headers["X-Request-ID"]
+            and "reason" in event
+        ] == [("API_ERROR", "RELEASE_MODE_INVALID")]
         assert client.get("/api/v1/catalog/items").status_code == 503
 
 
