@@ -7,13 +7,14 @@ import re
 import secrets
 import stat
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO
 
 from app.core.release import require_files
 from app.modules.kb.files import storage
+from app.modules.kb.files.admission import FileAdmission
 from app.modules.kb.files.process import FileRejected, Limits
 from app.modules.kb.files.sandbox import run_parser, sealed_snapshot
 from app.modules.kb.files.scanner import ClamAV, ScanStamp
@@ -87,9 +88,16 @@ class VerifiedImage:
 
 
 class ImagePipeline:
-    def __init__(self, root: Path, *, _scanner: ClamAV | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        _scanner: ClamAV | None = None,
+        _admission: FileAdmission | None = None,
+    ) -> None:
         self.root = root
         self.scanner = _scanner if _scanner is not None else ClamAV()
+        self.admission = _admission if _admission is not None else FileAdmission(root)
 
     @classmethod
     def from_environment(cls) -> "ImagePipeline":
@@ -234,14 +242,16 @@ class ImagePipeline:
         Exit this context inside the binding UoW, before its commit.
         """
         valid_key(key)
-        with self._areas() as (_, verified, receipts):
-            metadata, data = self._checked(verified, receipts, key)
-            descriptor = sealed_snapshot(data)
-            try:
+        with ExitStack() as prepared:
+            # Queued calls must not retain a full image or sealed snapshot.
+            with self.admission.acquire():
+                _, verified, receipts = prepared.enter_context(self._areas())
+                metadata, data = self._checked(verified, receipts, key)
+                descriptor = sealed_snapshot(data)
+                prepared.callback(os.close, descriptor)
+                del data
                 self.scanner.scan(descriptor)
                 run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
-                yield metadata, descriptor
-                if self._checked(verified, receipts, key)[0] != metadata:
-                    raise FileRejected("FILE_CHANGED")
-            finally:
-                os.close(descriptor)
+            yield metadata, descriptor
+            if self._checked(verified, receipts, key)[0] != metadata:
+                raise FileRejected("FILE_CHANGED")

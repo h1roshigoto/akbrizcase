@@ -12,22 +12,35 @@ from app.modules.notify.smtp import SMTPSettings
 from app.modules.orders.security import OrderSecurity
 
 
-def dependencies_ready() -> bool:
+def dependencies_failure_reason() -> str | None:
     try:
-        if not isinstance(release_modes(), FullReleaseModes):
-            return True
+        modes = release_modes()
+    except ValueError:
+        return "RELEASE_MODE_INVALID"
+    if not isinstance(modes, FullReleaseModes):
+        return None
+    try:
         ClamAV()._database()  # Signed, fresh, immutable CVD in operator usage.
+    except Exception:
+        return "AV_UNAVAILABLE"
+    try:
         settings = SMTPSettings.from_environment()
         if settings is None or settings.mode != "staging-sink":
-            return False
+            return "SMTP_UNAVAILABLE"
         client = smtplib.SMTP(timeout=2)
         try:
             client.connect(settings.host, settings.port)
-            return client.ehlo()[0] == 250
+            if client.ehlo()[0] != 250:
+                return "SMTP_UNAVAILABLE"
         finally:
             client.close()
     except Exception:
-        return False
+        return "SMTP_UNAVAILABLE"
+    return None
+
+
+def dependencies_ready() -> bool:
+    return dependencies_failure_reason() is None
 
 
 def main() -> int:
