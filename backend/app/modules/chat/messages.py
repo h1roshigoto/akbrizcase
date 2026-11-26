@@ -13,8 +13,13 @@ from sqlalchemy.orm import Session
 from app.core.db_types import utc_now
 from app.core.rate_limits import check_limit
 from app.modules.chat.access import ChatExpired, ChatNotFound, require_owner
+from app.modules.chat.grounded_chat import (
+    GroundedCandidate,
+    materialize_grounded_reply,
+)
 from app.modules.chat.message_request import minimized_input, request_hash
 from app.modules.chat.message_state import (
+    GroundedMeta,
     ResponseEnvelope,
     StateAfter,
     restore_state,
@@ -56,6 +61,8 @@ def create_message(
     session: Session,
     body: ChatMessageCreate,
     token: str | None,
+    *,
+    grounded: GroundedCandidate | None = None,
 ) -> UUID:
     started = monotonic_ns()
     # Match orders' privacy -> chat lock order. Retirement may serialize first,
@@ -80,12 +87,17 @@ def create_message(
 
     check_limit(session, "message", (hashlib.sha256(row.id.bytes).hexdigest(),))
     state = restore_state(session, row)
-    result = ModeRouter(session).route(state, body.input)
+    llm_meta: GroundedMeta | None = None
+    if grounded is not None and row.mode == grounded.mode:
+        result, llm_meta = materialize_grounded_reply(session, state, grounded)
+    else:
+        result = ModeRouter(session).route(state, body.input)
     version = row.state_version + 1
     envelope = ResponseEnvelope(
         format_version=1,
         reply=result.reply,
         state_after=StateAfter(**asdict(result.state), state_version=version),
+        llm_grounded=llm_meta,
     )
     now = utc_now()
     if row.expires_at <= now:

@@ -20,6 +20,7 @@ from app.modules.chat.message_state import (
     ResponseEnvelope,
     StoredStateUnavailable,
     decode_response,
+    grounded_digest,
     restore_state,
 )
 from app.modules.chat.mode_router import catalog_card, mode_buttons
@@ -129,6 +130,8 @@ class ChatReplyProjector:
                     return safe_reply(mode)
                 if mode == "diagnose" and envelope.state_after.tree_id is not None:
                     return self._diagnose(envelope)
+                if envelope.llm_grounded is not None:
+                    return self._grounded(envelope, model_id)
                 if envelope.reply.resolution == "no_match":
                     return self._no_match(mode)
                 if mode == "knowledge":
@@ -204,6 +207,59 @@ class ChatReplyProjector:
             items=[],
             buttons=mode_buttons(),
             actions=self._document_actions(sources),
+            resolution="results",
+        )
+
+    def _grounded(self, envelope: ResponseEnvelope, model_id: UUID | None) -> ChatReply:
+        assert envelope.llm_grounded is not None
+        saved = envelope.reply
+        mode = envelope.state_after.mode
+        if mode not in {"knowledge", "commerce"} or saved.resolution != "results":
+            return safe_reply(mode)
+        section_ids = [s.section_id for s in saved.sources]
+        item_ids = [i.id for i in saved.items]
+        expected_digest = grounded_digest(mode, saved.text, section_ids, item_ids)
+        if envelope.llm_grounded.content_digest != expected_digest:
+            return safe_reply(mode)
+        if mode == "knowledge" and not 1 <= len(saved.sources) <= 5:
+            return safe_reply(mode)
+        if mode == "commerce" and (
+            len(saved.items) > 10
+            or len(saved.sources) > 5
+            or (not saved.items and not saved.sources)
+        ):
+            return safe_reply(mode)
+
+        hits = [self.knowledge.get_excerpt(s.section_id) for s in saved.sources]
+        for old, hit in zip(saved.sources, hits, strict=True):
+            if (old.document_id, old.document_version_id) != (
+                hit.source.document_id,
+                hit.source.document_version_id,
+            ):
+                return safe_reply(mode)
+        sources = [hit.source for hit in hits]
+
+        cards: list[CatalogCard] = []
+        for identifier in dict.fromkeys(item_ids):
+            try:
+                cards.append(catalog_card(self.catalog.item(identifier, model_id)))
+            except CatalogNotFound:
+                return safe_reply(mode)
+        selected = [SuggestedItem(item_id=c.id, qty=1) for c in cards]
+        doc_actions = self._document_actions(sources)
+        item_actions = self._item_actions(selected, model_id)
+        actions = (
+            doc_actions + item_actions + [support_handoff()]
+            if mode == "knowledge"
+            else item_actions + doc_actions + [support_handoff()]
+        )
+        return ChatReply(
+            mode=mode,
+            text=saved.text,
+            buttons=mode_buttons(),
+            sources=sources,
+            items=cards,
+            actions=actions,
             resolution="results",
         )
 
