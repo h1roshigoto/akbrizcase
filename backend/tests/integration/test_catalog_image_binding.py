@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from threading import Event
+from typing import NoReturn
 from uuid import uuid4
 
 import pytest
@@ -35,6 +36,7 @@ from app.modules.catalog.router import image_pipeline
 from app.modules.catalog.write_dto import ItemState
 from app.modules.catalog.write_service import CatalogRejected, CatalogWriteService
 from app.modules.kb.files import FilePipeline, FileRejected
+from app.modules.kb.files.admission import FileAdmission
 from app.modules.kb.files.process import Limits
 from app.modules.orders.seed import DEMO_VERSION
 
@@ -558,6 +560,65 @@ def test_catalog_image_releases_db_connection_during_prepare(
         response = read_client.get(url(row))
     assert response.status_code == 200
     assert observed_checkedout == [0]
+
+
+def test_image_admission_expiry_is_retryable_and_recovers(
+    read_client: TestClient,
+    staff_database: Database,
+    images: ImagePipeline,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    identity = actor(read_client, staff_database)
+    row = replace(staff_database, identity, images, item(staff_database))
+    single_slot = FileAdmission(images.root, max_concurrent=1, wait_timeout=0.05)
+    monkeypatch.setattr(images, "admission", single_slot)
+    with serving(images):
+        with single_slot.acquire():
+            response = read_client.get(url(row))
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+            assert response.headers["Retry-After"] == "5"
+            assert response.headers["Cache-Control"] == "no-store"
+        assert read_client.get(url(row)).status_code == 200
+
+
+@pytest.mark.parametrize("change", ["archive", "replace"])
+def test_image_admission_expiry_rechecks_publication_and_binding(
+    read_client: TestClient,
+    staff_database: Database,
+    images: ImagePipeline,
+    monkeypatch: MonkeyPatch,
+    change: str,
+) -> None:
+    identity = actor(read_client, staff_database)
+    row = replace(staff_database, identity, images, item(staff_database))
+    waiting, changed = Event(), Event()
+    original = images.admission.acquire
+
+    def admission_expired() -> NoReturn:
+        waiting.set()
+        assert changed.wait(10)
+        raise FileRejected("PIPELINE_BUSY")
+
+    with serving(images), ThreadPoolExecutor(max_workers=1) as pool:
+        monkeypatch.setattr(images.admission, "acquire", admission_expired)
+        response = pool.submit(read_client.get, url(row))
+        try:
+            assert waiting.wait(10)
+            monkeypatch.setattr(images.admission, "acquire", original)
+            if change == "archive":
+                with staff_database.unit_of_work() as session:
+                    CatalogWriteService(session, identity).change_item_state(
+                        row.id, ItemState(expected_revision=row.revision), "archive"
+                    )
+            else:
+                replace(staff_database, identity, images, row, color="blue")
+        finally:
+            changed.set()
+        result = response.result(timeout=10)
+    assert result.status_code == 404
+    assert result.json()["error"]["code"] == "NOT_FOUND"
+    assert "Retry-After" not in result.headers
 
 
 def test_ten_concurrent_image_reads_and_subsequent_mutation_404(

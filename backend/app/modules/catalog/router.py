@@ -10,6 +10,7 @@ from pydantic import ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.api_errors import error_response
 from app.core.db import Database
 from app.core.observability import emit, safe_file_reason
 from app.modules.catalog.images.pipeline import ImagePipeline, valid_key
@@ -95,6 +96,15 @@ def image_pipeline() -> ImagePipeline:
     responses={
         200: {"content": {"image/jpeg": {}, "image/png": {}}},
         404: {"model": ErrorEnvelope},
+        503: {
+            "model": ErrorEnvelope,
+            "headers": {
+                "Retry-After": {
+                    "description": "Retry delay after image admission expires.",
+                    "schema": {"type": "integer", "example": 5},
+                },
+            },
+        },
     },
 )
 def catalog_image(
@@ -144,6 +154,12 @@ def catalog_image(
             reason=safe_file_reason(exc),
             **({"request_id": str(req_id)} if req_id is not None else {}),
         )
+        if isinstance(exc, FileRejected) and exc.code == "PIPELINE_BUSY" and current():
+            response = error_response(
+                request, 503, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+            )
+            response.headers["Retry-After"] = "5"
+            return response
         raise HTTPException(404) from None
     return Response(
         data,

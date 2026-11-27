@@ -292,7 +292,7 @@ FK на версии документов, каталог и staff_users — RES
 | GET | `/equipment-models` | Опубликованные модели |
 | GET | `/catalog/items?q=&kind=&model_id=&limit=&offset=` | Опубликованный каталог; model_id фильтрует только подтверждённую применимость |
 | GET | `/catalog/items/{id}?model_id=` | Карточка; при model_id — confirmed/unknown; draft/archived → 404 |
-| GET | `/catalog/items/{id}/image/{image_key}` | Проверяет published-позицию и совпадение текущего ключа; только проверенное изображение, иначе 404 |
+| GET | `/catalog/items/{id}/image/{image_key}` | Проверяет опубликованную позицию и текущий ключ. Возвращает проверенное изображение либо 404. Если для всё ещё опубликованной позиции с тем же ключом истёк срок ожидания проверки, возвращает 503 с `Retry-After: 5`. |
 | GET | `/documents?kind=&limit=&offset=` | Список документов с текущей опубликованной версией, ACL |
 | GET | `/knowledge/search?q=&limit=&offset=` | Разрешённые фрагменты; public для анонима, internal также для сотрудника |
 | GET | `/documents/{id}/versions/{version_id}/file` | Проверяет принадлежность версии документу, ACL, статус; точная версия для цитат |
