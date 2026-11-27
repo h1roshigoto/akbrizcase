@@ -11,7 +11,7 @@
       "frontend": null,
       "postgres": null
     },
-    "schema": "0011_mvp039_http_security",
+    "schema": "0012_dn08_llm_budget",
     "modes": {
       "format": 1,
       "data": "synthetic-only",

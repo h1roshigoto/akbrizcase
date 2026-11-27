@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 from sqlalchemy import event, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import QueuePool
 from test_kb_import import SyntheticClamAV
 from test_kb_lifecycle import live_http
 from test_order_reads import business_rows, create, login
@@ -532,3 +533,76 @@ def test_manager_and_inactive_identity_cannot_start_image_operation(
         replace(staff_database, identity, images, row)
     assert denied.value.status == 403
     assert not (images.root / "images").exists()
+
+
+def test_catalog_image_releases_db_connection_during_prepare(
+    read_client: TestClient,
+    staff_database: Database,
+    images: ImagePipeline,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    identity = actor(read_client, staff_database)
+    row = replace(staff_database, identity, images, item(staff_database))
+    observed_checkedout: list[int] = []
+    original = images.prepare
+
+    @contextmanager
+    def inspect_pool(key: str):  # type: ignore[no-untyped-def]
+        assert isinstance(staff_database.engine.pool, QueuePool)
+        observed_checkedout.append(staff_database.engine.pool.checkedout())
+        with original(key) as result:
+            yield result
+
+    monkeypatch.setattr(images, "prepare", inspect_pool)
+    with serving(images):
+        response = read_client.get(url(row))
+    assert response.status_code == 200
+    assert observed_checkedout == [0]
+
+
+def test_ten_concurrent_image_reads_and_subsequent_mutation_404(
+    read_client: TestClient,
+    staff_database: Database,
+    images: ImagePipeline,
+) -> None:
+    identity = actor(read_client, staff_database)
+    base_row = item(staff_database)
+    with staff_database.unit_of_work() as session:
+        rows = []
+        for idx in range(10):
+            extra = CatalogItem(
+                id=uuid4(),
+                sku=f"CONCURRENT-IMG-{idx:02d}-{uuid4().hex[:6]}",
+                kind="product",
+                name=f"Concurrent Item {idx}",
+                description="Synthetic concurrent read item",
+                attributes={},
+                unit="шт",
+                price_mode="fixed",
+                price=base_row.price,
+                currency="RUB",
+                tax_note="Без НДС",
+                requires_shipping=True,
+                status="published",
+                revision=1,
+            )
+            session.add(extra)
+            rows.append(extra)
+    updated_rows = [
+        replace(staff_database, identity, images, r, fmt="PNG") for r in rows
+    ]
+    urls = [url(r) for r in updated_rows]
+
+    with serving(images), ThreadPoolExecutor(max_workers=10) as pool:
+        statuses = list(
+            pool.map(lambda target: read_client.get(target).status_code, urls)
+        )
+    assert statuses == [200] * 10
+
+    with staff_database.unit_of_work() as session:
+        CatalogImageService(session, identity, images).remove(
+            updated_rows[0].id, updated_rows[0].revision
+        )
+    with serving(images):
+        assert read_client.get(urls[0]).status_code == 404
+        assert read_client.get(urls[1]).status_code == 200

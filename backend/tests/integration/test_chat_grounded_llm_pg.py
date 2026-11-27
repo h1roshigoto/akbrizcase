@@ -1,5 +1,6 @@
 """DN-09 PostgreSQL 16 security & concurrency acceptance for grounded GigaChat."""
 
+import json
 import secrets
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -20,9 +21,11 @@ from app.core.db import Database
 from app.main import app
 from app.modules.catalog.models import CatalogItem
 from app.modules.chat.diagnosis import HANDOFF_TEXT
+from app.modules.chat.grounded_chat import prepare_grounded_context
 from app.modules.chat.models import ChatSession
 from app.modules.kb.models import DocumentVersion
 from app.modules.llm import GroundedAnswer, GroundedRequest, LLMError, TokenUsage
+from app.schemas.chat import ChatMessageCreate
 from app.schemas.sources import SourceRef
 
 pytestmark = pytest.mark.integration
@@ -185,6 +188,34 @@ def test_grounded_knowledge_commerce_diagnose_and_zero_db_pool_held(
     assert len(llm_calls) == 2
 
 
+def test_contact_bearing_questions_are_ineligible_for_provider_context(
+    llm_client_browser: TestClient, llm_db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = create(llm_client_browser, mode="knowledge")
+    body = ChatMessageCreate.model_validate_json(
+        json.dumps(
+            {
+                "session_id": created["session_id"],
+                "request_id": str(uuid4()),
+                "expected_version": 0,
+                "input": {
+                    "type": "text",
+                    "value": "Sensor user@example.invalid +1 (202) 555-0101",
+                },
+            }
+        )
+    )
+
+    def unexpected_search(session: object, viewer: object) -> None:
+        pytest.fail("Contact-bearing question entered the provider context")
+
+    monkeypatch.setattr(
+        "app.modules.chat.grounded_chat.KnowledgeReadService", unexpected_search
+    )
+    with llm_db.unit_of_work() as session:
+        assert prepare_grounded_context(session, body, created["session_token"]) is None
+
+
 def test_revocation_during_phase2_and_after_commit_fails_closed(
     llm_client_browser: TestClient,
     llm_db: Database,
@@ -300,7 +331,12 @@ def test_version_race_and_provider_error_fallback(
     # 2. Provider errors fall back cleanly to deterministic FTS results (HTTP 200)
     sw = _select_mode(llm_client_browser, sid, tok, "knowledge", 1)
     assert sw.status_code == 200
-    for code in ("LLM_TIMEOUT", "LLM_RATE_LIMITED", "LLM_BUDGET_EXCEEDED"):
+    for code in (
+        "LLM_TIMEOUT",
+        "LLM_RATE_LIMITED",
+        "LLM_BUDGET_EXCEEDED",
+        "LLM_STORAGE_ERROR",
+    ):
         app.state.llm_client = _make_stub_llm(_failing_llm(code))
         ver = llm_client_browser.get(
             f"/api/v1/chat/sessions/{sid}", headers=_headers(tok)

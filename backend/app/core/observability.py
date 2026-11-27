@@ -9,6 +9,39 @@ from uuid import UUID
 
 from app.core.timing_schema import checked_timings
 
+REASONS = frozenset(
+    {
+        "IMAGE_KEY",
+        "IMAGE_NOT_FOUND",
+        "FILE_CHANGED",
+        "EVIDENCE_INVALID",
+        "STORAGE_FAILURE",
+        "STORAGE_CONFIG",
+        "STORAGE_PERMISSIONS",
+        "STORAGE_FILE",
+        "PROCESS_TIMEOUT",
+        "PROCESS_OUTPUT_LIMIT",
+        "PROCESS_UNAVAILABLE",
+        "PIPELINE_BUSY",
+        "SCANNER_INFECTED",
+        "SCANNER_FAILURE",
+        "SCANNER_UNCONFIRMED",
+        "SIGNATURES_INVALID",
+        "SIGNATURES_STALE",
+        "SIGNATURES_UNAVAILABLE",
+        "SIGNATURES_CHANGED",
+        "PARSER_REJECTED",
+        "PARSER_TASK",
+        "FILE_REJECTED",
+        "OS_ERROR",
+        "DB_UNAVAILABLE",
+        "RELEASE_MODE_INVALID",
+        "AV_UNAVAILABLE",
+        "SMTP_UNAVAILABLE",
+    }
+)
+REASON_EVENTS = frozenset({"FILE_ERROR", "DB_ERROR", "SMTP_FAILURE", "API_ERROR"})
+
 EVENT_CODES = frozenset(
     {
         "RUNTIME_LOG_SUPPRESSED",
@@ -85,10 +118,17 @@ def checked_event(value: object) -> dict[str, Any]:
         "endpoint",
         "duration_ms",
         "timings",
+        "reason",
         *COUNTERS,
     }:
         raise ValueError("EVENT_SCHEMA_INVALID")
     if value.get("event_code") not in EVENT_CODES:
+        raise ValueError("EVENT_SCHEMA_INVALID")
+    if "reason" in value and (
+        value["event_code"] not in REASON_EVENTS
+        or type(value["reason"]) is not str
+        or value["reason"] not in REASONS
+    ):
         raise ValueError("EVENT_SCHEMA_INVALID")
     if value["event_code"] == "HTTP_PHASES":
         if (
@@ -125,6 +165,16 @@ def checked_event(value: object) -> dict[str, Any]:
     ):
         raise ValueError("EVENT_SCHEMA_INVALID")
     return value
+
+
+def safe_file_reason(exc: BaseException) -> str:
+    """Map an internal file rejection or OS error to a closed safe reason code."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code in REASONS:
+        return code
+    if isinstance(exc, OSError):
+        return "OS_ERROR"
+    return "FILE_REJECTED"
 
 
 def emit(event_code: str, **fields: object) -> None:

@@ -15,6 +15,7 @@ from test_files_acceptance import INFECTED, SyntheticClamAV
 
 from app.modules.catalog.images import pipeline as image_module
 from app.modules.catalog.images.pipeline import IMAGE_LIMITS, MAX_BYTES, ImagePipeline
+from app.modules.kb.files.admission import FileAdmission
 from app.modules.kb.files.process import FileRejected
 from app.modules.kb.files.sandbox import run_parser, sealed_snapshot
 from app.modules.kb.files.scanner import ClamAV
@@ -96,6 +97,27 @@ def test_double_scan_metadata_and_full_decode(
         run_parser(descriptor, "image-check", limits=IMAGE_LIMITS)
     with pytest.raises(OSError):
         os.fstat(descriptor)
+
+
+def test_busy_prepare_does_not_load_image(
+    images: ImagePipeline, monkeypatch: MonkeyPatch
+) -> None:
+    accepted = images.accept(io.BytesIO(picture()), filename="a.png", mime="image/png")
+    admission = FileAdmission(images.root, max_concurrent=1, wait_timeout=0.05)
+    monkeypatch.setattr(images, "admission", admission)
+
+    def unexpected_read(verified: int, receipts: int, key: str) -> None:
+        pytest.fail("Image data was loaded before admission")
+
+    with admission.acquire(), monkeypatch.context() as blocked:
+        blocked.setattr(images, "_checked", unexpected_read)
+        with pytest.raises(FileRejected, match="PIPELINE_BUSY"):
+            with images.prepare(accepted.image_key):
+                pytest.fail("Unexpected admission to a full queue")
+
+    with images.prepare(accepted.image_key) as (metadata, descriptor):
+        assert metadata == accepted
+        assert os.fstat(descriptor).st_size == metadata.size_bytes
 
 
 @pytest.mark.parametrize("mode", ["RGBA", "P", "L", "LA", "RGB"])

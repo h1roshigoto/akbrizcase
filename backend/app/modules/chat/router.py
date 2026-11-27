@@ -1,8 +1,7 @@
 """Public chat ownership is independent of administrative authentication."""
 
 import os
-from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -11,6 +10,7 @@ from app.core.api_errors import error_response
 from app.core.db import Database
 from app.core.http_security import ip_subjects
 from app.core.rate_limits import check_limit
+from app.core.release import release_required
 from app.core.timing import mark, projection, run_timed, span
 from app.modules.chat.access import ChatExpired, ChatNotFound
 from app.modules.chat.grounded_chat import prepare_grounded_context, run_grounded_llm
@@ -25,12 +25,10 @@ from app.modules.chat.projection import begin_projection_read
 from app.modules.chat.service import create_session, read_session
 from app.modules.kb.tree_reads import published_scenarios
 from app.modules.llm import (
-    BudgetLedger,
-    FileBudgetLedger,
     GigaChatClient,
-    InMemoryBudgetLedger,
     LLMConfigurationError,
     LLMSettings,
+    PostgresBudgetLedger,
 )
 from app.modules.orders.service import OrderRejected, collection_gate
 from app.schemas.chat import (
@@ -112,28 +110,23 @@ def read(
         raise HTTPException(410) from None
 
 
-def resolve_llm_client(request: Request) -> GigaChatClient | None:
+def resolve_llm_client(request: Request, database: Database) -> GigaChatClient | None:
     explicit = getattr(request.app.state, "llm_client", None)
     if explicit is not None:
-        return explicit if isinstance(explicit, GigaChatClient) else explicit
+        return cast(GigaChatClient, explicit)
+    # Isolated test and release profiles exercise provider doubles only.
+    if os.environ.get("APP_ENV") == "test" or release_required():
+        return None
     try:
         settings = LLMSettings.from_environment()
     except LLMConfigurationError:
         return None
     if settings is None:
         return None
-    files_root = Path(os.environ.get("APP_FILES_DIR", "/var/lib/akbrizcase/files"))
-    ledger: BudgetLedger = (
-        FileBudgetLedger(
-            files_root,
-            daily_token_budget=settings.daily_token_budget,
-            max_requests_per_minute=settings.max_requests_per_minute,
-        )
-        if files_root.is_dir()
-        else InMemoryBudgetLedger(
-            daily_token_budget=settings.daily_token_budget,
-            max_requests_per_minute=settings.max_requests_per_minute,
-        )
+    ledger = PostgresBudgetLedger(
+        database,
+        daily_token_budget=settings.daily_token_budget,
+        max_requests_per_minute=settings.max_requests_per_minute,
     )
     client = GigaChatClient(settings, ledger=ledger)
     request.app.state.llm_client = client
@@ -144,7 +137,7 @@ def persist_message(
     request: Request, body: ChatMessageCreate, token: str | None
 ) -> ChatMessageResult:
     db = database_for(request)
-    llm_client = resolve_llm_client(request)
+    llm_client = resolve_llm_client(request, db)
     candidate = None
     if llm_client is not None:
         with db.unit_of_work() as session:

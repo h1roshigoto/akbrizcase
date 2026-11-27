@@ -2,8 +2,8 @@
 
 from app.modules.llm.budget import (
     BudgetLedger,
-    FileBudgetLedger,
     InMemoryBudgetLedger,
+    PostgresBudgetLedger,
 )
 from app.modules.llm.config import LLMConfigurationError, LLMSettings
 from app.modules.llm.gigachat import GigaChatClient
@@ -21,7 +21,7 @@ from app.modules.llm.schemas import (
 
 __all__ = [
     "BudgetLedger",
-    "FileBudgetLedger",
+    "PostgresBudgetLedger",
     "GigaChatClient",
     "GroundedAnswer",
     "GroundedCatalogItem",

@@ -281,7 +281,7 @@ def attach(path, *, head):
     stack.verify_database()
     if stack.sql(
         "SELECT version_num FROM app.alembic_version"
-    ) != "0011_mvp039_http_security" or not stack.sql(
+    ) != "0012_dn08_llm_budget" or not stack.sql(
         "SHOW server_version_num"
     ).startswith("16"):
         raise ValueError("TARGET_SCHEMA_BLOCKED")
@@ -297,6 +297,7 @@ def attach(path, *, head):
                     "chat_messages",
                     "email_outbox",
                     "rate_limit_buckets",
+                    "llm_budget_attempts",
                 )
             )
         )
