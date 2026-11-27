@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import Database
+from app.core.observability import emit, safe_file_reason
 from app.modules.catalog.images.pipeline import ImagePipeline, valid_key
 from app.modules.catalog.models import CatalogItem as ItemRecord
 from app.modules.catalog.repository import CatalogRepository
@@ -99,20 +100,25 @@ def image_pipeline() -> ImagePipeline:
 def catalog_image(
     id: UUIDValue,
     image_key: str,
-    session: CatalogSession,
+    request: Request,
     pipeline: Annotated[ImagePipeline, Depends(image_pipeline)],
 ) -> Response:
+    database: Database | None = request.app.state.database
+    if database is None:
+        raise HTTPException(status_code=503)
+
     def current() -> bool:
-        return (
-            session.scalar(
-                select(ItemRecord.id).where(
-                    ItemRecord.id == id,
-                    ItemRecord.status == "published",
-                    ItemRecord.image_key == image_key,
+        with database.unit_of_work() as session:
+            return (
+                session.scalar(
+                    select(ItemRecord.id).where(
+                        ItemRecord.id == id,
+                        ItemRecord.status == "published",
+                        ItemRecord.image_key == image_key,
+                    )
                 )
+                is not None
             )
-            is not None
-        )
 
     try:
         valid_key(image_key)
@@ -130,7 +136,14 @@ def catalog_image(
         # could delay removal/replacement/archive. No deferred file-path reads.
         if not current():
             raise FileRejected("IMAGE_NOT_FOUND")
-    except (FileRejected, OSError):
+    except (FileRejected, OSError) as exc:
+        req_id = getattr(request.state, "request_id", None)
+        emit(
+            "FILE_ERROR",
+            endpoint="catalog",
+            reason=safe_file_reason(exc),
+            **({"request_id": str(req_id)} if req_id is not None else {}),
+        )
         raise HTTPException(404) from None
     return Response(
         data,

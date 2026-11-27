@@ -236,7 +236,8 @@ def assert_terminated(children: list[int]) -> None:
         for child in list(pending):
             try:
                 fields = Path(f"/proc/{child}/stat").read_text().split()
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
+                # procfs can return ESRCH if the process exits after open().
                 pending.remove(child)
                 continue
             observed[child] = fields[2:6]  # state, ppid, pgrp, session
@@ -245,6 +246,36 @@ def assert_terminated(children: list[int]) -> None:
         if pending:
             assert time.monotonic() < deadline, f"Live descendants: {observed}"
             time.sleep(0.001)
+
+
+def test_assert_terminated_accepts_pid_reaped_during_procfs_read(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    checked: set[Path] = set()
+    reaped = Path("/proc/101/stat")
+    zombie = Path("/proc/102/stat")
+
+    def read_stat(path: Path) -> str:
+        checked.add(path)
+        if path == reaped:
+            raise ProcessLookupError
+        assert path == zombie
+        return "102 (worker) Z 1 100 100"
+
+    monkeypatch.setattr(Path, "read_text", read_stat)
+    assert_terminated([101, 102])
+    assert checked == {reaped, zombie}
+
+
+def test_assert_terminated_propagates_unexpected_procfs_error(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def read_stat(path: Path) -> str:
+        raise PermissionError(path)
+
+    monkeypatch.setattr(Path, "read_text", read_stat)
+    with pytest.raises(PermissionError):
+        assert_terminated([101])
 
 
 def test_process_tree_killed(tmp_path: Path) -> None:

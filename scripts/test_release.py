@@ -13,6 +13,7 @@ from unittest.mock import patch
 from release import (
     FULL_MODES,
     MODES,
+    PREVIOUS_SCHEMA,
     SCHEMA,
     Blocked,
     Release,
@@ -119,6 +120,15 @@ class ReleaseTest(unittest.TestCase):
             release.accepted(
                 {"releases": [full_receipt, full_receipt | {"extra": True}]}
             )
+
+    def test_historical_receipts_do_not_allow_old_images_to_be_applied(self):
+        release = Harness(Path("/tmp/unused-release-contract"))
+        previous = manifest() | {"schema": PREVIOUS_SCHEMA}
+        legacy = {"manifest": previous, "fingerprint": fingerprint(previous)}
+        self.assertFalse(release.accepted({"releases": [legacy]}))
+        self.assertTrue(release.accepted({"releases": [legacy, release.receipt()]}))
+        with self.assertRaises(Blocked):
+            manifest_valid(previous)
 
     def test_identity_rejects_mutable_missing_and_mismatched(self):
         manifest_valid(manifest())

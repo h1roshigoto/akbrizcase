@@ -69,7 +69,7 @@ def evidence():
                 key: "sha256:" + "b" * 64
                 for key in ("backend", "frontend", "postgres", "generator")
             },
-            "schema": "0011_mvp039_http_security",
+            "schema": "0012_dn08_llm_budget",
             "application_revision": HEAD,
             "backend_source_tree": "c" * 40,
             "frontend_source_tree": "d" * 40,

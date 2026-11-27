@@ -20,7 +20,8 @@ from urllib.error import HTTPError
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 REPO = Path(__file__).resolve().parents[1]
-SCHEMA = "0011_mvp039_http_security"
+SCHEMA = "0012_dn08_llm_budget"
+PREVIOUS_SCHEMA = "0011_mvp039_http_security"
 SECRETS = (
     "postgres_password",
     "migrator_password",
@@ -147,7 +148,7 @@ def protected(path: Path, *, readable: bool = False) -> None:
     require(readable or not info.st_mode & 0o077)
 
 
-def manifest_valid(manifest: dict) -> None:
+def manifest_valid(manifest: dict, *, historical: bool = False) -> None:
     require(
         set(manifest)
         == {"format", "commit", "schema", "backend", "frontend", "postgres"}
@@ -155,7 +156,10 @@ def manifest_valid(manifest: dict) -> None:
     require(
         type(manifest["format"]) is int
         and manifest["format"] == 1
-        and manifest["schema"] == SCHEMA
+        and (
+            manifest["schema"] == SCHEMA
+            or (historical and manifest["schema"] == PREVIOUS_SCHEMA)
+        )
     )
     require(re.fullmatch(r"[0-9a-f]{40}", manifest["commit"]) is not None)
     for name in ("backend", "frontend", "postgres"):
@@ -208,7 +212,7 @@ class Release:
             legacy = set(record) == {"manifest", "fingerprint"}
             if legacy:
                 # Format-1 receipts can only mean the original reduced profile.
-                manifest_valid(record["manifest"])
+                manifest_valid(record["manifest"], historical=True)
                 require(record["fingerprint"] == fingerprint(record["manifest"]))
                 if not self.full and record["manifest"] == self.manifest:
                     found = True
@@ -244,7 +248,7 @@ class Release:
                     FULL_MODES if record["profile"] == FULL_PROFILE else MODES
                 )
                 require(record["modes"] == fingerprint(expected_modes))
-                manifest_valid(record["manifest"])
+                manifest_valid(record["manifest"], historical=True)
                 require(record["fingerprint"] == fingerprint(record["manifest"]))
                 if record == self.receipt():
                     found = True

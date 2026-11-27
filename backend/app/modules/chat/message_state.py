@@ -4,7 +4,10 @@ MVP-034 can consume its validated logical reply/state, but must project them
 against current authorization and dependencies for new replies/history/replay.
 """
 
+import hashlib
+import json
 from typing import Annotated, cast
+from uuid import UUID
 
 from pydantic import Field, ValidationError, model_validator
 from sqlalchemy import select
@@ -45,10 +48,33 @@ class StateAfter(DTO):
         return self
 
 
+class GroundedMeta(DTO):
+    model: Annotated[str, Field(min_length=1, max_length=100)]
+    content_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+def grounded_digest(
+    mode: ChatMode, text: str, section_ids: list[UUID], item_ids: list[UUID]
+) -> str:
+    payload = json.dumps(
+        {
+            "mode": mode,
+            "text": text,
+            "sections": [str(sid) for sid in section_ids],
+            "items": [str(iid) for iid in item_ids],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class ResponseEnvelope(DTO):
     format_version: Annotated[int, Field(ge=1, le=1)]
     reply: ChatReply
     state_after: StateAfter
+    llm_grounded: GroundedMeta | None = None
 
     @model_validator(mode="after")
     def consistent_mode(self) -> "ResponseEnvelope":
