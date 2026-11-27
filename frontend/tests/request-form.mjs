@@ -1,4 +1,4 @@
-import { openCart, openRequest } from './portal-actions.mjs'
+import { commercialDraft, fillCommercial, openCart, openRequest, reviewCommercial } from './portal-actions.mjs'
 // Real trusted HTTPS Chromium → Nginx → FastAPI → PostgreSQL, synthetic only.
 import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
@@ -93,18 +93,11 @@ try {
   )
   async function openForm(target) {
     await openRequest(target)
-    await target
-      .getByText('SYNTHETIC DEMO/TEST CONSENT PLACEHOLDER.', { exact: false })
-      .waitFor()
-    await target
-      .getByLabel('Контактное имя', { exact: false })
-      .fill(synthetic[0])
-    await target.getByLabel('Email', { exact: true }).fill(synthetic[1])
-    await target
-      .getByLabel('Комментарий (необязательно)', { exact: true })
-      .fill(synthetic[2])
+    await fillCommercial(target, { name: synthetic[0], email: synthetic[1], comment: synthetic[2] })
   }
   async function approve(target) {
+    await reviewCommercial(target)
+    await target.getByText('SYNTHETIC DEMO/TEST CONSENT PLACEHOLDER.', { exact: false }).waitFor()
     await target.getByRole('checkbox', { name: /Я прочитал/ }).check()
     await target
       .getByRole('checkbox', { name: /Подтверждаю показанные/ })
@@ -363,12 +356,14 @@ try {
   await changed.goto(config.origin + '/#catalog')
   await openForm(changed)
   await approve(changed)
+  step = 'consent conflict POST'
   await rpc('change_consent')
   let responsePromise = changed.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/v1/orders',
   )
   await send(changed).click()
   safe((await responsePromise).status() === 409, 'Real CONSENT_CHANGED')
+  step = 'consent conflict refresh'
   await changed.getByRole('button', { name: 'Пересмотреть заявку' }).click()
   await changed
     .getByText('Версия: SYNTHETIC-DEMO-ONLY-MVP013-v2', { exact: true })
@@ -378,6 +373,7 @@ try {
     'Changed consent is not auto accepted',
   )
   await approve(changed)
+  step = 'catalog conflict POST'
   await rpc('change_catalog')
   responsePromise = changed.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/v1/orders',
@@ -385,14 +381,14 @@ try {
   await send(changed).click()
   safe((await responsePromise).status() === 409, 'Real CATALOG_CHANGED')
   await changed.getByRole('button', { name: 'Пересмотреть заявку' }).click()
-  await changed
-    .getByRole('button', { name: 'Принять обновление DEMO-P-001', exact: true })
-    .waitFor()
+  step = 'catalog revision review'
   safe(await send(changed).isDisabled(), 'Stale revision blocks submission')
+  await changed.getByRole('button', { name: 'Вернуться к форме' }).click()
   await changed
     .getByRole('button', { name: 'Принять обновление DEMO-P-001', exact: true })
     .click()
   await approve(changed)
+  step = 'archived service rejection'
   await rpc('archive_service')
   responsePromise = changed.waitForResponse(
     (r) => new URL(r.url()).pathname === '/api/v1/orders',
@@ -403,7 +399,7 @@ try {
     'Archived item rejects real POST',
   )
   await changed.getByRole('button', { name: 'Пересмотреть заявку' }).click()
-  await changed.getByText(/Её нельзя отправить/).waitFor()
+  await changed.getByRole('alert').filter({ hasText: 'Проверьте позиции и редакции' }).waitFor()
   safe(
     await send(changed).isDisabled(),
     'Unavailable item cannot be resubmitted',
@@ -476,7 +472,7 @@ try {
     if (mode === 'validation') {
       await target.getByRole('button', { name: 'Пересмотреть заявку' }).click()
       safe(
-        (await target.getByLabel('Email', { exact: true }).inputValue()) ===
+        (await commercialDraft(target).getByLabel(/^E-mail/).inputValue()) ===
           synthetic[1],
         '422 preserves in-memory input',
       )
@@ -511,7 +507,7 @@ try {
   await openRequest(recovered)
   await recovered.getByText(/Исход предыдущей отправки неизвестен/).waitFor()
   safe(
-    (await send(recovered).isDisabled()) && reloadPosts === 0,
+    (await commercialDraft(recovered).getByRole('button', { name: 'Отправить заявку', exact: true }).isDisabled()) && reloadPosts === 0,
     'Reload never rebuilds or resends a changed request',
   )
   await reload.close()

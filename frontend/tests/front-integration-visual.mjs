@@ -1,4 +1,4 @@
-import { openCart, closeCart, openRequest } from './portal-actions.mjs'
+import { commercialDraft, fillCommercial, reviewCommercial, navigate, openCart, closeCart, openRequest } from './portal-actions.mjs'
 // Public, synthetic-only visual smoke against a REAL running API. No API mocks,
 // POST /orders, admin mutation, withdrawal or document revocation. Linked E2E
 // owns those business assertions on its separate disposable database.
@@ -18,33 +18,42 @@ const layout = async page => {
   assert.equal(await page.getByRole('main').count(), 1)
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
 }
-const navigate = async (page, name) => {
-  const link = page.getByRole('navigation', { name: 'Основное' }).getByRole('link', { name, exact: true })
-  if (!await link.isVisible()) await page.getByRole('button', { name: 'Меню', exact: true }).click()
-  await link.click()
-}
 let stage = 'setup'
 let lastPage
+let lastErrors = []
 try {
-  for (const [size, viewport] of [['desktop', { width: 1440, height: 1000 }], ['mobile', { width: 390, height: 844 }]]) {
+  for (const [size, viewport] of [['desktop', { width: 1440, height: 900 }], ['mobile', { width: 390, height: 844 }]]) {
     stage = size + '.home'
     const context = await browser.newContext({ viewport, reducedMotion: 'reduce', ignoreHTTPSErrors: false })
     const page = await context.newPage(), errors = [], external = [], orderPosts = []
     lastPage = page
+    lastErrors = errors
     page.on('pageerror', () => errors.push('pageerror'))
+    page.on('response', response => {
+      if (response.status() >= 400) errors.push(`${response.request().resourceType()}:${response.status()}`)
+    })
     page.on('request', request => {
       const url = new URL(request.url())
       if (url.origin !== origin) external.push('external')
       if (url.pathname === '/api/v1/orders' && request.method() === 'POST') orderPosts.push('order')
     })
-    await page.goto(origin)
+    assert.equal((await page.goto(origin))?.status(), 200)
+    await page.locator('.stage').scrollIntoViewIfNeeded()
     await expect(page.locator('mtdka-viewer')).toHaveClass(/ready/)
-    await expect(page.getByRole('button', { name: 'Показать габариты', exact: true })).toBeEnabled()
+    const dimensions = page.getByRole('button', { name: /габариты/ })
+    await expect(dimensions).toHaveAttribute('aria-pressed', 'false')
     const oldViewer = await page.locator('mtdka-viewer').elementHandle()
-    await page.getByRole('button', { name: 'Верхняя панель макета', exact: true }).click()
-    await expect(page.getByRole('region', { name: 'Верхняя панель макета' })).toBeVisible()
-    await page.getByRole('button', { name: 'Закрыть подсказку' }).click()
-    await page.getByRole('button', { name: 'Показать габариты', exact: true }).click()
+    const point = page.getByRole('button', { name: 'Панель индикации', exact: true })
+    const popup = page.getByRole('dialog', { name: 'Панель индикации', exact: true })
+    const source = page.waitForResponse(r => r.url().includes('/api/v1/knowledge/search?'))
+    await point.press('Enter')
+    assert.equal((await source).status(), 200)
+    await expect(popup).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(popup).toHaveCount(0)
+    await expect(point).toBeFocused()
+    await dimensions.click()
+    await expect(dimensions).toHaveAttribute('aria-pressed', 'true')
     await layout(page); await shot(page, `${size}-home-light`)
     await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -62,26 +71,48 @@ try {
       await results.getByRole('article').filter({ hasText: item.sku }).getByRole('button', { name: 'Добавить в заявку', exact: true }).click()
     }
     await openCart(page)
-    await expect(page.getByRole('complementary', { name: 'Выбранные позиции' }).getByRole('listitem')).toHaveCount(2)
+    const drawer = page.getByRole('dialog', { name: 'Состав заявки' })
+    await expect(drawer.getByRole('listitem')).toHaveCount(2)
     await layout(page); await shot(page, `${size}-catalog-dark`)
     await closeCart(page)
+    if (size === 'mobile') {
+      const filter = page.getByRole('radiogroup', { name: 'Модификация' })
+      await expect(filter.getByRole('radio').nth(2)).toBeAttached()
+      const optionTops = await filter.locator('label').evaluateAll(labels =>
+        labels.slice(0, 3).map(label => label.getBoundingClientRect().top))
+      assert.equal(new Set(optionTops).size, 1, 'The first three model choices fit on one row')
+    }
     stage = size + '.drawer'
     const cart = page.getByRole('button', { name: 'Открыть корзину, позиций: 2', exact: true })
     await cart.click()
-    const drawer = page.getByRole('dialog', { name: 'Состав заявки' })
     await expect(drawer).toBeVisible()
     await page.keyboard.press('Shift+Tab')
     assert.equal(await page.evaluate(() => !!document.activeElement.closest('dialog')), true)
     await shot(page, `${size}-drawer-dark`)
     await page.keyboard.press('Escape'); await expect(drawer).toHaveCount(0)
     await expect(cart).toBeFocused()
+    assert.notEqual(await page.evaluate(() => document.documentElement.style.overflow), 'hidden')
     await cart.click()
     await openRequest(page)
     stage = size + '.form'
-    await expect(page.getByRole('heading', { name: 'Заявка', exact: true })).toBeVisible()
-    await expect(page.getByRole('checkbox', { name: /явно принимаю согласие/ })).toBeEnabled()
+    const heading = page.getByRole('heading', { name: 'Заявка', exact: true })
+    await expect(heading).toBeVisible()
+    assert.ok(await heading.evaluate(heading => heading.getBoundingClientRect().top >= document.querySelector('.hdr').getBoundingClientRect().bottom))
+    const draft = commercialDraft(page)
+    await draft.getByRole('button', { name: 'Отправить заявку', exact: true }).click()
+    await expect(draft.getByLabel(/Контактное лицо/)).toHaveAttribute('aria-invalid', 'true')
+    await expect(draft.getByLabel(/Название учреждения/)).toBeFocused()
+    await fillCommercial(page, {
+      name: 'Synthetic visual buyer',
+      email: 'visual-buyer@example.invalid',
+      comment: 'Synthetic visual review',
+    })
+    await reviewCommercial(page)
+    await expect(page.getByRole('checkbox', { name: /явно принимаю согласие/ })).toBeEnabled({ timeout: 15000 })
     await page.getByRole('button', { name: 'Подтвердить и отправить заявку' }).click()
-    await expect(page.getByText('Укажите имя: от 1 до 200 символов.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Необходимо явно принять действующее согласие.', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Проверка заявки перед отправкой' })).toHaveCount(0)
     assert.deepEqual(orderPosts, [])
     await layout(page); await shot(page, `${size}-request-dark`)
     await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click()
@@ -96,36 +127,117 @@ try {
     stage = size + '.chat'
     await navigate(page, 'Помощник')
     await expect(page.getByRole('article', { name: 'Актуальный ответ', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Подбор по шагам', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Подбор по шагам', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    const wizard = page.getByRole('tab', { name: 'Подбор по шагам', exact: true })
+    await wizard.click()
+    await expect(wizard).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('#p-chat, #msgs, #chatform, [role=log], .chat-reply, .chat-controls')).toHaveCount(0)
     await layout(page); await shot(page, `${size}-chat-light`)
     stage = size + '.trainer'
     await navigate(page, 'Техинформация')
-    for (const model of ['МТД-КА-01', 'МТД-КА-18']) {
-      await page.getByRole('radio', { name: model, exact: true }).locator('..').click()
-      await page.getByRole('button', { name: 'Включить макет' }).click()
-      await page.getByRole('button', { name: 'Пройти с предметом' }).click()
-      await expect(page.getByText('Проходы: 1 · Тревоги: 1', { exact: true })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Пройти без предмета' })).toBeEnabled()
-      await page.getByRole('button', { name: 'Сбросить тренажёр' }).click()
+    const trainer = page.getByRole('region', { name: /Тренажёр панели/ })
+    const power = trainer.getByRole('button', { name: 'Включить', exact: true })
+    const withoutMetal = trainer.getByRole('button', { name: 'Пройти без металла', exact: true })
+    const withMetal = trainer.getByRole('button', { name: 'Пройти с предметом', exact: true })
+    const resetTrainer = trainer.getByRole('button', { name: 'Сбросить тренажёр', exact: true })
+    const selectModel = model => trainer.getByRole('radio', { name: model, exact: true }).locator('..').click()
+    const holdPower = async () => {
+      await power.focus()
+      await page.keyboard.down('Space')
+      const powerControl = trainer.locator('.tr-power')
+      await expect(powerControl).toHaveClass(/holding/)
+      await expect(powerControl).not.toHaveClass(/holding/)
+      await page.keyboard.up('Space')
     }
+    await expect(trainer.getByRole('heading', { name: 'Тренажёр панели МТД-КА-01', exact: true })).toBeVisible()
+    await power.press('Space')
+    await expect(trainer.getByText('Удерживайте кнопку одну секунду.', { exact: true })).toBeVisible()
+    await expect(withMetal).toBeDisabled()
+    await holdPower()
+    await expect(withoutMetal).toBeEnabled()
+    await trainer.getByRole('button', { name: '15 см от пола', exact: true }).click()
+    await expect(trainer.locator('output')).toHaveText('0,15 м')
+    await withMetal.click()
+    await expect(trainer.getByText(/Учебная тревога: зона 1/)).toBeVisible()
+    await expect(trainer.getByText('Проходы: 1 · Тревоги: 1', { exact: true })).toBeVisible()
+    await expect(trainer.locator('.tr-panel .zone.on')).toHaveCount(2)
+    await withoutMetal.click()
+    await expect(trainer.getByText('Проходы: 2 · Тревоги: 1', { exact: true })).toBeVisible()
+    await resetTrainer.click()
+    const fault = trainer.getByRole('switch', { name: 'Неисправная катушка', exact: true })
+    await fault.click()
+    await holdPower()
+    await expect(trainer.getByText(/Имитация неисправности: катушка L1/)).toBeVisible()
+    await expect(withMetal).toBeDisabled()
+    await selectModel('МТД-КА-18')
+    await expect(trainer.getByRole('heading', { name: 'Тренажёр панели МТД-КА-18', exact: true })).toBeVisible()
+    await expect(fault).toHaveCount(0)
+    await trainer.getByRole('button', { name: 'Подключить к сети', exact: true }).click()
+    await expect(trainer.getByText(/Режим OFF/)).toBeVisible()
+    await trainer.getByRole('button', { name: 'Нажать «вкл»', exact: true }).click()
+    await expect(withMetal).toBeEnabled()
+    await withMetal.click()
+    await expect(trainer.getByText(/центральная зона/)).toBeVisible()
+    await expect(trainer.locator('.tr-panel .zone.on')).toHaveCount(1)
+    await trainer.getByRole('button', { name: 'Нажать «вкл» (в режим OFF)', exact: true }).click()
+    await expect(withMetal).toBeDisabled()
+    await trainer.getByRole('button', { name: 'Нажать «вкл»', exact: true }).click()
+    await trainer.getByRole('button', { name: '15 см ниже перекладины', exact: true }).click()
+    await selectModel('МТД-КА-01')
+    await expect(trainer.getByText('Учебный макет выключен.', { exact: true })).toBeVisible()
+    await expect(trainer.locator('output')).toHaveText('1,78 м')
+    await resetTrainer.click()
+    await expect(withMetal).toBeDisabled()
     await layout(page); await shot(page, `${size}-trainer-light`)
     await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click()
     await shot(page, `${size}-trainer-dark`)
-    await navigate(page, 'Главная')
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await page.getByRole('link', { name: 'АК Бриз — на главную', exact: true }).click()
+    await page.locator('.stage').scrollIntoViewIfNeeded()
     await expect(page.locator('mtdka-viewer')).toHaveClass(/ready/)
     const stored = await page.evaluate(() => Object.keys(localStorage))
-    assert.deepEqual(stored, ['mtdka-theme'])
+    assert.deepEqual(stored, ['theme'])
     assert.deepEqual(errors, []); assert.deepEqual(external, [])
     await context.close()
     console.log('PASS visual ' + size + ' both themes, WebGL lifecycle, cart, form, documents, chat, trainer')
   }
+  stage = 'breakpoints'
+  const responsive = await browser.newContext({ reducedMotion: 'reduce' })
+  const responsivePage = await responsive.newPage()
+  await responsivePage.goto(origin + '/zayavka.html')
+  for (const width of [320, 768, 980, 981, 1099, 1100, 1180, 1181, 1359, 1360]) {
+    await responsivePage.setViewportSize({ width, height: 900 })
+    await layout(responsivePage)
+    const result = await responsivePage.locator('.hdr').evaluate(header => {
+      const visible = [...header.querySelectorAll('a, button')].filter(control => control.getClientRects().length && getComputedStyle(control).visibility === 'visible')
+      return visible.every(control => {
+        const rect = control.getBoundingClientRect()
+        return rect.left >= 0 && rect.right <= innerWidth
+      })
+    })
+    assert.equal(result, true, `Header controls at ${width}px`)
+  }
+  await responsivePage.setViewportSize({ width: 320, height: 800 })
+  const menu = responsivePage.getByRole('button', { name: 'Меню', exact: true })
+  await expect(responsivePage.getByRole('navigation', { name: 'Основное' })).toHaveCount(0)
+  await menu.press('Enter')
+  const nav = responsivePage.getByRole('navigation', { name: 'Основное' })
+  await expect(nav).toBeVisible()
+  const firstLink = nav.getByRole('link', { name: 'Помощник', exact: true })
+  await expect(firstLink).toBeFocused()
+  await responsivePage.keyboard.press('Escape')
+  await expect(nav).toHaveCount(0)
+  await expect(menu).toBeFocused()
+  await responsive.close()
+  console.log('PASS responsive header and keyboard menu at breakpoints')
   stage = 'fallback'
   const fallback = await browser.newContext({ viewport: { width: 390, height: 844 } })
   await fallback.addInitScript(() => { HTMLCanvasElement.prototype.getContext = () => null })
   const page = await fallback.newPage(); await page.goto(origin)
-  await expect(page.getByText('3D недоступно. Показано изображение макета.')).toBeVisible()
-  await expect(page.getByRole('img', { name: /визуальный макет/ })).toBeVisible()
+  const poster = page.getByRole('img', { name: 'Арочный металлодетектор МТД-КА', exact: true })
+  await expect(poster).toBeVisible()
+  assert.ok(await poster.evaluate(img => img.decode().then(() => img.naturalWidth > 0)))
+  await expect(page.locator('mtdka-viewer canvas')).toHaveCount(0)
   await shot(page, 'mobile-webgl-fallback')
   await fallback.close()
   console.log('PASS WebGL-unavailable poster fallback')
@@ -133,5 +245,7 @@ try {
   const line = error.stack?.match(/front-integration-visual\.mjs:(\d+)/)?.[1] ?? 'unknown'
   if (screenshots && lastPage && !lastPage.isClosed()) await shot(lastPage, 'failure')
   console.error('FRONT_VISUAL_FAILED stage=' + stage + ' line=' + line)
+  console.error(error.message.split('\n')[0])
+  if (lastErrors.length) console.error('Browser errors:', lastErrors.join(', '))
   process.exitCode = 1
 } finally { await browser.close() }

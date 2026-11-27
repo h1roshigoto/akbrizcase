@@ -59,3 +59,23 @@ export async function refreshSession(page) {
   await page.reload()
   await page.getByRole('article', {name:'Актуальный ответ',exact:true}).waitFor()
 }
+
+export const commercialDraft = page => page.locator('#reqform')
+export async function fillCommercial(page, { name, email, comment }) {
+  const form = commercialDraft(page)
+  await form.getByLabel(/Название учреждения/).fill('Synthetic Institution')
+  await form.getByLabel(/Контактное лицо/).fill(name)
+  await form.getByLabel(/^Телефон/).fill('89000000001')
+  await form.getByLabel(/^E-mail/).fill(email)
+  await form.getByLabel(/Адрес доставки/).fill('Synthetic Institution Address')
+  await form.getByLabel('Комментарий', { exact: true }).fill(comment)
+}
+export async function reviewCommercial(page) {
+  const dialog = page.getByRole('dialog', { name: 'Проверка заявки перед отправкой' })
+  if (await dialog.isVisible()) return dialog
+  const form = commercialDraft(page)
+  await form.getByRole('checkbox').check()
+  await form.getByRole('button', { name: 'Отправить заявку', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  return dialog
+}

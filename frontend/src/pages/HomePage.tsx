@@ -1,6 +1,10 @@
 import { ModelViewer } from '../design/ModelViewer'
+import { HomeContacts, type QuickSupportDraft } from '../components/HomeContacts'
 
-export function HomePage({ onSupport }: { onSupport?: () => void }) {
+export function HomePage({ onSupport, onAssistant }: {
+  onSupport: (draft: QuickSupportDraft) => void
+  onAssistant: () => void
+}) {
   return <main id="home">
     <section className="hero"><div className="wrap">
       <div><h1>Стационарный арочный металлодетектор «МТД-КА»</h1>
@@ -16,10 +20,6 @@ export function HomePage({ onSupport }: { onSupport?: () => void }) {
         <a className="card" href="#docs"><h3>Нормативные документы</h3><p>Нормативные акты, регламенты обслуживания и инструкции. Помощник отвечает только со ссылкой на опубликованный документ.</p><span className="more">Открыть документы</span></a>
       </div><div className="principles"><p>Отвечает только по опубликованным документам</p><p>Каждый ответ со ссылкой на документ и раздел</p><p>Если ответа нет, передаёт вопрос специалисту</p></div>
     </div></section>
-    <section className="sec contacts" id="contacts"><div className="wrap"><h2>Наши контакты</h2><p className="lead">Готовы оказать поддержку и ответить на любые вопросы заказчика.</p>
-      <div className="cgrid"><div className="cinfo"><div className="person"><p>Техническая поддержка</p><small>Обращение по эксплуатации оборудования</small></div><div className="person"><p>Запасные части</p><small>Оформление и отгрузка</small></div></div>
-      <div className="form"><p>Опишите задачу в форме обращения.</p><a className="btn wide" href="#support" onClick={e => {if(onSupport){e.preventDefault();onSupport()}}}>Обратиться к специалисту</a></div></div>
-    </div></section>
-    <section className="sec service"><div className="wrap"><h2>Гарантийное и постгарантийное сервисное обслуживание</h2><p className="say">Существует <b>сообщество</b> поддержки всех пользователей в понятном и доступном, максимально удобном для всех сторон, информационном пространстве.</p><div className="row"><div className="big">ООО «АК БРИЗ»</div><p className="desc">Состав работ и условия обслуживания подтверждает специалист.</p></div></div></section>
+    <HomeContacts onSupport={onSupport} onAssistant={onAssistant} />
   </main>
 }

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -25,6 +26,9 @@ import { PrivacyPolicy } from '../components/PrivacyPolicy'
 import { ItemImage } from '../components/ItemImage'
 import { ServicePrices } from '../components/ServicePrices'
 import { DeliveryEstimate } from '../components/DeliveryEstimate'
+import { ReferenceRequestForm, type Institution } from '../components/ReferenceRequestForm'
+import { followPortalLink } from '../components/ReferenceFooter'
+import type { QuickSupportDraft } from '../components/HomeContacts'
 
 function CatalogChanges({
   previous,
@@ -112,6 +116,7 @@ const messages = {
 
 export type SupportContext = {
   draft: string | null
+  contactDraft?: Omit<QuickSupportDraft, 'comment'>
   owner: { session_id: UUID; session_token: string } | null
 }
 
@@ -125,6 +130,7 @@ export function RequestPage({
   support,
   onChat,
   onNew,
+  onEmptyRequest,
   independentRequested = false,
   onIndependent,
   onKeepChat,
@@ -138,6 +144,7 @@ export function RequestPage({
   support?: SupportContext
   onChat?: () => void
   onNew?: () => void
+  onEmptyRequest?: (draft: QuickSupportDraft) => void
   independentRequested?: boolean
   onIndependent?: () => void
   onKeepChat?: () => void
@@ -153,12 +160,13 @@ export function RequestPage({
   const anchor = useRef<HTMLElement>(null)
   const [values, setValues] = useState<FormValues>(() => ({
     ...emptyForm,
+    ...support?.contactDraft,
     comment: support?.draft ?? '',
   }))
   const [siteFallback, setSiteFallback] = useState(false)
   const owner = siteFallback ? null : support?.owner
   const isSupport = support !== undefined
-  useEffect(() => {
+  useLayoutEffect(() => {
     setSiteFallback(false)
     setAccepted(false)
     setConfirmed(false)
@@ -167,8 +175,31 @@ export function RequestPage({
   const [confirmed, setConfirmed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [touched, setTouched] = useState(false)
+  const [formChecked, setFormChecked] = useState(false)
+  const [institution, setInstitution] = useState<Institution | null>(null)
+  const [showReview, setShowReview] = useState(false)
+  const review = useRef<HTMLDialogElement>(null)
+  const reviewVisible = showReview && active && state.kind !== 'success'
   useEffect(() => {
-    if (active) anchor.current?.focus()
+    const dialog = review.current
+    if (!dialog || !reviewVisible) return
+    dialog.showModal()
+    return () => dialog.close()
+  }, [reviewVisible])
+  const closeReview = () => {
+    setShowReview(false)
+    setConfirmed(false)
+    setAccepted(false)
+    setTouched(false)
+  }
+  const setField = <K extends keyof FormValues,>(field: K, value: FormValues[K]) => {
+    setValues((current) => ({ ...current, [field]: value }))
+    setConfirmed(false)
+  }
+  useEffect(() => {
+    if (!active) return
+    anchor.current?.focus({ preventScroll: true })
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'instant' })
   }, [active, state.kind === 'success'])
   const idsKey = selection.items.map((row) => row.item_id).join(',')
   const load = useCallback(
@@ -210,7 +241,7 @@ export function RequestPage({
     policy.status === 'success' &&
     policy.data.collection_enabled &&
     policy.data.consent_version === consent.data.version
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAccepted(false)
     setConfirmed(false)
   }, [
@@ -255,8 +286,15 @@ export function RequestPage({
     else unknown++
     shipping ||= item?.requires_shipping ?? false
   }
+  const comment = institution && !isSupport
+    ? [
+        values.comment,
+        institution.type && `Тип учреждения: ${institution.type}`,
+        shipping && `Адрес доставки учреждения: ${institution.address}`,
+      ].filter(Boolean).join('\n')
+    : values.comment
   const errors = validateForm(
-    { ...values, city: shipping ? values.city : '' },
+    { ...values, comment, city: shipping ? values.city : '' },
     isSupport,
   )
   const validSelection =
@@ -306,7 +344,7 @@ export function RequestPage({
         ? { organization_name: values.organization_name }
         : {}),
       ...(shipping && values.city !== '' ? { city: values.city } : {}),
-      ...(values.comment !== '' ? { comment: values.comment } : {}),
+      ...(comment !== '' ? { comment } : {}),
       consent: { version: consent.data.version, accepted: true },
       confirmed: true,
     }
@@ -348,11 +386,7 @@ export function RequestPage({
         </button>
       </main>
     )
-  return (
-    <main className="wrap request-shell" ref={anchor} tabIndex={-1}>
-      <div className="wrap pg"><h1 id={isSupport ? 'support-title' : 'request-title'}>{isSupport ? 'Обращение к специалисту' : 'Заявка'}</h1><p className="lead">Заполните данные учреждения. После отправки мы пришлём счёт или коммерческое предложение.</p></div>
-      <section className="reqgrid" aria-labelledby={isSupport ? 'support-title' : 'request-title'}>
-        <div className="panel form r">
+  const notices = <>
         {isSupport && (
           <>
             <p>
@@ -468,8 +502,10 @@ export function RequestPage({
             удалены автоматически.
           </p>
         )}
-        <form id="reqform" noValidate onSubmit={submit}>
-          <fieldset disabled={!editing} className="request-fields f2">
+  </>
+  const reviewForm = (
+        <form id={isSupport ? "support-form" : "request-confirmation"} noValidate onSubmit={submit}>
+          {isSupport && <fieldset disabled={!editing} className="request-fields f2">
             <legend>Контактные данные</legend>
             <p>Укажите хотя бы один контакт: email или телефон.</p>
             {(Object.keys(emptyForm) as (keyof FormValues)[])
@@ -555,7 +591,26 @@ export function RequestPage({
                 {errors.channel}
               </p>
             )}
-          </fieldset>
+          </fieldset>}
+          {!isSupport && <section aria-label="Данные для отправки">
+            <h2>Проверьте данные заявки</h2>
+            <p>{values.organization_name} · {values.name}</p>
+            <p>{values.phone} · {values.email}</p>
+            {shipping && values.city && <p>Город доставки: {values.city}</p>}
+            {comment && <p className="consent-text">{comment}</p>}
+            {details.status === 'success' && selection.items.length > 0 && <ul aria-label="Позиции к подтверждению">
+              {selection.items.map((row) => {
+                const item = details.data.find((detail) => detail.id === row.item_id)?.item
+                return <li key={row.item_id}>{item
+                  ? `${item.name} · ${item.sku} · ${row.qty} ${item.unit} · ${item.price === null ? 'Цена по запросу' : formatPrice(item.price) + ' RUB за ' + item.unit}`
+                  : 'Позиция недоступна'}</li>
+              })}
+            </ul>}
+            {selection.items.length > 0 && details.status === 'success' && <p>Известная часть стоимости: {formatKopecks(subtotal)} RUB</p>}
+            {institution && !shipping && <p>Адрес доставки понадобится только для позиций с доставкой.</p>}
+            {!selection.items.length && <p role="alert">Добавьте позиции из каталога, чтобы оформить коммерческую заявку.</p>}
+            {touched && Object.values(errors).map((error) => <p key={error} role="alert">{error}</p>)}
+          </section>}
           <section aria-label="Политика до отправки">
             <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">
               Открыть политику обработки персональных данных
@@ -669,13 +724,47 @@ export function RequestPage({
           <button className="btn" disabled={!ready} type="submit">
             Подтвердить и отправить заявку
           </button>
-        </form></div>
-        {!isSupport && <aside className="side"><section className="panel">        {!isSupport && (
-          <section
-            aria-label="Обзор позиций"
-            aria-busy={details.status === 'loading'}
-          >
-            <h3>Состав заявки</h3>
+        </form>
+  )
+  if (isSupport) return (
+    <main className="wrap request-shell" ref={anchor} tabIndex={-1}>
+      <div className="wrap pg">
+        <h1 id="support-title">Обращение к специалисту</h1>
+        <p className="lead">Заполните данные учреждения. После отправки мы пришлём счёт или коммерческое предложение.</p>
+      </div>
+      <section className="reqgrid" aria-labelledby="support-title">
+        <div className="panel form r">{notices}{reviewForm}</div>
+      </section>
+    </main>
+  )
+
+  const requestUnavailable = !editing || !documentsReady
+  const reviewBlocked = details.status !== 'success' || unavailable || needsReview
+  return (
+    <main ref={anchor} tabIndex={-1}>
+      <div className="wrap">
+        <div className="wrap pg">
+          <h1>Заявка</h1>
+          <p className="lead">Заполните данные учреждения. После отправки мы пришлём счёт или коммерческое предложение.</p>
+        </div>
+        <div className="reqgrid">
+          <ReferenceRequestForm values={values} onField={setField} disabled={!editing}
+            checked={formChecked} onCheck={setFormChecked} onReview={(fields) => {
+              if (!selection.items.length && values.comment.trim() && onEmptyRequest) {
+                const { city: _city, ...draft } = values
+                onEmptyRequest(draft)
+                return
+              }
+              setInstitution(fields)
+              setShowReview(true)
+            }} />
+          <aside className="side">
+            <section className="panel" aria-label="Обзор позиций" aria-busy={details.status === 'loading' && selection.items.length > 0}>
+              <h3>Состав заявки</h3>
+              <div id="items">
+              {selection.items.length === 0 ? (
+                <p className="empty">Заявка пуста. <a href="zapchasti.html" className="link" onClick={(event) => followPortalLink(event, onBack)}>Добавьте детали из каталога</a> или опишите задачу в комментарии.</p>
+              ) : <>
             {details.status === 'loading' && (
               <p role="status">Загружаем актуальные позиции…</p>
             )}
@@ -692,32 +781,28 @@ export function RequestPage({
               </p>
             )}
             {details.status === 'success' && (
-              <ul className="request-items">
+              <>
                 {selection.items.map((row) => {
                   const item = details.data.find(
                     (v) => v.id === row.item_id,
                   )?.item
                   return (
-                    <li key={row.item_id}>
+                    <div className="item" key={row.item_id}>
                       {item ? (
                         <>
-                          <ItemImage item={item} /><h4>{item.name}</h4>
-                          <p>
-                            {item.sku} ·{' '}
-                            {item.kind === 'product' ? 'Товар' : 'Услуга'} ·{' '}
-                            {row.qty} {item.unit}
-                          </p>
-                          <p>
-                            {item.price === null
+                          <div className="ph request-item-photo"><ItemImage item={item} /></div>
+                          <div>
+                            <b>{item.name}</b><small>{item.sku}</small>
+                            <small>{item.price === null
                               ? 'Цена по запросу'
-                              : `${formatPrice(item.price)} RUB / ${item.unit}`}
-                          </p>
-                          <p>
-                            {item.requires_shipping
-                              ? 'Требуется доставка, стоимость уточняется'
-                              : 'Доставка не требуется'}
-                          </p>
-                          <div className="qty"><button type="button" disabled={!editing || row.qty <= 1} aria-label={`Меньше ${item.sku}`} onClick={() => {selection.setQty(row.item_id, row.qty-1);setConfirmed(false)}}>−</button><span>{row.qty} ед.</span><button type="button" disabled={!editing || row.qty >= 999} aria-label={`Больше ${item.sku}`} onClick={() => {selection.setQty(row.item_id, row.qty+1);setConfirmed(false)}}>+</button><button type="button" disabled={!editing} aria-label={`Удалить ${item.sku}`} onClick={() => {selection.remove(row.item_id);setConfirmed(false)}}>×</button></div>
+                              : `${formatPrice(item.price)} RUB за ${item.unit}`}</small>
+                          </div>
+                          <span className="qty">
+                            <button type="button" disabled={!editing || row.qty <= 1} data-d={row.item_id} aria-label={`Меньше ${item.sku}`} onClick={() => { selection.setQty(row.item_id, row.qty - 1); setConfirmed(false) }}>−</button>
+                            <span>{row.qty} ед.</span>
+                            <button type="button" disabled={!editing || row.qty >= 999} data-u={row.item_id} aria-label={`Больше ${item.sku}`} onClick={() => { selection.setQty(row.item_id, row.qty + 1); setConfirmed(false) }}>+</button>
+                          </span>
+                          <button type="button" disabled={!editing} data-x={row.item_id} aria-label={`Удалить ${item.sku}`} onClick={() => { selection.remove(row.item_id); setConfirmed(false) }}>×</button>
                           <CatalogChanges
                             previous={
                               previousReview.current?.find(
@@ -757,35 +842,46 @@ export function RequestPage({
                           удалите её в каталоге.
                         </p>
                       )}
-                    </li>
+                    </div>
                   )
                 })}
-              </ul>
-            )}
-            {details.status === 'success' && (
-              <>
-                <p>
-                  Известная часть стоимости:{' '}
-                  <strong>{formatKopecks(subtotal)} RUB</strong>
-                </p>
-                <p>
-                  Позиций без известной цены: {unknown}.{' '}
-                  {unknown > 0
-                    ? 'Полная стоимость позиций уточняется.'
-                    : 'Все цены позиций известны.'}
-                </p>
-                <p>
-                  {shipping
-                    ? 'Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.'
-                    : 'Доставка не требуется; стоимость доставки 0,00 RUB.'}
-                </p>
               </>
             )}
-          </section>
+            {details.status === 'success' && !unavailable && (
+              <>
+                <p className="total">Итого за детали: <b>{formatKopecks(subtotal)} RUB</b></p>
+                {unknown > 0 && <p className="tip">Позиций без известной цены: {unknown}. Полная стоимость позиций уточняется.</p>}
+                {shipping && <p className="tip">Требуется доставка. Стоимость доставки и общая сумма уточняются менеджером.</p>}
+              </>
+            )}
+              </>}
+              </div>
+            </section>
+            <section className="panel">
+              <h3>Доставка СДЭК</h3>
+              <DeliveryEstimate value={values.city} disabled={!editing} onChange={(city) => setField('city', city)} fieldId="c2" />
+              <p className="tip calc-note">Итоговая цена и условия оплаты согласуются после отправки заявки.</p>
+            </section>
+          </aside>
+        </div>
+        {!reviewVisible && notices}
+        {!reviewVisible && requestUnavailable && (consent.status === 'error' || policy.status === 'error' || (policy.status === 'success' && !documentsReady && consent.status === 'success')) && (
+          <p role="alert">Документы для оформления недоступны. Отправка заблокирована. <button type="button" className="link" onClick={refresh}>Обновить документы</button></p>
         )}
-</section><section className="panel"><h3>Доставка СДЭК</h3><DeliveryEstimate value={values.city} disabled={!editing} onChange={city => {setValues(v=>({...v,city}));setConfirmed(false)}} /><p className="tip calc-note">Итоговая цена и условия оплаты согласуются после отправки заявки.</p></section></aside>}
-      </section>
-      {!isSupport && <ServicePrices source={source} />}
+        <ServicePrices source={source} />
+      </div>
+      {reviewVisible && (
+        <dialog ref={review} className="panel request-review" aria-labelledby="review-heading"
+          onCancel={(event) => { event.preventDefault(); closeReview() }}>
+          <h2 id="review-heading">Проверка заявки перед отправкой</h2>
+          {notices}
+          {reviewBlocked && selection.items.length > 0 && <p role="alert">
+            Проверьте позиции и редакции в составе заявки. Для этого вернитесь к форме.
+          </p>}
+          <button type="button" className="text-button" onClick={closeReview}>Вернуться к форме</button>
+          {reviewForm}
+        </dialog>
+      )}
     </main>
   )
 }

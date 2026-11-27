@@ -12,8 +12,9 @@ export function ServicePrices({source}: {source: CatalogSource}) {
   },[source,attempt])
   const result=useResource(load)
   return <section className="prices" id="prices" aria-labelledby="pr-h"><h2 id="pr-h">Стоимость сервисного обслуживания</h2>
+    <p className="tr-lead">Разовые работы по одному стационарному арочному металлодетектору МТД-КА.</p>
     {result.status==='loading' && <p role="status">Загружаем услуги…</p>}
     {result.status==='error' && <p role="alert">Не удалось загрузить стоимость обслуживания. <button type="button" className="link" onClick={()=>setAttempt(n=>n+1)}>Повторить загрузку услуг</button></p>}
-    {result.status==='success' && (result.data.length ? <table className="spec-t svc-t"><thead><tr><th scope="col">Услуга</th><th scope="col">Что входит</th><th scope="col">Цена</th></tr></thead><tbody>{result.data.map(item=><tr key={item.id}><td>{item.name}</td><td>{item.description || '—'}</td><td>{item.price_mode==='fixed' && item.price!==null ? `${formatPrice(item.price)} ${item.currency}` : 'Цена по запросу'}<small>{item.unit} · {item.tax_note}</small></td></tr>)}</tbody></table> : <p role="status">Услуги пока не опубликованы.</p>)}
+    {result.status==='success' && (result.data.length ? <table className="spec-t svc-t"><thead><tr><th scope="col">Услуга</th><th scope="col">Что входит</th><th scope="col">Цена</th></tr></thead><tbody>{result.data.map(item=><tr key={item.id}><th scope="row">{item.name}</th><td data-m="Что входит">{item.description || '—'}</td><td data-m="Цена" className="pr">{item.price_mode==='fixed' && item.price!==null ? `${formatPrice(item.price)} ${item.currency}` : 'Цена по запросу'}<small>{item.unit} · {item.tax_note}</small></td></tr>)}</tbody></table> : <p role="status">Услуги пока не опубликованы.</p>)}
   </section>
 }

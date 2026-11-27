@@ -1,4 +1,4 @@
-import { navigate, openCart, openRequest, selectDiagnosisModel, selectCatalogModel, knowledgeMode, commerceMode, refreshSession } from './portal-actions.mjs'
+import { commercialDraft, reviewCommercial, navigate, openCart, openRequest, selectDiagnosisModel, selectCatalogModel, knowledgeMode, commerceMode, refreshSession } from './portal-actions.mjs'
 // One real HTTPS system and linked write set. No fabricated successful response.
 import assert from 'node:assert/strict'
 import { createInterface } from 'node:readline'
@@ -70,61 +70,81 @@ async function newContext(viewport = { width: 1280, height: 800 }) {
 }
 async function visible(page) {
   safe(!await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), 'No horizontal overflow')
-  safe(await page.getByRole('main').count() === 1, 'One main region')
-  for (const target of [page.getByRole('main').getByLabel('Контактное имя', { exact: false }), send(page)]) {
+  safe(await page.locator('main:visible').count() === 1, 'One main region')
+  const dialog = page.getByRole('dialog', { name: 'Проверка заявки перед отправкой' })
+  const controls = await dialog.isVisible()
+    ? [send(page)]
+    : [page.locator('main:visible').getByLabel(/Контактное имя|Контактное лицо/), send(page)]
+  for (const target of controls) {
     if (await target.count()) {
       await target.scrollIntoViewIfNeeded()
       await expect(target).toBeInViewport()
     }
   }
 }
+const active = page => page.locator('main:visible')
+const buyerField = page => active(page).getByLabel(/Контактное имя|Контактное лицо/)
+const buyerEmail = page => active(page).getByLabel(/^Email$|^E-mail/)
 async function fields(page, comment) {
-  await page.getByRole('main').getByLabel('Контактное имя', { exact: false }).fill('SYNTHETIC046 Buyer')
-  await page.getByRole('main').getByLabel('Email', { exact: true }).fill('buyer046@example.invalid')
-  await page.getByRole('main').getByLabel(/Комментарий|Описание проблемы/).fill(comment)
-  await page.getByRole('main').getByText(/Версия: SYNTHETIC-/).waitFor()
+  await buyerField(page).fill('SYNTHETIC046 Buyer')
+  await buyerEmail(page).fill('buyer046@example.invalid')
+  await active(page).getByLabel(/Комментарий|Описание проблемы/).fill(comment)
+  await active(page).getByText(/Версия: SYNTHETIC-/).waitFor()
   await visible(page)
 }
 async function retained(page, comment) {
-  await expect(page.getByRole('main').getByLabel('Контактное имя', { exact: false })).toHaveValue('SYNTHETIC046 Buyer')
-  await expect(page.getByRole('main').getByLabel('Email', { exact: true })).toHaveValue('buyer046@example.invalid')
-  await expect(page.getByRole('main').getByLabel(/Комментарий|Описание проблемы/)).toHaveValue(comment)
+  await expect(buyerField(page)).toHaveValue('SYNTHETIC046 Buyer')
+  await expect(buyerEmail(page)).toHaveValue('buyer046@example.invalid')
+  await expect(active(page).getByLabel(/Комментарий|Описание проблемы/)).toHaveValue(comment)
 }
 async function approve(page, support = false) {
+  if (!support) await reviewCommercial(page)
   await page.getByRole('checkbox', { name: /Я прочитал/ }).check()
   await page.getByRole('checkbox', { name: support ? /Подтверждаю окончательное/ : /Подтверждаю показанные/ }).check()
+}
+async function tabTo(page, control, maximum, message) {
+  for (let i = 0; i < maximum && !await control.evaluate(el => el === document.activeElement); i++)
+    await page.keyboard.press('Tab')
+  safe(await control.evaluate(el => el === document.activeElement), message)
 }
 async function keyboard(page, support, before, comment = null) {
   const consent = page.getByRole('checkbox', { name: /Я прочитал/ })
   const confirmation = page.getByRole('checkbox', { name: support ? /Подтверждаю окончательное/ : /Подтверждаю показанные/ })
-  // Consent text alone does not establish current policy/catalog readiness.
-  await expect(consent).toBeEnabled()
-  await expect(confirmation).toBeEnabled()
-  const name = page.getByRole('main').getByLabel('Контактное имя', { exact: false })
-  await name.focus()
+  if (!support) {
+    if (await page.getByRole('dialog', { name: 'Проверка заявки перед отправкой' }).isVisible())
+      await page.keyboard.press('Escape')
+    const form = commercialDraft(page)
+    await form.getByLabel(/Название учреждения/).fill('Synthetic Institution')
+    await form.getByLabel(/^Телефон/).fill('89000000001')
+    await form.getByLabel(/Адрес доставки/).fill('Synthetic Institution Address')
+  }
+  await buyerField(page).focus()
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type('SYNTHETIC046 Buyer')
-  await page.keyboard.press('Enter')
-  safe(before() === 0, 'Enter while unconfirmed cannot submit')
-  await expect(page.getByRole('alert').first()).toBeVisible()
-  const email = page.getByRole('main').getByLabel('Email', { exact: true })
-  // Reach email using actual Tab traversal, allowing the optional phone field.
-  for (let i = 0; i < 5 && !await email.evaluate(el => el === document.activeElement); i++)
-    await page.keyboard.press('Tab')
-  safe(await email.evaluate(el => el === document.activeElement), 'Email reachable by Tab')
+  await tabTo(page, buyerEmail(page), 5, 'Email reachable by Tab')
   await page.keyboard.press('ControlOrMeta+A')
   await page.keyboard.type('buyer046@example.invalid')
   if (support) {
-    const description = page.getByRole('main').getByLabel(/Описание проблемы/)
-    for (let i = 0; i < 8 && !await description.evaluate(el => el === document.activeElement); i++)
-      await page.keyboard.press('Tab')
-    safe(await description.evaluate(el => el === document.activeElement), 'Support description reachable by Tab')
+    const description = active(page).getByLabel(/Описание проблемы/)
+    await tabTo(page, description, 8, 'Support description reachable by Tab')
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.type(comment)
+  } else {
+    const form = commercialDraft(page)
+    const optIn = form.getByRole('checkbox')
+    await tabTo(page, optIn, 8, 'Review acceptance reachable by Tab')
+    if (!await optIn.isChecked()) await page.keyboard.press('Space')
+    await tabTo(page, form.getByRole('button', { name: 'Отправить заявку', exact: true }), 4, 'Open review reachable by Tab')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('dialog', { name: 'Проверка заявки перед отправкой' })).toBeVisible()
   }
-  for (let i = 0; i < 20 && !await consent.evaluate(el => el === document.activeElement); i++)
-    await page.keyboard.press('Tab')
-  safe(await consent.evaluate(el => el === document.activeElement), 'Consent reachable by Tab')
+  await expect(consent).toBeEnabled()
+  await expect(confirmation).toBeEnabled()
+  await send(page).focus()
+  await page.keyboard.press('Enter')
+  safe(before() === 0, 'Enter while unconfirmed cannot submit')
+  await expect(page.getByRole('alert').first()).toBeVisible()
+  await tabTo(page, consent, 35, 'Consent reachable by Tab')
   await page.keyboard.press('Space')
   await page.keyboard.press('Tab')
   safe(await confirmation.evaluate(el => el === document.activeElement), 'Confirmation follows consent')
@@ -183,7 +203,8 @@ async function postForm(page, label, expected = 303) {
     page.waitForNavigation({ waitUntil: 'load' }),
     page.getByRole('button', { name: label, exact: true }).click(),
   ])
-  safe(response.status() === expected, 'Actual SQLAdmin mutation status')
+  const actual = response.status()
+  safe(actual === expected, 'Actual SQLAdmin mutation status (HTTP ' + actual + ', expected ' + expected + ')')
 }
 
 try {
@@ -209,7 +230,6 @@ try {
     await selection.getByLabel('Количество DEMO-P-001', { exact: true }).fill('2')
     await selection.getByLabel('Количество DEMO-S-001', { exact: true }).fill('3')
     await openRequest(page)
-    await page.getByText('SYNTHETIC DEMO/TEST CONSENT PLACEHOLDER.', { exact: false }).waitFor()
     await page.getByRole('region', { name: 'Обзор позиций' }).getByText('Цена по запросу', { exact: true }).waitFor()
     safe(!await page.getByRole('region', { name: 'Обзор позиций' }).getByText('0,00 RUB', { exact: true }).count(), 'Unknown price not zero')
     const comment = 'SYNTHETIC046 commercial ' + name
@@ -229,7 +249,8 @@ try {
       await rpc('consent')
       let pending = orderResponse(page)
       await page.keyboard.press('Enter')
-      safe((await pending).status() === 409, 'Real consent conflict')
+      const consentStatus = (await pending).status()
+      safe(consentStatus === 409, 'Real consent conflict (HTTP ' + consentStatus + ')')
       await page.getByRole('button', { name: 'Пересмотреть заявку' }).click()
       await page.getByText('Версия: SYNTHETIC-DEMO-ONLY-MVP046-v2', { exact: true }).waitFor()
       await retained(page, comment)
@@ -238,10 +259,13 @@ try {
       await rpc('price')
       pending = orderResponse(page)
       await send(page).click()
-      safe((await pending).status() === 409, 'Real price conflict')
+      const priceStatus = (await pending).status()
+      safe(priceStatus === 409, 'Real price conflict (HTTP ' + priceStatus + ')')
       await page.getByRole('button', { name: 'Пересмотреть заявку' }).click()
       await retained(page, comment)
+      await page.getByRole('button', { name: 'Вернуться к форме' }).click()
       await page.getByRole('button', { name: 'Принять обновление DEMO-P-001', exact: true }).click()
+      await reviewCommercial(page)
       safe(!await page.getByRole('checkbox', { name: /Подтверждаю показанные/ }).isChecked(), 'Price review requires confirmation')
       safe(requests.length === 2, 'No automatic conflict resend')
       await approve(page)
@@ -296,7 +320,8 @@ try {
       await expect(notice).toContainText('failed')
       const retried = staff.waitForResponse(r => new URL(r.url()).pathname.endsWith('/retry-notification'))
       await staff.getByRole('button', { name: 'Повторить уведомление', exact: true }).click()
-      safe((await retried).status() === 303, 'Protected retry PRG')
+      const retryStatus = (await retried).status()
+      safe(retryStatus === 303, "Protected retry PRG actual HTTP " + retryStatus)
       await expect(notice).toContainText('pending')
       await rpc('retried')
       await rpc('send')

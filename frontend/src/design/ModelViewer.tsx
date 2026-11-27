@@ -32,7 +32,7 @@ export function ModelViewer() {
   const [dims, setDims] = useState(false)
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 600px)').matches)
   const close = (focus = false) => {
-    if (focus && point !== null) document.querySelector<HTMLButtonElement>(`[aria-controls="hs-${points[point]!.id}"]`)?.focus()
+    if (focus) spot.current?.querySelector('button')?.focus({ preventScroll: true })
     setPoint(null)
   }
   useEffect(() => {
@@ -49,7 +49,7 @@ export function ModelViewer() {
     const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) {e.preventDefault(); close(true)} }
     document.addEventListener('click', outside)
     document.addEventListener('keydown', escape)
-    if (mobile) pop.current?.focus()
+    pop.current?.focus({ preventScroll: true })
     const place = () => {
       if (mobile || !pop.current || !spot.current || !stage.current) return
       const S = stage.current.getBoundingClientRect(), a = spot.current.getBoundingClientRect(), p = pop.current
