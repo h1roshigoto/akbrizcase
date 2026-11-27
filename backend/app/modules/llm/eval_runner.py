@@ -158,6 +158,7 @@ class EvalReport(_StrictEvalModel):
     models_compared: int
     accepted_models: list[str]
     overall_accepted: bool
+    pilot_accepted: bool
     overall_rejection_reasons: list[str]
     summaries: list[ModelEvalSummary]
     attempts: list[EvalAttemptResult]
@@ -491,6 +492,29 @@ def evaluate_model(
     return summary, attempts
 
 
+def validate_pilot_inputs(
+    dataset: EvalDataset,
+    models: Sequence[str],
+    critical_repeats: int,
+    *,
+    database_context: bool,
+) -> None:
+    if dataset.synthetic:
+        return
+    if len(dataset.cases) < 120:
+        raise ValueError("PILOT_INSUFFICIENT_CASES")
+    if {case.critical for case in dataset.cases} != {False, True}:
+        raise ValueError("PILOT_INCOMPLETE_CASE_COVERAGE")
+    if critical_repeats < 3:
+        raise ValueError("PILOT_INSUFFICIENT_CRITICAL_REPEATS")
+    if len(set(models)) < 2:
+        raise ValueError("PILOT_INSUFFICIENT_MODELS")
+    if not database_context or any(
+        case.fragments or case.items for case in dataset.cases
+    ):
+        raise ValueError("PILOT_DATABASE_CONTEXT_REQUIRED")
+
+
 def run_evaluation(
     dataset: EvalDataset,
     clients: Sequence[GroundedLLMClient],
@@ -510,6 +534,12 @@ def run_evaluation(
     if not clients:
         raise ValueError("NO_MODELS_PROVIDED")
 
+    validate_pilot_inputs(
+        dataset,
+        [client.settings.model for client in clients],
+        critical_repeats,
+        database_context=context_resolver is not None,
+    )
     resolved_contexts: dict[
         str, tuple[list[GroundedFragment], list[GroundedCatalogItem]]
     ] = {
@@ -521,6 +551,7 @@ def run_evaluation(
     pricing_map = pricing_by_model or {}
     summaries: list[ModelEvalSummary] = []
     all_attempts: list[EvalAttemptResult] = []
+    unexercised_model = False
 
     for client in clients:
         model_name = client.settings.model
@@ -536,6 +567,10 @@ def run_evaluation(
         )
         summaries.append(summary)
         all_attempts.extend(model_attempts)
+        if not any(
+            row.llm_invoked and row.error_code is None for row in model_attempts
+        ):
+            unexercised_model = True
 
     accepted_models = [s.model for s in summaries if s.accepted]
     overall_reasons: list[str] = []
@@ -543,6 +578,8 @@ def run_evaluation(
         overall_reasons.append("INSUFFICIENT_MODELS_COMPARED")
     if not accepted_models:
         overall_reasons.append("NO_MODEL_ACCEPTED")
+    if not dataset.synthetic and unexercised_model:
+        overall_reasons.append("PILOT_MODEL_NOT_EXERCISED")
 
     return EvalReport(
         dataset_version=dataset.version,
@@ -552,6 +589,7 @@ def run_evaluation(
         models_compared=len(summaries),
         accepted_models=accepted_models,
         overall_accepted=not overall_reasons,
+        pilot_accepted=not dataset.synthetic and not overall_reasons,
         overall_rejection_reasons=overall_reasons,
         summaries=summaries,
         attempts=all_attempts,
@@ -561,6 +599,8 @@ def run_evaluation(
 def format_markdown_report(report: EvalReport) -> str:
     """Format a secret-free Markdown comparison table across tested models."""
     overall = "ACCEPTED" if report.overall_accepted else "REJECTED"
+    if report.synthetic:
+        overall = "SYNTHETIC PASS" if report.overall_accepted else "SYNTHETIC FAIL"
     lines = [
         f"# DN-10 GigaChat Evaluation Report ({overall})",
         "",

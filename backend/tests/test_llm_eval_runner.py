@@ -8,11 +8,15 @@ from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 import pytest
+from pytest import CaptureFixture, MonkeyPatch
 
+from app.modules.llm import eval_cli
+from app.modules.llm.budget import BudgetLedger
+from app.modules.llm.config import LLMSettings
 from app.modules.llm.eval_cli import main as eval_cli_main
 from app.modules.llm.eval_runner import (
     AcceptanceThresholds,
@@ -22,6 +26,7 @@ from app.modules.llm.eval_runner import (
     format_markdown_report,
     percentile_ms,
     run_evaluation,
+    validate_pilot_inputs,
 )
 from app.modules.llm.schemas import (
     GroundedAnswer,
@@ -33,6 +38,143 @@ from app.modules.llm.schemas import (
 )
 
 FIXTURE_DATASET = Path(__file__).parent / "fixtures" / "llm_eval_synthetic.json"
+
+
+@pytest.fixture
+def pilot_cases() -> EvalDataset:
+    return EvalDataset(
+        synthetic=False,
+        cases=[
+            EvalCase(
+                case_id=f"fixture-{index}",
+                mode="knowledge",
+                question="Synthetic evaluation input",
+                critical=index == 0,
+                expect_handoff=index > 1,
+            )
+            for index in range(120)
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("count", "repeats", "models", "database_context", "error"),
+    [
+        (2, 3, ["a", "b"], True, "PILOT_INSUFFICIENT_CASES"),
+        (120, 1, ["a", "b"], True, "PILOT_INSUFFICIENT_CRITICAL_REPEATS"),
+        (120, 3, ["a", "a"], True, "PILOT_INSUFFICIENT_MODELS"),
+        (120, 3, ["a", "b"], False, "PILOT_DATABASE_CONTEXT_REQUIRED"),
+    ],
+)
+def test_pilot_input_gates(
+    pilot_cases: EvalDataset,
+    count: int,
+    repeats: int,
+    models: list[str],
+    database_context: bool,
+    error: str,
+) -> None:
+    dataset = pilot_cases.model_copy(update={"cases": pilot_cases.cases[:count]})
+    with pytest.raises(ValueError, match=error):
+        validate_pilot_inputs(
+            dataset, models, repeats, database_context=database_context
+        )
+
+
+def test_pilot_rejects_handoff_only_report(pilot_cases: EvalDataset) -> None:
+    handoff_cases = [
+        case.model_copy(update={"expect_handoff": True}) for case in pilot_cases.cases
+    ]
+    dataset = pilot_cases.model_copy(update={"cases": handoff_cases})
+
+    def unexpected(_request: GroundedRequest) -> NoReturn:
+        pytest.fail("No provider call should be made for a deterministic handoff")
+
+    report = run_evaluation(
+        dataset,
+        [_stub_client("a", unexpected), _stub_client("b", unexpected)],
+        context_resolver=lambda _: ([], []),
+    )
+    assert report.accepted_models == ["a", "b"]
+    assert report.pilot_accepted is False
+    assert report.overall_rejection_reasons == ["PILOT_MODEL_NOT_EXERCISED"]
+
+
+def test_pilot_accepts_exercised_models(pilot_cases: EvalDataset) -> None:
+    fragment = GroundedFragment(section_id=uuid4(), title="Fixture", text="Synthetic")
+    calls: list[GroundedRequest] = []
+
+    def answer(request: GroundedRequest) -> tuple[GroundedAnswer, TokenUsage]:
+        calls.append(request)
+        return (
+            GroundedAnswer(
+                answer="Synthetic answer",
+                cited_section_ids=[fragment.section_id],
+                cited_item_ids=[],
+                needs_handoff=False,
+            ),
+            TokenUsage(),
+        )
+
+    report = run_evaluation(
+        pilot_cases,
+        [_stub_client("a", answer), _stub_client("b", answer)],
+        context_resolver=lambda case: (
+            ([], []) if case.expect_handoff else ([fragment], [])
+        ),
+    )
+    assert report.pilot_accepted is True
+    assert len(calls) == 8
+
+
+def test_synthetic_cli_labels_report_and_shares_budget(
+    tmp_path: Path, monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
+    ledgers: list[BudgetLedger] = []
+
+    def no_call(_request: GroundedRequest) -> NoReturn:
+        pytest.fail("The synthetic handoff must stay local")
+
+    def client(settings: LLMSettings, *, ledger: BudgetLedger) -> Any:
+        ledgers.append(ledger)
+        return _stub_client(settings.model, no_call)
+
+    monkeypatch.setattr(eval_cli, "GigaChatClient", client)
+    monkeypatch.setattr(
+        LLMSettings, "from_environment", lambda: LLMSettings(auth_key="synthetic")
+    )
+    dataset = EvalDataset(
+        cases=[
+            EvalCase(
+                case_id="handoff",
+                mode="knowledge",
+                question="Synthetic",
+                expect_handoff=True,
+            )
+        ]
+    )
+    source = tmp_path / "cases.json"
+    destination = tmp_path / "report.json"
+    source.write_text(dataset.model_dump_json(), encoding="utf-8")
+    assert (
+        eval_cli_main(
+            [
+                "--dataset",
+                str(source),
+                "--models",
+                "a",
+                "b",
+                "--out-json",
+                str(destination),
+            ]
+        )
+        == 0
+    )
+    assert ledgers[0] is ledgers[1]
+    assert "SYNTHETIC PASS" in capsys.readouterr().out
+    assert (
+        json.loads(destination.read_text(encoding="utf-8"))["pilot_accepted"] is False
+    )
 
 
 def _stub_client(

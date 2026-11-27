@@ -3,13 +3,18 @@
 import argparse
 import json
 import sys
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
 
 from app.core.db import Database, DatabaseConfigurationError, DatabaseSettings
-from app.modules.llm.budget import InMemoryBudgetLedger
+from app.modules.llm.budget import (
+    BudgetLedger,
+    InMemoryBudgetLedger,
+    PostgresBudgetLedger,
+)
 from app.modules.llm.config import LLMConfigurationError, LLMSettings
 from app.modules.llm.eval_runner import (
     AcceptanceThresholds,
@@ -20,6 +25,7 @@ from app.modules.llm.eval_runner import (
     format_markdown_report,
     resolve_context_from_db,
     run_evaluation,
+    validate_pilot_inputs,
 )
 from app.modules.llm.gigachat import GigaChatClient
 from app.modules.llm.schemas import (
@@ -86,6 +92,13 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, UnicodeError, ValidationError):
         print("ERROR: invalid or unreadable dataset file", file=sys.stderr)
         return 1
+    try:
+        validate_pilot_inputs(
+            dataset, model_names, args.critical_repeats, database_context=args.use_db
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
     pricing_by_model: dict[str, ModelPricing] = {}
     if args.pricing is not None:
@@ -104,56 +117,57 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: LLM_ENABLED is off", file=sys.stderr)
         return 1
 
-    clients: list[GigaChatClient] = []
-    for model_name in model_names:
+    if not dataset.synthetic and settings.synthetic:
+        print("ERROR: PILOT_SYNTHETIC_PROVIDER", file=sys.stderr)
+        return 1
+
+    with ExitStack() as resources:
+        context_resolver: ContextResolver | None = None
+        ledger: BudgetLedger
+        budget_limits = {
+            "daily_token_budget": settings.daily_token_budget,
+            "max_requests_per_minute": settings.max_requests_per_minute,
+        }
+        if args.use_db:
+            try:
+                db = Database(DatabaseSettings.from_environment())
+            except DatabaseConfigurationError:
+                print("ERROR: invalid database configuration", file=sys.stderr)
+                return 1
+            resources.callback(db.close)
+
+            def _resolve(
+                case: EvalCase,
+            ) -> tuple[list[GroundedFragment], list[GroundedCatalogItem]]:
+                with db.unit_of_work() as session:
+                    return resolve_context_from_db(session, case)
+
+            context_resolver = _resolve
+            ledger = PostgresBudgetLedger(db, **budget_limits)
+        else:
+            ledger = InMemoryBudgetLedger(**budget_limits)
+
         try:
-            model_settings = replace(settings, model=model_name)
+            clients = [
+                GigaChatClient(replace(settings, model=model_name), ledger=ledger)
+                for model_name in model_names
+            ]
         except LLMConfigurationError:
             print("ERROR: invalid model configuration", file=sys.stderr)
             return 1
-        clients.append(
-            GigaChatClient(
-                model_settings,
-                ledger=InMemoryBudgetLedger(
-                    daily_token_budget=model_settings.daily_token_budget,
-                    max_requests_per_minute=model_settings.max_requests_per_minute,
-                ),
-            )
-        )
-
-    if args.verify_models:
-        try:
-            available = set(clients[0].list_models())
-        except LLMError as exc:
-            print(f"ERROR: failed to list models ({exc.code})", file=sys.stderr)
-            return 1
-        missing = [m for m in model_names if m not in available]
-        if missing:
-            print(
-                f"ERROR: requested models unavailable: {', '.join(missing)}",
-                file=sys.stderr,
-            )
-            return 1
-
-    db: Database | None = None
-    context_resolver: ContextResolver | None = None
-    if args.use_db:
-        try:
-            db = Database(DatabaseSettings.from_environment())
-        except DatabaseConfigurationError:
-            print("ERROR: invalid database configuration", file=sys.stderr)
-            return 1
-        active_db = db
-
-        def _resolve(
-            case: EvalCase,
-        ) -> tuple[list[GroundedFragment], list[GroundedCatalogItem]]:
-            with active_db.unit_of_work() as session:
-                return resolve_context_from_db(session, case)
-
-        context_resolver = _resolve
-
-    try:
+        if args.verify_models or not dataset.synthetic:
+            try:
+                available = set(clients[0].list_models())
+            except LLMError as exc:
+                print(f"ERROR: failed to list models ({exc.code})", file=sys.stderr)
+                return 1
+            missing = [m for m in model_names if m not in available]
+            if missing:
+                print(
+                    f"ERROR: requested models unavailable: {', '.join(missing)}",
+                    file=sys.stderr,
+                )
+                return 1
         thresholds = AcceptanceThresholds(
             min_models_compared=1 if args.allow_single_model else 2
         )
@@ -167,9 +181,6 @@ def main(argv: list[str] | None = None) -> int:
             thresholds=thresholds,
             include_answers=args.include_answers,
         )
-    finally:
-        if db is not None:
-            db.engine.dispose()
 
     markdown = format_markdown_report(report)
     if args.out_json is not None:

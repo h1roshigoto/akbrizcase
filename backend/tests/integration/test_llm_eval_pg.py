@@ -1,5 +1,6 @@
 """DN-10 PostgreSQL 16 integration acceptance for DB context resolver and runner."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -11,6 +12,9 @@ from test_chat_modes import edition
 
 from app.core.db import Database
 from app.modules.catalog.models import CatalogItem
+from app.modules.llm import eval_cli
+from app.modules.llm.budget import BudgetLedger, PostgresBudgetLedger
+from app.modules.llm.config import LLMSettings
 from app.modules.llm.eval_runner import (
     AcceptanceThresholds,
     EvalCase,
@@ -31,6 +35,8 @@ pytestmark = pytest.mark.integration
 
 def test_eval_db_context_enforces_public_acl_and_releases_pool(
     databases: tuple[Database, Database],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = databases[0]
     needle = "syntheticdn10" + uuid4().hex
@@ -171,3 +177,31 @@ def test_eval_db_context_enforces_public_acl_and_releases_pool(
     assert report.accepted_models == ["GigaChat-2", "GigaChat-2-Pro"]
     # 2 models * (3 repeats on pg-kb-crit + 1 run on pg-comm-reg); pg-oob skips LLM
     assert checked_out == [0] * 8
+
+    ledgers: list[BudgetLedger] = []
+
+    def cli_client(settings: LLMSettings, *, ledger: BudgetLedger) -> Any:
+        ledgers.append(ledger)
+        return make_client(settings.model)
+
+    source = tmp_path / "synthetic-cases.json"
+    source.write_text(dataset.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(eval_cli, "GigaChatClient", cli_client)
+    monkeypatch.setattr(
+        LLMSettings, "from_environment", lambda: LLMSettings(auth_key="synthetic")
+    )
+    assert (
+        eval_cli.main(
+            [
+                "--dataset",
+                str(source),
+                "--models",
+                "GigaChat-2",
+                "GigaChat-2-Pro",
+                "--use-db",
+            ]
+        )
+        == 0
+    )
+    assert isinstance(ledgers[0], PostgresBudgetLedger)
+    assert ledgers[0] is ledgers[1]
