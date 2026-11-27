@@ -505,7 +505,8 @@ def test_catalog_image_emits_safe_file_error_reason(
         caplog.at_level(logging.INFO, logger="akbrizcase.runtime"),
     ):
         resp = client.get(f"/api/v1/catalog/items/{item_id}/image/{valid_key}")
-    assert resp.status_code == 404
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "5"
     file_events = [
         checked_event(json.loads(r.getMessage()))
         for r in caplog.records
